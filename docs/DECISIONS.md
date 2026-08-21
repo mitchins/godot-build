@@ -67,14 +67,20 @@ Consequences: core headers are C++20-only.
 
 ### D0006 — Content-safety checks independent of NDEBUG (`FB_CHECK`)
 
-Status: proposed (implemented, pending review)
-Date: 2026-08-21
-Context: plan §3.3 requires release builds to retain "assertions that protect content safety",
-while conventional `NDEBUG` disables `assert()`. Parser/validator code arrives at M2/M3 and
-would otherwise default to `assert()`.
+Status: accepted
+Date: 2026-08-21 (accepted by human review 2026-08-21)
+Context: plan §3.3 requires release builds to retain "assertions that protect content
+safety", while conventional `NDEBUG` disables `assert()`. Parser/validator code arrives at
+M2/M3 and would otherwise default to `assert()`.
 Decision: `core/include/fauxbuild/check.hpp` provides `FB_CHECK(cond)`, which reports
 expression/file/line and aborts, enabled in every configuration regardless of NDEBUG. The
-`release` configuration no longer defines `NDEBUG` (so `assert()` also stays live as a
-secondary net). Content-safety invariants in core must use `FB_CHECK`, never bare `assert()`.
-Consequences: behavior contracts that rely on `FB_CHECK` need tests; this decision is
-referenced by `docs/NUMERICS.md`-level parser work from M2 onward.
+`release` configuration defines `NDEBUG`, so plain `assert()` remains development-only:
+"deliberate content-safety invariant" (`FB_CHECK`) stays distinct from "debug aid"
+(`assert()`) in shipping builds.
+Boundary with structured errors (see `NUMERICS.md`): `FB_CHECK` is for internal invariant
+violations — bugs in our own code. Untrusted or external input is **never** validated with
+`FB_CHECK`; malformed content must return structured errors (source name, byte offset,
+record kind, error code) and fail atomically.
+Consequences: content-safety invariants in core use `FB_CHECK`, never bare `assert()`;
+parsers return structured errors for all bad input; behavior relying on `FB_CHECK` needs
+tests (the fork/SIGABRT death test in `tests/unit/check.test.cpp` is the reference).

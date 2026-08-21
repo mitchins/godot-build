@@ -24,10 +24,11 @@ cfg = env['config']
 if cfg == 'dev':
     env.Append(CXXFLAGS=['-O0', '-g3'], CPPDEFINES=['FAUXBUILD_CONFIG_DEV'])
 elif cfg == 'release':
-    # No NDEBUG: plan §3.3 requires release to retain content-safety assertions.
-    # Content-safety invariants use FB_CHECK (core/include/fauxbuild/check.hpp),
-    # which is independent of NDEBUG in every configuration (D0006).
-    env.Append(CXXFLAGS=['-O2'], CPPDEFINES=['FAUXBUILD_CONFIG_RELEASE'])
+    # NDEBUG makes plain assert() development-only. Plan §3.3 content-safety
+    # assertions are delivered by FB_CHECK, which is always live independent of
+    # NDEBUG (D0006). That keeps "deliberate content-safety invariant" distinct
+    # from "debug aid" in shipping builds.
+    env.Append(CXXFLAGS=['-O2'], CPPDEFINES=['FAUXBUILD_CONFIG_RELEASE', 'NDEBUG'])
 elif cfg == 'asan':
     env.Append(
         CXXFLAGS=['-O1', '-g3', '-fsanitize=address,undefined', '-fno-omit-frame-pointer'],

@@ -39,8 +39,13 @@ plus the mandatory line: `Next milestone work was not started.`
 
 ## M0 — Contract and repository
 
-Status: **IN_PROGRESS**
+Status: **ACCEPTED**
 Started: 2026-08-21
+Gate accepted: 2026-08-21 (human review, three rounds; rulings applied in full)
+Notes: human review rounds completed 2026-08-21. Rulings applied: D0006 accepted and
+reworded (FB_CHECK = internal invariants only; untrusted input gets structured errors);
+release defines NDEBUG (assert() development-only, FB_CHECK always live); CI stands up at
+M1; format-check stays separate from check, strict mode via FAUXBUILD_STRICT_TOOLS=1.
 
 ### Scope
 
@@ -68,6 +73,11 @@ Gate summary: editor loads extension without warnings; desktop sample scene runs
 exported sample runs; iOS device/signed dev build launches blank scene with extension; no
 engine fork required. **Stop condition:** if GDExtension packaging blocks iOS, solve it or
 switch to a statically compiled Godot module before any engine code depends on the boundary.
+
+Added by M0 review ruling (2026-08-21): stand up CI at M1 (Linux x86_64 runner needed for
+M7's cross-platform gate anyway; M1 is when the iOS/GDExtension packaging risk lands). CI
+runs with `FAUXBUILD_STRICT_TOOLS=1` so missing tools (clang-format, etc.) are hard
+failures. `format-check` remains a separate target from `check`.
 
 ## M2 — Safe binary IO, VFS, and GRP — NOT_STARTED
 

@@ -6,8 +6,9 @@ The full implementation contract is `docs/PROJECT_CONTRACT.md` and the source pl
 
 ## Active milestone
 
-**M0 — Contract and repository.** No work on any other milestone is permitted until M0's gate is
-explicitly accepted by a human reviewer and `docs/MILESTONES.md` is updated.
+**M0 — Contract and repository: ACCEPTED 2026-08-21.** Next: **M1 — Godot/GDExtension and
+Apple build smoke** (NOT_STARTED). No implementation work begins until a task names M1 and a
+bounded subtask, per plan §16.
 
 ## Clean-room rules (non-negotiable)
 

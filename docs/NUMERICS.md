@@ -20,6 +20,11 @@ implementation:
   `reinterpret_cast` of file bytes into packed structs. Structured parse errors carry source
   name, byte offset, record kind/index, error code, explanation. Malformed input fails
   atomically.
+- Error-handling boundary (D0006): `FB_CHECK` guards internal invariant violations only —
+  bugs in our own code. Untrusted or external input (files, GRP contents, map data) is never
+  validated with `FB_CHECK`; it must produce the structured errors above and fail atomically.
+  Plain `assert()` is development-only (`NDEBUG` in release) and never a content-safety
+  mechanism.
 
 Deterministic observable behavior is the target — not imitation of old implementation
 techniques.
