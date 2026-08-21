@@ -1,0 +1,21 @@
+# build outputs
+/build/
+*.o
+*.a
+*.dylib
+*.dSYM/
+
+# Godot
+.godot/
+godot/bin/*.dylib
+godot/bin/*.gdextension
+
+# proprietary local stress data (plan §4.4) — never commit
+/local_reference/
+
+# generated fixtures are reproducible outputs of tools, never hand-edited
+/fixtures/generated/*
+!/fixtures/generated/.gitkeep
+
+# OS noise
+.DS_Store
