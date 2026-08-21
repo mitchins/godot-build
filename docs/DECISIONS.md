@@ -64,3 +64,17 @@ Context: plan §2.2.
 Decision: link the pure C++ core directly into the GDExtension and CLI tools. A stable C ABI
 is added only when a second genuine consumer requires it.
 Consequences: core headers are C++20-only.
+
+### D0006 — Content-safety checks independent of NDEBUG (`FB_CHECK`)
+
+Status: proposed (implemented, pending review)
+Date: 2026-08-21
+Context: plan §3.3 requires release builds to retain "assertions that protect content safety",
+while conventional `NDEBUG` disables `assert()`. Parser/validator code arrives at M2/M3 and
+would otherwise default to `assert()`.
+Decision: `core/include/fauxbuild/check.hpp` provides `FB_CHECK(cond)`, which reports
+expression/file/line and aborts, enabled in every configuration regardless of NDEBUG. The
+`release` configuration no longer defines `NDEBUG` (so `assert()` also stays live as a
+secondary net). Content-safety invariants in core must use `FB_CHECK`, never bare `assert()`.
+Consequences: behavior contracts that rely on `FB_CHECK` need tests; this decision is
+referenced by `docs/NUMERICS.md`-level parser work from M2 onward.

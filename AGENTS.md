@@ -43,13 +43,15 @@ explicitly accepted by a human reviewer and `docs/MILESTONES.md` is updated.
 
 ```sh
 scons config=dev          # build libfauxbuild_core, fbtool, fauxbuild_tests
-scons config=dev check    # build + run headless tests
+scons config=dev check    # run headless tests + fbtool smoke + layering guard
 scons config=asan check   # sanitizer build + tests (where supported)
+scons config=dev format-check   # clang-format dry-run (skips with warning if not installed)
 ./build/dev/fbtool --version
 ```
 
 There is no separate lint command yet; `-Wall -Wextra -Werror` is enforced by the build.
-Formatting follows `.clang-format` (run `clang-format -i <file>` before submitting).
+Formatting follows `.clang-format`: run `clang-format -i <file>` before submitting
+(install with `brew install clang-format`), and `scons config=dev format-check` verifies.
 
 ## Task protocol (plan §16)
 

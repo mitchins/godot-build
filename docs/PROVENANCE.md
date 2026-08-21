@@ -46,6 +46,8 @@ compatibility references), reviewer, date.
 |---|---|---|---|---|---|---|---|
 | 1 | doctest v2.4.11 (`third_party/doctest/doctest.h`) | Viktor Kirilov / doctest | MIT | Vendored single-header test framework for `fauxbuild_tests` | yes (verbatim, permitted: permissive license) | mitchellcurrie | 2026-08-21 |
 | 2 | Godot 4.7.2 stable (editor binary, `/Applications/Godot.app`) | Godot Engine project | MIT | Pinned engine binary for M1+ integration; not linked yet | no | mitchellcurrie | 2026-08-21 |
+| 3 | SCons 4.10.1 (system install via Homebrew) | SCons Foundation | MIT | Build system driving all native targets; invoked as a tool, not linked | no | mitchellcurrie | 2026-08-21 |
+| 4 | Apple clang 21.0.0 / LLVM libc++ (Xcode 26.6 toolchain) | Apple / LLVM | Apache-2.0 with LLVM exception | Compiler and C++ standard library for all native targets | no | mitchellcurrie | 2026-08-21 |
 
 Vendor checksums (SHA-256):
 

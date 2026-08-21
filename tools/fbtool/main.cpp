@@ -12,20 +12,19 @@ void print_version() {
 }
 
 void print_usage() {
-    std::printf(
-        "fbtool %s — FauxBuild command-line tool\n"
-        "\n"
-        "usage: fbtool <command> [args]\n"
-        "\n"
-        "commands:\n"
-        "  --version              print version and build configuration\n"
-        "  gen-fixtures [--out DIR]\n"
-        "                         (re)generate the empty fixture set\n"
-        "  help                   show this message\n"
-        "\n"
-        "Additional subcommands (dump-map, validate-map, roundtrip-map, dump-art,\n"
-        "dump-grp, probe, ...) are added by later milestones.\n",
-        fauxbuild::version_string());
+    std::printf("fbtool %s — FauxBuild command-line tool\n"
+                "\n"
+                "usage: fbtool <command> [args]\n"
+                "\n"
+                "commands:\n"
+                "  --version              print version and build configuration\n"
+                "  gen-fixtures [--out DIR]\n"
+                "                         (re)generate the empty fixture set\n"
+                "  help                   show this message\n"
+                "\n"
+                "Additional subcommands (dump-map, validate-map, roundtrip-map, dump-art,\n"
+                "dump-grp, probe, ...) are added by later milestones.\n",
+                fauxbuild::version_string());
 }
 
 int gen_fixtures(int argc, char** argv) {

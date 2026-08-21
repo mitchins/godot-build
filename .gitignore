@@ -4,11 +4,11 @@
 *.a
 *.dylib
 *.dSYM/
+.sconsign.dblite
 
-# Godot
+# Godot (note: godot/bin/*.gdextension is source and gets committed at M1)
 .godot/
 godot/bin/*.dylib
-godot/bin/*.gdextension
 
 # proprietary local stress data (plan §4.4) — never commit
 /local_reference/
