@@ -11,25 +11,32 @@ vars.Add(PathVariable('godot', 'Path to Godot editor binary (used from M1)',
 env = Environment(variables=vars, ENV=os.environ)
 Help(vars.GenerateHelpText(env))
 
-# Plan §3.1 pins clang on POSIX; MSVC on Windows via SCons default detection.
-# An externally supplied CXX always wins.
-if env['PLATFORM'] != 'win32':
+# Plan §3.1 pins clang on POSIX and MSVC on Windows; an externally supplied
+# CXX always wins on POSIX. Warning/standard flags are per-toolchain.
+is_msvc = env['PLATFORM'] == 'win32'
+if is_msvc:
+    env.Append(CXXFLAGS=['/std:c++20', '/permissive-', '/Zc:__cplusplus', '/W4', '/WX'])
+else:
     env['CXX'] = os.environ.get('CXX', 'clang++')
+    env.Append(CXXFLAGS=['-std=c++20', '-Wall', '-Wextra', '-Werror'])
 
-env.Append(
-    CXXFLAGS=['-std=c++20', '-Wall', '-Wextra', '-Werror'],
-    CPPPATH=['#core/include'],
-)
+env.Append(CPPPATH=['#core/include'])
 
 cfg = env['config']
 if cfg == 'dev':
-    env.Append(CXXFLAGS=['-O0', '-g3'], CPPDEFINES=['FAUXBUILD_CONFIG_DEV'])
+    if is_msvc:
+        env.Append(CXXFLAGS=['/Od', '/Zi'], CPPDEFINES=['FAUXBUILD_CONFIG_DEV'])
+    else:
+        env.Append(CXXFLAGS=['-O0', '-g3'], CPPDEFINES=['FAUXBUILD_CONFIG_DEV'])
 elif cfg == 'release':
     # NDEBUG makes plain assert() development-only. Plan §3.3 content-safety
     # assertions are delivered by FB_CHECK, which is always live independent of
     # NDEBUG (D0006). That keeps "deliberate content-safety invariant" distinct
     # from "debug aid" in shipping builds.
-    env.Append(CXXFLAGS=['-O2'], CPPDEFINES=['FAUXBUILD_CONFIG_RELEASE', 'NDEBUG'])
+    if is_msvc:
+        env.Append(CXXFLAGS=['/O2'], CPPDEFINES=['FAUXBUILD_CONFIG_RELEASE', 'NDEBUG'])
+    else:
+        env.Append(CXXFLAGS=['-O2'], CPPDEFINES=['FAUXBUILD_CONFIG_RELEASE', 'NDEBUG'])
 elif cfg == 'asan':
     env.Append(
         CXXFLAGS=['-O1', '-g3', '-fsanitize=address,undefined', '-fno-omit-frame-pointer'],

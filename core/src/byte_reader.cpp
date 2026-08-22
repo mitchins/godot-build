@@ -79,7 +79,7 @@ Result<ByteSpan> ByteReader::read_bytes(std::size_t count) {
                                       "need " + std::to_string(count) + " bytes, " +
                                           std::to_string(size_ - pos_) + " remaining"});
     }
-    const ByteSpan span(data_ + pos_, count);
+    const ByteSpan span{data_ + pos_, count}; // braces: portable aggregate init
     pos_ += wide;
     return Result<ByteSpan>::ok(span);
 }
