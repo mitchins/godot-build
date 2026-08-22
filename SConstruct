@@ -15,7 +15,8 @@ Help(vars.GenerateHelpText(env))
 # CXX always wins on POSIX. Warning/standard flags are per-toolchain.
 is_msvc = env['PLATFORM'] == 'win32'
 if is_msvc:
-    env.Append(CXXFLAGS=['/std:c++20', '/permissive-', '/Zc:__cplusplus', '/W4', '/WX'])
+    env.Append(CXXFLAGS=['/std:c++20', '/permissive-', '/Zc:__cplusplus', '/W4', '/WX',
+                         '/EHsc'])
 else:
     env['CXX'] = os.environ.get('CXX', 'clang++')
     env.Append(CXXFLAGS=['-std=c++20', '-Wall', '-Wextra', '-Werror'])
@@ -120,6 +121,10 @@ if host_build:
 
     tests_env = env.Clone()
     tests_env.Append(CPPPATH=['#third_party'])
+    if is_msvc:
+        # doctest's internal code is not /W4-clean; keep tests strict on POSIX.
+        tests_env['CXXFLAGS'] = [f for f in tests_env['CXXFLAGS'] if f not in ('/W4', '/WX')]
+        tests_env['CXXFLAGS'].append('/W3')
     tests = tests_env.Program(
         f'{bdir}/fauxbuild_tests',
         [
