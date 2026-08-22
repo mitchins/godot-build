@@ -41,11 +41,14 @@ plus the mandatory line: `Next milestone work was not started.`
 
 Status: **ACCEPTED**
 Started: 2026-08-21
-Gate accepted: 2026-08-21 (human review, three rounds; rulings applied in full)
-Notes: human review rounds completed 2026-08-21. Rulings applied: D0006 accepted and
-reworded (FB_CHECK = internal invariants only; untrusted input gets structured errors);
-release defines NDEBUG (assert() development-only, FB_CHECK always live); CI stands up at
-M1; format-check stays separate from check, strict mode via FAUXBUILD_STRICT_TOOLS=1.
+Gate accepted: 2026-08-22 (human review, three rounds on 2026-08-21/22; acceptance
+authorized by the reviewer after round 3 and recorded in commit 02a76b0)
+Notes: rulings applied: D0006 accepted and reworded (FB_CHECK = internal invariants only;
+untrusted input gets structured errors); release defines NDEBUG (assert() development-only,
+FB_CHECK always live); CI stands up at M1; format-check stays separate from check, strict
+mode via FAUXBUILD_STRICT_TOOLS=1. The gate checkboxes and evidence summary below were
+backfilled on 2026-08-22 during M1 review — the original acceptance was recorded in prose
+before the checklist was ticked; this note exists so the record is honest about that.
 
 ### Scope
 
@@ -55,29 +58,71 @@ status format.
 
 ### Gate
 
-- [ ] No Build/source-port code or proprietary data exists in history.
-- [ ] `AGENTS.md` contains the clean-room and no-scope-creep rules.
-- [ ] Native empty library/test/tool build succeeds.
-- [ ] Dependency manifest is complete.
+- [x] No Build/source-port code or proprietary data exists in history.
+      Evidence: history scanned — the prohibition terms appear only in AGENTS.md /
+      PROVENANCE.md policy text; `local_reference/` and `fixtures/generated/` gitignored;
+      no binary or proprietary files tracked.
+- [x] `AGENTS.md` contains the clean-room and no-scope-creep rules.
+      Evidence: AGENTS.md "Clean-room rules" (7 binding rules) and "No scope creep".
+- [x] Native empty library/test/tool build succeeds.
+      Evidence: `scons config=dev check` (tests execute and gate — deliberate-failure
+      probe exits 2), `scons config=asan check`, `scons config=release check`,
+      `fbtool --version`, `fbtool gen-fixtures`.
+- [x] Dependency manifest is complete.
+      Evidence: `docs/DEPENDENCIES.md` (doctest, SCons, Godot, toolchain + pending table)
+      and provenance log rows 1–4 in `docs/PROVENANCE.md`.
 
 ### Evidence
 
-Tree listing, build commands, dependency list, first provenance review — attached at gate
-review.
+Review rounds 1–3 (commits e3e5220, 76a59a7, 02a76b0) contain the executed commands and
+outputs for every gate item.
 
 ---
 
-## M1 — Godot/GDExtension and Apple build smoke — NOT_STARTED
+## M1 — Godot/GDExtension and Apple build smoke
 
-Gate summary: editor loads extension without warnings; desktop sample scene runs; macOS arm64
-exported sample runs; iOS device/signed dev build launches blank scene with extension; no
-engine fork required. **Stop condition:** if GDExtension packaging blocks iOS, solve it or
-switch to a statically compiled Godot module before any engine code depends on the boundary.
+Status: **GATE_REVIEW**
+Started: 2026-08-22
 
-Added by M0 review ruling (2026-08-21): stand up CI at M1 (Linux x86_64 runner needed for
-M7's cross-platform gate anyway; M1 is when the iOS/GDExtension packaging risk lands). CI
-runs with `FAUXBUILD_STRICT_TOOLS=1` so missing tools (clang-format, etc.) are hard
-failures. `format-check` remains a separate target from `check`.
+### Scope
+
+pinned Godot and godot-cpp; empty `FauxBuildRuntime` Node and `FauxBuildView`
+Node3D; extension registration and XML docs; desktop debug builds; macOS arm64
+build; iOS native package/export smoke; CI matrix skeleton.
+
+### Gate
+
+- [x] Godot editor loads the extension without warnings.
+      Evidence: cold-cache non-headless `--editor --quit` — 0 errors, 0 warnings;
+      warm-cache headless `--import` clean. (Headless cold-cache crash is a
+      Godot-internal bug; see docs/IOS.md "Known issues".)
+- [x] Desktop sample scene runs.
+      Evidence: automated as `scons config=dev scene-check` (ci/check_scene.py:
+      import retry for the cold-cache bug, then headless scene run grepping for
+      `FauxBuild core version:` and `M1 sample scene: OK`); wired into the macOS
+      CI job with the official 4.7.2 editor binary.
+- [x] macOS arm64 exported sample runs.
+      Evidence: `--export-release "macOS"` universal zip; exported FauxBuild.app
+      run headless prints the same two lines, exit 0.
+- [x] An iOS device or signed development build launches a blank scene
+      containing the extension.
+      Evidence: self-contained `libfauxbuild.ios.a` (1093 objects); Xcode project
+      export; xcodebuild Debug with automatic development signing; installed and
+      **launched on iPhone 15 Pro Max** via `devicectl` (2026-08-22).
+- [x] No custom Godot engine fork is required.
+      Evidence: stock 4.7.2 stable editor + official export templates only.
+
+### Notes
+
+godot-cpp has no 4.7 tag/branch; pinned master @ `9c8aeff0` with
+`api_version=4.7` (D0007). Export templates 4.7.2 installed from the official
+release. Placeholder app icons are generated (`godot/icons/`). CI at
+`.github/workflows/ci.yml` (Linux x86_64 + macOS arm64 incl. scene gate +
+format; Windows continue-on-error) with `FAUXBUILD_STRICT_TOOLS=1`; remote
+`github.com/mitchins/godot-build` (public — the committed iOS export preset
+keeps the Apple team ID empty; `ci/set_ios_team_id.py` sets it locally).
+M1 review amendments: CI must have one real green run before acceptance is
+granted; the scene check is automated per review round 1.
 
 ## M2 — Safe binary IO, VFS, and GRP — NOT_STARTED
 
