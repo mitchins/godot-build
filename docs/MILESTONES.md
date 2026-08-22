@@ -194,7 +194,12 @@ Apple clang 21 ships no libFuzzer runtime; committed corpus under `tests/fuzz/co
 future crashers go to `tests/fuzz/regression/grp/` and run in `check` via the corpus
 regression test (D0010c). M1-era defect found and fixed during M2: the `host_build` guard —
 Linux CI's `check` had silently degraded to the layering script only (no tests executed);
-now host tools/tests build on every host platform.
+now host tools/tests build on every host platform. Portability fixes driven by real CI
+runs: brace aggregate initialization (P0960 unsupported on runner clangs), direct
+includes, per-toolchain MSVC flags (/FS, /EHsc, _CRT_SECURE_NO_WARNINGS, /W3 for
+doctest TUs). CI fully green on 6cee4a4: Linux x86_64 (dev+asan+fuzz), macOS arm64
+(check+extension+scene gate), Format, Windows MSVC (dev+check; job stays
+continue-on-error until §14.4 makes the Windows matrix mandatory).
 
 ## M3 — MAP v7 parser, validator, and writer — NOT_STARTED
 
