@@ -1,5 +1,7 @@
 #include "fauxbuild/grp_synth.hpp"
 
+#include <cstdio>
+#include <cstring>
 #include <string>
 
 namespace fauxbuild::synth {

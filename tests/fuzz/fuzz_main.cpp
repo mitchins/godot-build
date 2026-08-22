@@ -6,6 +6,7 @@
 // may additionally use libFuzzer against the same target function.
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <random>

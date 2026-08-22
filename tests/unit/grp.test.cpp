@@ -1,3 +1,4 @@
+#include <cstdio>
 #include <cstring>
 #include <doctest/doctest.h>
 
