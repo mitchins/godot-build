@@ -1,3 +1,6 @@
+#include <cctype>
+#include <cerrno>
+#include <climits>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -10,6 +13,39 @@
 #include "fauxbuild/version.hpp"
 
 namespace {
+
+// Synthetic-generator bounds. These cap what the CLI will ask generate_grp to
+// build; they keep a fat-fingered argument from requesting a multi-gigabyte
+// allocation and are well above anything a fixture needs.
+constexpr std::uint32_t kMaxSynthFiles = 65536;
+constexpr std::uint32_t kMaxSynthFileSize = 16u * 1024u * 1024u;
+
+// Strict unsigned option parsing: strtoul accepts an empty string, ignores
+// trailing garbage ("12x"), and its result wraps when narrowed. Every numeric
+// option is validated before it reaches GrpSpec.
+bool parse_u32_option(const std::string& text, std::uint32_t max_value, const char* option,
+                      std::uint32_t& out) {
+    if (text.empty() || !std::isdigit(static_cast<unsigned char>(text[0]))) {
+        std::fprintf(stderr, "fbtool: gen-grp: %s expects a non-negative integer, got '%s'\n",
+                     option, text.c_str());
+        return false;
+    }
+    errno = 0;
+    char* end = nullptr;
+    const unsigned long long raw = std::strtoull(text.c_str(), &end, 10);
+    if (errno == ERANGE || end == nullptr || *end != '\0') {
+        std::fprintf(stderr, "fbtool: gen-grp: %s expects a non-negative integer, got '%s'\n",
+                     option, text.c_str());
+        return false;
+    }
+    if (raw > max_value) {
+        std::fprintf(stderr, "fbtool: gen-grp: %s must be <= %u, got %s\n", option, max_value,
+                     text.c_str());
+        return false;
+    }
+    out = static_cast<std::uint32_t>(raw);
+    return true;
+}
 
 void print_version() {
     std::printf("fbtool %s (config=%s)\n", fauxbuild::version_string(), fauxbuild::build_config());
@@ -55,7 +91,8 @@ int dump_grp(int argc, char** argv) {
     }
     const auto& grp = data.value();
     std::printf("source: %s\n", path.c_str());
-    std::printf("files: %u (declared data length: %u bytes)\n", grp.file_count, grp.data_length);
+    std::printf("files: %u (data starts at offset %llu)\n", grp.file_count,
+                static_cast<unsigned long long>(grp.data_start));
     std::printf("idx  offset      size  name\n");
     for (std::size_t i = 0; i < grp.entries.size(); ++i) {
         const auto& entry = grp.entries[i];
@@ -79,13 +116,17 @@ int gen_grp(int argc, char** argv) {
         if (arg == "--out") {
             out = value();
         } else if (arg == "--seed") {
-            spec.seed = static_cast<std::uint32_t>(std::strtoul(value().c_str(), nullptr, 10));
+            if (!parse_u32_option(value(), UINT32_MAX, "--seed", spec.seed)) {
+                return 2;
+            }
         } else if (arg == "--files") {
-            spec.file_count =
-                static_cast<std::uint32_t>(std::strtoul(value().c_str(), nullptr, 10));
+            if (!parse_u32_option(value(), kMaxSynthFiles, "--files", spec.file_count)) {
+                return 2;
+            }
         } else if (arg == "--max-size") {
-            spec.max_file_size =
-                static_cast<std::uint32_t>(std::strtoul(value().c_str(), nullptr, 10));
+            if (!parse_u32_option(value(), kMaxSynthFileSize, "--max-size", spec.max_file_size)) {
+                return 2;
+            }
         } else {
             std::fprintf(stderr, "fbtool: gen-grp: unknown argument '%s'\n", arg.c_str());
             return 2;

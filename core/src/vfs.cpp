@@ -4,6 +4,7 @@
 #include <filesystem>
 #include <set>
 
+#include "fauxbuild/check.hpp"
 #include "fauxbuild/file_io.hpp"
 
 namespace fauxbuild {
@@ -35,6 +36,10 @@ Result<std::string> normalize_vfs_name(const std::string& query) {
 }
 
 void Vfs::add_mount(std::unique_ptr<Mount> mount) {
+    // A null mount is a first-party caller bug, not malformed content, so this
+    // is FB_CHECK territory rather than a structured error (D0006). Storing it
+    // would crash later in open/contains/keys/diagnostics, far from the cause.
+    FB_CHECK(mount != nullptr);
     mounts_.push_back(std::move(mount));
 }
 
@@ -172,6 +177,14 @@ Result<std::unique_ptr<DirectoryMount>> DirectoryMount::create(const std::string
             continue;
         }
         found.emplace_back(key, filename);
+    }
+    // An enumeration/metadata/increment failure ends the loop above. Reporting
+    // OK here would hand back a partial file table, making real files look
+    // absent with no I/O error anywhere.
+    if (ec) {
+        return Result<std::unique_ptr<DirectoryMount>>::err(
+            {root, 0, "directory_mount", ErrorCode::IoError,
+             "cannot enumerate directory: " + ec.message()});
     }
     return Result<std::unique_ptr<DirectoryMount>>::ok(std::unique_ptr<DirectoryMount>(
         new DirectoryMount(root, resolve_file_table(std::move(found)))));

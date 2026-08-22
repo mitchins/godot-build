@@ -117,3 +117,12 @@ TEST_CASE("huge counts cannot wrap the bounds check") {
     REQUIRE(rest.is_ok());
     CHECK(rest.value().size == 4);
 }
+
+TEST_CASE("empty reader yields a null span without forming a pointer") {
+    fauxbuild::ByteReader reader(nullptr, 0, "empty");
+    auto span = reader.read_bytes(0);
+    REQUIRE(span.is_ok());
+    CHECK(span.value().data == nullptr);
+    CHECK(span.value().size == 0);
+    CHECK(reader.position() == 0);
+}

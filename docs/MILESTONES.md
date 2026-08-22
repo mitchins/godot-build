@@ -188,7 +188,11 @@ generator.
 ### Notes
 
 `ByteReader` is the only decoding path (no `reinterpret_cast` of file bytes); GRP header is
-20 bytes (12 signature + 4 count + 4 length) with 16-byte directory entries. Fuzz driver is
+16 bytes (12 signature + 4 count) with 16-byte directory entries. An earlier revision read a
+phantom 4-byte declared-length field, shifting every entry by four bytes: the parser rejected
+real GRPs and the generator emitted non-standard archives, while the whole suite stayed green
+because `grp_synth` encoded the same mistake. Caught in PR review, not by CI — the class of
+defect the HUMAN-ATTESTED local-GRP item (D0009) exists to catch. Fuzz driver is
 a portable in-repo harness (`tests/fuzz/fuzz_main.cpp`) with libFuzzer-style flags because
 Apple clang 21 ships no libFuzzer runtime; committed corpus under `tests/fuzz/corpus/grp/`,
 future crashers go to `tests/fuzz/regression/grp/` and run in `check` via the corpus

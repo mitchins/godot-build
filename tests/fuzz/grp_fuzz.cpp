@@ -4,6 +4,7 @@
 // extraction. Findings become committed regression inputs (D0010).
 #include <cstddef>
 #include <cstdint>
+#include <cstdlib>
 #include <string_view>
 #include <vector>
 
@@ -23,7 +24,7 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, std::size_t size
     std::uint64_t checksum = 0;
     for (const auto& entry : parsed.value().entries) {
         if (entry.offset + entry.size > size) {
-            __builtin_trap(); // our bug: parser accepted an out-of-range entry
+            std::abort(); // our bug: parser accepted an out-of-range entry
         }
         for (std::uint64_t i = 0; i < entry.size; ++i) {
             checksum += data[entry.offset + i];
@@ -34,14 +35,14 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, std::size_t size
     auto mount = fauxbuild::GrpMount::from_image(
         "fuzz", std::vector<std::uint8_t>(data, data + size), &diags);
     if (!mount.is_ok()) {
-        __builtin_trap(); // our bug: parse succeeded but mount failed
+        std::abort(); // our bug: parse succeeded but mount failed
     }
     fauxbuild::Vfs vfs;
     vfs.add_mount(mount.take());
     for (const auto& key : vfs.keys()) {
         auto file = vfs.open(key);
         if (!file.is_ok()) {
-            __builtin_trap(); // our bug: key listed but unreadable
+            std::abort(); // our bug: key listed but unreadable
         }
         checksum += file.value().bytes.size();
     }

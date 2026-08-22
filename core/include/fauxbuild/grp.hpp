@@ -10,9 +10,10 @@
 namespace fauxbuild::grp {
 
 // GRP container (published binary format): 12-byte "KenSilverman" signature,
-// uint32 file count, uint32 declared data length, then count x 16-byte
-// directory entries (12-byte NUL-padded name, uint32 size), then concatenated
-// file data in directory order. Offsets are implicit and cumulative.
+// uint32 file count, then count x 16-byte directory entries (12-byte NUL-padded
+// name, uint32 size), then concatenated file data in directory order. The header
+// is 16 bytes; there is no declared data-length field. Offsets are implicit and
+// cumulative from the end of the directory.
 
 struct GrpEntry {
     std::string name; // original case as stored in the directory
@@ -23,8 +24,7 @@ struct GrpEntry {
 
 struct GrpData {
     std::uint32_t file_count = 0;
-    std::uint32_t data_length = 0; // header-declared data area size
-    std::uint64_t data_start = 0;  // 16 + 16 * file_count
+    std::uint64_t data_start = 0; // 16 + 16 * file_count
     std::vector<GrpEntry> entries;
 };
 

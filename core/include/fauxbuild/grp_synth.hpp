@@ -14,7 +14,8 @@ struct GrpSpec {
     bool include_zero_size = true;
 };
 
-// Files are named SYNTH0000.DAT, SYNTH0001.DAT, ... with LCG-derived sizes
+// Files are named SYN0000.DAT, SYN0001.DAT, ... (11 chars; fits the
+// 12-byte GRP directory name field with its NUL) with LCG-derived sizes
 // (0 included when include_zero_size) and LCG-derived content bytes.
 std::vector<std::uint8_t> generate_grp(const GrpSpec& spec);
 

@@ -20,10 +20,11 @@ std::string_view view(const std::vector<std::uint8_t>& bytes) {
 struct Handmade {
     std::vector<std::uint8_t> bytes;
 
-    Handmade& header(std::uint32_t count, std::uint32_t length, const char* sig = "KenSilverman") {
+    // 16-byte GRP header: 12-byte signature + uint32 file count. There is no
+    // declared data-length field in the published format.
+    Handmade& header(std::uint32_t count, const char* sig = "KenSilverman") {
         bytes.insert(bytes.end(), sig, sig + 12);
         u32(count);
-        u32(length);
         return *this;
     }
     Handmade& entry(const char* name, std::uint32_t size) {
@@ -74,7 +75,7 @@ TEST_CASE("synthetic GRP enumerates and reads exact bytes") {
 
 TEST_CASE("handmade GRP parses with exact offsets and content slices") {
     Handmade made;
-    made.header(2, 7);
+    made.header(2);
     made.entry("A.DAT", 3);
     made.entry("B.DAT", 4);
     made.data("xxx");
@@ -86,14 +87,14 @@ TEST_CASE("handmade GRP parses with exact offsets and content slices") {
     REQUIRE(grp.entries.size() == 2);
     CHECK(grp.entries[0].name == "A.DAT");
     CHECK(grp.entries[0].size == 3);
-    CHECK(grp.entries[0].offset == 52);
-    CHECK(grp.entries[1].offset == 55);
-    CHECK(std::memcmp(made.bytes.data() + 55, "yyyy", 4) == 0);
+    CHECK(grp.entries[0].offset == 48); // 16-byte header + 2 * 16-byte directory
+    CHECK(grp.entries[1].offset == 51);
+    CHECK(std::memcmp(made.bytes.data() + 51, "yyyy", 4) == 0);
 }
 
 TEST_CASE("bad signature is rejected with the right record") {
     Handmade made;
-    made.header(0, 0, "NotSilverman");
+    made.header(0, "NotSilverman");
     auto parsed = parse(view(made.bytes), "bad");
     REQUIRE_FALSE(parsed.is_ok());
     CHECK(parsed.error().code == ErrorCode::BadSignature);
@@ -103,7 +104,7 @@ TEST_CASE("bad signature is rejected with the right record") {
 
 TEST_CASE("directory larger than the container fails safely") {
     Handmade made;
-    made.header(1000, 0); // directory alone needs 16016 bytes; image is 16
+    made.header(1000); // directory alone needs 16016 bytes; image is 16
     made.entry("A.DAT", 0);
     auto parsed = parse(view(made.bytes), "huge");
     REQUIRE_FALSE(parsed.is_ok());
@@ -113,14 +114,14 @@ TEST_CASE("directory larger than the container fails safely") {
 
 TEST_CASE("entry data past the container end fails with entry context") {
     Handmade made;
-    made.header(1, 100);
+    made.header(1);
     made.entry("A.DAT", 100);
     made.data("short"); // 5 of 100 bytes
     auto parsed = parse(view(made.bytes), "short");
     REQUIRE_FALSE(parsed.is_ok());
     CHECK(parsed.error().code == ErrorCode::OutOfBounds);
     CHECK(parsed.error().record == "grp.directory[0].data");
-    CHECK(parsed.error().offset == 36); // where the file data starts
+    CHECK(parsed.error().offset == 32); // where the file data starts
 }
 
 TEST_CASE("every truncation of a valid GRP fails safely") {
@@ -143,7 +144,7 @@ TEST_CASE("every truncation of a valid GRP fails safely") {
 
 TEST_CASE("illegal names are rejected, twelve-char names without NUL survive") {
     Handmade traversal;
-    traversal.header(1, 0);
+    traversal.header(1);
     char bad[12] = {'a', '/', 'b', '.', '.', 'x'};
     traversal.bytes.insert(traversal.bytes.end(), bad, bad + 12);
     traversal.u32(0);
@@ -153,7 +154,7 @@ TEST_CASE("illegal names are rejected, twelve-char names without NUL survive") {
     CHECK(rejected.error().record == "grp.directory[0]");
 
     Handmade full;
-    full.header(1, 0);
+    full.header(1);
     char twelve[12]; // exactly 12 chars, no NUL in the field
     std::memcpy(twelve, "TWELVECHARSX", 12);
     full.bytes.insert(full.bytes.end(), twelve, twelve + 12);
@@ -165,7 +166,7 @@ TEST_CASE("illegal names are rejected, twelve-char names without NUL survive") {
 
 TEST_CASE("duplicate names: first entry wins and a warning is recorded") {
     Handmade made;
-    made.header(3, 0);
+    made.header(3);
     made.entry("DUP.DAT", 0);
     made.entry("dup.dat", 0);
     made.entry("OTHER.DAT", 0);
@@ -178,16 +179,31 @@ TEST_CASE("duplicate names: first entry wins and a warning is recorded") {
     CHECK(diags.warnings[0].find("DUP.DAT") != std::string::npos);
 }
 
-TEST_CASE("declared length mismatch is a warning, not an error") {
+TEST_CASE("published 16-byte header: data begins right after the directory") {
+    // Regression for the M2 review finding: the parser previously consumed a
+    // phantom 4-byte declared-length field, shifting every directory entry and
+    // rejecting real GRPs. Generator and parser both encoded the same mistake,
+    // so only a hand-built spec-correct image catches it.
     Handmade made;
-    made.header(1, 999); // actual data length is 2
-    made.entry("A.DAT", 2);
-    made.data("ab");
+    made.header(2);
+    made.entry("TILES000.ART", 3);
+    made.entry("E1L1.MAP", 4);
+    made.data("abc");
+    made.data("wxyz");
+    REQUIRE(made.bytes.size() == 16 + 2 * 16 + 3 + 4);
+
     GrpDiagnostics diags;
-    auto parsed = parse(view(made.bytes), "mismatch", &diags);
+    auto parsed = parse(view(made.bytes), "spec", &diags);
     REQUIRE(parsed.is_ok());
-    REQUIRE(diags.warnings.size() == 1);
-    CHECK(diags.warnings[0].find("declared data length 999") != std::string::npos);
+    const auto& grp = parsed.value();
+    CHECK(diags.warnings.empty());
+    CHECK(grp.data_start == 48);
+    REQUIRE(grp.entries.size() == 2);
+    CHECK(grp.entries[0].name == "TILES000.ART"); // 12 chars, no NUL terminator
+    CHECK(grp.entries[0].offset == 48);
+    CHECK(grp.entries[1].name == "E1L1.MAP");
+    CHECK(grp.entries[1].offset == 51);
+    CHECK(grp.entries[1].size == 4);
 }
 
 TEST_CASE("empty and single-byte inputs fail safely") {

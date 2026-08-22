@@ -42,7 +42,9 @@ std::vector<std::uint8_t> generate_grp(const GrpSpec& spec) {
         char name[16];
         // "SYN0000.DAT" is 11 chars: fits the 12-byte GRP name field with NUL.
         std::snprintf(name, sizeof(name), "SYN%04u.DAT", i);
-        std::uint32_t size = next(state) % (spec.max_file_size + 1);
+        // uint64 range: max_file_size + 1 wraps to zero at UINT32_MAX in uint32.
+        const std::uint64_t range = static_cast<std::uint64_t>(spec.max_file_size) + 1;
+        std::uint32_t size = static_cast<std::uint32_t>(next(state) % range);
         if (spec.include_zero_size && i % 5 == 0) {
             size = 0;
         }
@@ -54,12 +56,7 @@ std::vector<std::uint8_t> generate_grp(const GrpSpec& spec) {
     const char* signature = "KenSilverman";
     out.insert(out.end(), signature, signature + 12);
 
-    std::uint64_t total = 0;
-    for (const auto& file : layout) {
-        total += file.size;
-    }
     put_u32_le(out, spec.file_count);
-    put_u32_le(out, static_cast<std::uint32_t>(total));
 
     for (const auto& file : layout) {
         char field[12] = {};

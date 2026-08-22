@@ -22,6 +22,14 @@ in `PROVENANCE.md`.
 |---|---|---|
 | Triangulation library for sector loops (or tested internal implementation) | M5 | Plan §9.3: a dependency decision, not an incidental code paste |
 
+## Platform support notes
+
+`config=fuzz` is supported on Linux and macOS only. It requires
+`-fsanitize=address,undefined`, which MSVC does not provide, so `SConstruct`
+rejects the configuration on Windows with a clear message rather than emitting
+flags the toolchain silently mishandles. Windows fuzzing is not required by any
+milestone through M15; if it becomes required, it needs a decision record.
+
 ## Rejected / avoided
 
 | Candidate | Reason |

@@ -9,6 +9,10 @@ on:
   push:
   pull_request:
 
+# Least privilege: no job in this matrix writes to the repository.
+permissions:
+  contents: read
+
 jobs:
   format:
     name: Format

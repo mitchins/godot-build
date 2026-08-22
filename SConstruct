@@ -1,4 +1,6 @@
 import os
+
+import SCons.Errors
 import subprocess
 
 vars = Variables()
@@ -49,6 +51,13 @@ elif cfg == 'fuzz':
     # Sanitizer-driven fuzz builds (plan §3.3, D0010). Apple clang ships no
     # libFuzzer runtime, so tests/fuzz/fuzz_main.cpp provides a portable
     # deterministic driver with libFuzzer-compatible flags.
+    # MSVC cannot build this configuration (no -fsanitize=undefined, no POSIX
+    # env-prefix command form). Fail fast rather than emitting flags the
+    # toolchain silently mishandles; see docs/DEPENDENCIES.md.
+    if is_msvc:
+        raise SCons.Errors.UserError(
+            "config=fuzz is not supported on MSVC/Windows; run it on Linux or macOS "
+            "(documented in docs/DEPENDENCIES.md)")
     env.Append(
         CXXFLAGS=['-O1', '-g3', '-fsanitize=address,undefined',
                   '-fno-omit-frame-pointer'],
@@ -103,8 +112,14 @@ if cfg == 'fuzz':
          'tests/fuzz/corpus/grp tests/fuzz/regression/grp',
          Touch('$TARGET')])
     env.AlwaysBuild(fuzz_run)
+    # The gate must be able to fail: assert the driver refuses to report success
+    # on a corpus it could not load, and that the real corpus loads > 1 seed.
+    fuzz_gate = env.Command(
+        f'{bdir}/fuzz_gate.stamp', [grp_fuzz],
+        ['python3 ci/check_fuzz_gate.py ${SOURCE.abspath}', Touch('$TARGET')])
+    env.AlwaysBuild(fuzz_gate)
     Alias('all', [grp_fuzz])
-    Alias('fuzz', fuzz_run)
+    Alias('fuzz', [fuzz_gate, fuzz_run])
     Default('all')
 
 # Host tools/tests build whenever we are compiling for the host platform and
@@ -133,6 +148,7 @@ if host_build:
             f'{bdir}/tests/unit/version.test.cpp',
             f'{bdir}/tests/unit/check.test.cpp',
             f'{bdir}/tests/unit/byte_reader.test.cpp',
+        f'{bdir}/tests/unit/file_io.test.cpp',
             f'{bdir}/tests/unit/grp.test.cpp',
             f'{bdir}/tests/unit/grp_synth.test.cpp',
             f'{bdir}/tests/unit/vfs.test.cpp',
@@ -147,6 +163,12 @@ if host_build:
         f'{bdir}/tests.stamp', [tests], ['${SOURCE.abspath}', Touch('$TARGET')])
     smoke_fbtool = env.Command(
         f'{bdir}/fbtool.stamp', [fbtool], ['${SOURCE.abspath} --version', Touch('$TARGET')])
+    # Command contracts (exit codes, stdout) are not observable from the unit
+    # suite, so dump-grp/gen-grp get a process-level gate of their own.
+    fbtool_contract = env.Command(
+        f'{bdir}/fbtool_contract.stamp', [fbtool],
+        ['python3 ci/check_fbtool.py ${SOURCE.abspath}', Touch('$TARGET')])
+    env.AlwaysBuild(fbtool_contract)
 
     Alias('all', [core, fbtool, tests])
 else:
@@ -159,7 +181,7 @@ layering = env.Command(
 env.AlwaysBuild(layering)
 
 if host_build:
-    Alias('check', [run_tests, smoke_fbtool, layering])
+    Alias('check', [run_tests, smoke_fbtool, fbtool_contract, layering])
 else:
     Alias('check', [layering])
 

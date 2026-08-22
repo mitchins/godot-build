@@ -5,6 +5,14 @@
 #include <unistd.h>
 #endif
 
+#if !defined(_WIN32)
+#include <fcntl.h>
+#include <sys/wait.h>
+#include <unistd.h>
+
+#include <csignal>
+#endif
+
 #include <doctest/doctest.h>
 #include <filesystem>
 #include <fstream>
@@ -186,3 +194,37 @@ TEST_CASE("directory mount snapshots a flat, case-insensitive view") {
 
     fs::remove_all(root);
 }
+
+TEST_CASE("directory mount reports enumeration failure instead of a partial table") {
+    // Regression: an `ec` from directory_iterator ended the loop and the mount
+    // was still returned OK, so real files looked absent with no I/O error.
+    auto missing = fauxbuild::DirectoryMount::create("/nonexistent/fauxbuild/dir");
+    REQUIRE_FALSE(missing.is_ok());
+    CHECK(missing.error().code == fauxbuild::ErrorCode::IoError);
+}
+
+#if !defined(_WIN32)
+TEST_CASE("adding a null mount trips FB_CHECK rather than crashing later") {
+    // A null mount is a first-party caller bug, not malformed content, so D0006
+    // puts it under FB_CHECK. Without this the null surfaces much later, inside
+    // open()/contains()/keys(), far from the call that caused it.
+    std::fflush(stdout);
+    const pid_t pid = fork();
+    REQUIRE(pid >= 0);
+    if (pid == 0) {
+        std::signal(SIGABRT, SIG_DFL);
+        const int devnull = open("/dev/null", O_WRONLY);
+        if (devnull >= 0) {
+            dup2(devnull, STDERR_FILENO);
+            close(devnull);
+        }
+        fauxbuild::Vfs vfs;
+        vfs.add_mount(nullptr);
+        _exit(0); // reachable only if FB_CHECK failed to fire
+    }
+    int status = 0;
+    REQUIRE(waitpid(pid, &status, 0) == pid);
+    CHECK(WIFSIGNALED(status));
+    CHECK(WTERMSIG(status) == SIGABRT);
+}
+#endif

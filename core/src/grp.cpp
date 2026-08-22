@@ -43,21 +43,15 @@ Result<GrpData> parse(std::string_view image, std::string source, GrpDiagnostics
     if (!file_count.is_ok()) {
         return Result<GrpData>::err(file_count.error());
     }
-    auto declared_length = reader.read_u32_le();
-    if (!declared_length.is_ok()) {
-        return Result<GrpData>::err(declared_length.error());
-    }
-
     GrpData data;
     data.file_count = file_count.value();
-    data.data_length = declared_length.value();
-    data.data_start = 20 + 16ull * data.file_count; // 12 sig + 4 count + 4 length
+    data.data_start = 16 + 16ull * data.file_count; // 12 signature + 4 count
 
     const auto image_size = static_cast<std::uint64_t>(image.size());
     if (data.data_start > image_size) {
-        return Result<GrpData>::err({source, image_size < 20 ? image_size : 20, "grp.directory",
+        return Result<GrpData>::err({source, image_size < 16 ? image_size : 16, "grp.directory",
                                      ErrorCode::OutOfBounds,
-                                     "directory needs 20 + 16*" + std::to_string(data.file_count) +
+                                     "directory needs 16 + 16*" + std::to_string(data.file_count) +
                                          " = " + std::to_string(data.data_start) +
                                          " bytes but container has " + std::to_string(image_size)});
     }
@@ -79,7 +73,7 @@ Result<GrpData> parse(std::string_view image, std::string source, GrpDiagnostics
         const char* raw = reinterpret_cast<const char*>(name_bytes.value().data);
         std::string name(raw, ::strnlen(raw, 12));
         if (!is_legal_flat_name(name)) {
-            return Result<GrpData>::err({source, 20 + 16ull * i, record, ErrorCode::InvalidName,
+            return Result<GrpData>::err({source, 16 + 16ull * i, record, ErrorCode::InvalidName,
                                          "illegal file name in directory entry"});
         }
         const std::string key = to_key(name);
@@ -102,12 +96,6 @@ Result<GrpData> parse(std::string_view image, std::string source, GrpDiagnostics
                      std::to_string(image_size)});
         }
         data.entries.push_back(std::move(entry));
-    }
-
-    if (cursor != data.data_start + data.data_length && diags) {
-        diags->warnings.push_back("declared data length " + std::to_string(data.data_length) +
-                                  " != actual sum " + std::to_string(cursor - data.data_start) +
-                                  "; tolerated");
     }
 
     return Result<GrpData>::ok(std::move(data));

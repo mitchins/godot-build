@@ -41,18 +41,33 @@ Options parse(int argc, char** argv) {
     return options;
 }
 
-std::vector<std::vector<std::uint8_t>> load_corpus(const Options& options) {
-    std::vector<std::vector<std::uint8_t>> seeds;
+// Returns false when a configured corpus path cannot be enumerated or a file in
+// it cannot be read. Silently falling back to a single empty seed let a typo'd
+// path report "completed without crashes" having executed no committed input at
+// all — the gate would pass while fuzzing nothing (D0010a/c).
+bool load_corpus(const Options& options, std::vector<std::vector<std::uint8_t>>& seeds) {
     for (const auto& dir : options.corpus_dirs) {
         std::error_code ec;
-        for (std::filesystem::directory_iterator it(dir, ec), end; !ec && it != end;
-             it.increment(ec)) {
-            if (!it->is_regular_file(ec)) {
+        std::filesystem::directory_iterator it(dir, ec), end;
+        if (ec) {
+            std::fprintf(stderr, "fuzz-driver: cannot enumerate corpus '%s': %s\n", dir.c_str(),
+                         ec.message().c_str());
+            return false;
+        }
+        for (; it != end; it.increment(ec)) {
+            if (ec) {
+                std::fprintf(stderr, "fuzz-driver: cannot walk corpus '%s': %s\n", dir.c_str(),
+                             ec.message().c_str());
+                return false;
+            }
+            if (!it->is_regular_file(ec) || ec) {
                 continue;
             }
             std::FILE* file = std::fopen(it->path().string().c_str(), "rb");
             if (!file) {
-                continue;
+                std::fprintf(stderr, "fuzz-driver: cannot read corpus file '%s'\n",
+                             it->path().string().c_str());
+                return false;
             }
             std::vector<std::uint8_t> bytes;
             std::uint8_t buffer[4096];
@@ -61,22 +76,24 @@ std::vector<std::vector<std::uint8_t>> load_corpus(const Options& options) {
                 bytes.insert(bytes.end(), buffer, buffer + read);
             }
             std::fclose(file);
-            if (!bytes.empty()) {
-                seeds.push_back(std::move(bytes));
-            }
+            seeds.push_back(std::move(bytes));
         }
     }
-    if (seeds.empty()) {
-        seeds.emplace_back(); // empty input is itself a seed
-    }
-    return seeds;
+    // The empty input is always exercised, as an explicit case rather than as a
+    // stand-in for a corpus that failed to load.
+    seeds.emplace_back();
+    return true;
 }
 
 } // namespace
 
 int main(int argc, char** argv) {
     const Options options = parse(argc, argv);
-    const auto seeds = load_corpus(options);
+    std::vector<std::vector<std::uint8_t>> seeds;
+    if (!load_corpus(options, seeds)) {
+        std::fprintf(stderr, "fuzz-driver: corpus load failed; refusing to report success\n");
+        return 1;
+    }
 
     std::fprintf(stderr, "fuzz-driver: %llu runs over %zu seeds (max_len=%zu, seed=%llu)\n",
                  static_cast<unsigned long long>(options.runs), seeds.size(), options.max_len,
