@@ -122,7 +122,11 @@ format; Windows continue-on-error) with `FAUXBUILD_STRICT_TOOLS=1`; remote
 `github.com/mitchins/godot-build` (public — the committed iOS export preset
 keeps the Apple team ID empty; `ci/set_ios_team_id.py` sets it locally).
 M1 review amendments: CI must have one real green run before acceptance is
-granted; the scene check is automated per review round 1.
+granted; the scene check is automated per review round 1. Both satisfied
+2026-08-22: CI run 32542509152 on commit 8660876 — macOS arm64 (incl. scene
+gate), Linux x86_64 (clang+asan), Format all green; Windows skeleton job
+failed as expected and is `continue-on-error` until the §14.4 MSVC wiring
+lands.
 
 ## M2 — Safe binary IO, VFS, and GRP — NOT_STARTED
 
