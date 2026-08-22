@@ -1,6 +1,9 @@
-#include <unistd.h>
-
+#include <chrono>
 #include <cstring>
+
+#if !defined(_WIN32)
+#include <unistd.h>
+#endif
 
 #include <doctest/doctest.h>
 #include <filesystem>
@@ -127,8 +130,9 @@ void write_file(const std::filesystem::path& path, const std::vector<std::uint8_
 
 TEST_CASE("directory mount snapshots a flat, case-insensitive view") {
     namespace fs = std::filesystem;
-    const auto root =
-        fs::temp_directory_path() / ("fauxbuild_vfs_test_" + std::to_string(::getpid()));
+    const auto unique = std::to_string(
+        std::chrono::steady_clock::now().time_since_epoch().count());
+    const auto root = fs::temp_directory_path() / ("fauxbuild_vfs_test_" + unique);
     fs::create_directories(root);
     write_file(root / "LOOSE.MAP", bytes_of("map-bytes"));
     write_file(root / "lower.art", bytes_of("art-bytes"));
