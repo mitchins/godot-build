@@ -1,0 +1,200 @@
+#include <cstring>
+#include <doctest/doctest.h>
+
+#include "fauxbuild/grp.hpp"
+#include "fauxbuild/grp_synth.hpp"
+
+using fauxbuild::ErrorCode;
+using fauxbuild::grp::GrpDiagnostics;
+using fauxbuild::grp::parse;
+using fauxbuild::synth::generate_grp;
+
+namespace {
+
+std::string_view view(const std::vector<std::uint8_t>& bytes) {
+    return std::string_view(reinterpret_cast<const char*>(bytes.data()), bytes.size());
+}
+
+// Builds a GRP image by hand so tests control every byte.
+struct Handmade {
+    std::vector<std::uint8_t> bytes;
+
+    Handmade& header(std::uint32_t count, std::uint32_t length, const char* sig = "KenSilverman") {
+        bytes.insert(bytes.end(), sig, sig + 12);
+        u32(count);
+        u32(length);
+        return *this;
+    }
+    Handmade& entry(const char* name, std::uint32_t size) {
+        char field[12] = {};
+        std::memcpy(field, name, std::strlen(name));
+        bytes.insert(bytes.end(), field, field + 12);
+        u32(size);
+        return *this;
+    }
+    Handmade& u32(std::uint32_t value) {
+        for (int i = 0; i < 4; ++i) {
+            bytes.push_back(static_cast<std::uint8_t>(value >> (8 * i)));
+        }
+        return *this;
+    }
+    Handmade& data(const char* payload) {
+        bytes.insert(bytes.end(), payload, payload + std::strlen(payload));
+        return *this;
+    }
+};
+
+} // namespace
+
+TEST_CASE("synthetic GRP enumerates and reads exact bytes") {
+    const auto image = generate_grp({.seed = 7, .file_count = 12, .max_file_size = 300});
+    GrpDiagnostics diags;
+    auto parsed = parse(view(image), "synthetic", &diags);
+    REQUIRE(parsed.is_ok());
+    const auto& grp = parsed.value();
+
+    CHECK(grp.file_count == 12);
+    REQUIRE(grp.entries.size() == 12);
+    CHECK(diags.warnings.empty());
+
+    // Cross-check every entry against the generator's layout rules.
+    std::uint64_t cursor = grp.data_start;
+    for (std::uint32_t i = 0; i < grp.entries.size(); ++i) {
+        const auto& entry = grp.entries[i];
+        char expected[16];
+        std::snprintf(expected, sizeof(expected), "SYN%04u.DAT", i);
+        CHECK(entry.name == expected);
+        CHECK(entry.offset == cursor);
+        cursor += entry.size;
+        CHECK(entry.offset + entry.size <= image.size());
+    }
+    CHECK(cursor == image.size());
+}
+
+TEST_CASE("handmade GRP parses with exact offsets and content slices") {
+    Handmade made;
+    made.header(2, 7);
+    made.entry("A.DAT", 3);
+    made.entry("B.DAT", 4);
+    made.data("xxx");
+    made.data("yyyy");
+
+    auto parsed = parse(view(made.bytes), "hand");
+    REQUIRE(parsed.is_ok());
+    const auto& grp = parsed.value();
+    REQUIRE(grp.entries.size() == 2);
+    CHECK(grp.entries[0].name == "A.DAT");
+    CHECK(grp.entries[0].size == 3);
+    CHECK(grp.entries[0].offset == 52);
+    CHECK(grp.entries[1].offset == 55);
+    CHECK(std::memcmp(made.bytes.data() + 55, "yyyy", 4) == 0);
+}
+
+TEST_CASE("bad signature is rejected with the right record") {
+    Handmade made;
+    made.header(0, 0, "NotSilverman");
+    auto parsed = parse(view(made.bytes), "bad");
+    REQUIRE_FALSE(parsed.is_ok());
+    CHECK(parsed.error().code == ErrorCode::BadSignature);
+    CHECK(parsed.error().offset == 0);
+    CHECK(parsed.error().record == "grp.header");
+}
+
+TEST_CASE("directory larger than the container fails safely") {
+    Handmade made;
+    made.header(1000, 0); // directory alone needs 16016 bytes; image is 16
+    made.entry("A.DAT", 0);
+    auto parsed = parse(view(made.bytes), "huge");
+    REQUIRE_FALSE(parsed.is_ok());
+    CHECK(parsed.error().code == ErrorCode::OutOfBounds);
+    CHECK(parsed.error().record == "grp.directory");
+}
+
+TEST_CASE("entry data past the container end fails with entry context") {
+    Handmade made;
+    made.header(1, 100);
+    made.entry("A.DAT", 100);
+    made.data("short"); // 5 of 100 bytes
+    auto parsed = parse(view(made.bytes), "short");
+    REQUIRE_FALSE(parsed.is_ok());
+    CHECK(parsed.error().code == ErrorCode::OutOfBounds);
+    CHECK(parsed.error().record == "grp.directory[0].data");
+    CHECK(parsed.error().offset == 36); // where the file data starts
+}
+
+TEST_CASE("every truncation of a valid GRP fails safely") {
+    const auto image = generate_grp({.seed = 3, .file_count = 6, .max_file_size = 64});
+    for (std::size_t len = 0; len < image.size(); ++len) {
+        std::string_view partial(view(image).substr(0, len));
+        auto parsed = parse(partial, "truncated");
+        if (parsed.is_ok()) {
+            // A prefix can only parse if all declared data fits; with this
+            // generator layout that is impossible before the final byte.
+            FAIL("unexpected parse success at length ", len);
+        } else {
+            const auto& error = parsed.error();
+            CHECK_FALSE(error.record.empty());
+            CHECK(error.offset <= len);
+        }
+    }
+    CHECK(parse(view(image), "full").is_ok());
+}
+
+TEST_CASE("illegal names are rejected, twelve-char names without NUL survive") {
+    Handmade traversal;
+    traversal.header(1, 0);
+    char bad[12] = {'a', '/', 'b', '.', '.', 'x'};
+    traversal.bytes.insert(traversal.bytes.end(), bad, bad + 12);
+    traversal.u32(0);
+    auto rejected = parse(view(traversal.bytes), "traversal");
+    REQUIRE_FALSE(rejected.is_ok());
+    CHECK(rejected.error().code == ErrorCode::InvalidName);
+    CHECK(rejected.error().record == "grp.directory[0]");
+
+    Handmade full;
+    full.header(1, 0);
+    char twelve[12]; // exactly 12 chars, no NUL in the field
+    std::memcpy(twelve, "TWELVECHARSX", 12);
+    full.bytes.insert(full.bytes.end(), twelve, twelve + 12);
+    full.u32(0);
+    auto accepted = parse(view(full.bytes), "twelve");
+    REQUIRE(accepted.is_ok());
+    CHECK(accepted.value().entries[0].name == "TWELVECHARSX");
+}
+
+TEST_CASE("duplicate names: first entry wins and a warning is recorded") {
+    Handmade made;
+    made.header(3, 0);
+    made.entry("DUP.DAT", 0);
+    made.entry("dup.dat", 0);
+    made.entry("OTHER.DAT", 0);
+    GrpDiagnostics diags;
+    auto parsed = parse(view(made.bytes), "dup", &diags);
+    REQUIRE(parsed.is_ok());
+    REQUIRE(parsed.value().entries.size() == 3);
+    CHECK(parsed.value().entries[0].key == parsed.value().entries[1].key);
+    REQUIRE(diags.warnings.size() == 1);
+    CHECK(diags.warnings[0].find("DUP.DAT") != std::string::npos);
+}
+
+TEST_CASE("declared length mismatch is a warning, not an error") {
+    Handmade made;
+    made.header(1, 999); // actual data length is 2
+    made.entry("A.DAT", 2);
+    made.data("ab");
+    GrpDiagnostics diags;
+    auto parsed = parse(view(made.bytes), "mismatch", &diags);
+    REQUIRE(parsed.is_ok());
+    REQUIRE(diags.warnings.size() == 1);
+    CHECK(diags.warnings[0].find("declared data length 999") != std::string::npos);
+}
+
+TEST_CASE("empty and single-byte inputs fail safely") {
+    auto empty = parse(std::string_view(""), "empty");
+    REQUIRE_FALSE(empty.is_ok());
+    CHECK(empty.error().code == ErrorCode::Truncated);
+
+    auto one = parse(std::string_view("K", 1), "one");
+    REQUIRE_FALSE(one.is_ok());
+    CHECK(one.error().offset == 0);
+}

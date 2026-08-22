@@ -41,6 +41,8 @@ jobs:
       - run: sudo apt-get update && sudo apt-get install -y clang-format scons
       - run: scons config=dev check
       - run: scons config=asan check
+      # D0010: bounded fuzz run over committed seed corpus + regressions.
+      - run: scons config=fuzz fuzz
 
   macos:
     name: macOS arm64 (clang, asan, extension, scene gate)

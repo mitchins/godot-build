@@ -140,3 +140,21 @@ by a human on the development machine, recorded as `HUMAN-ATTESTED <date> <comma
 milestone entry, and can never be ticked by CI.
 Consequences: gate items in M3/M5/M8/M11(device)/M12 are annotated with their class; CI
 greenness never substitutes for the attested items and vice versa.
+
+### D0010 — Definition of "fuzz tests pass"
+
+Status: accepted
+Date: 2026-08-22 (carried in from the M1 acceptance review)
+Context: plan §3.3 and the M2 gate require parser fuzz targets. A built-but-never-run fuzz
+target is the same failure shape as every gate defect found in M0/M1 review rounds 1–3 —
+it reports capability without executing it. Without a definition settled before the target
+exists, the gate item silently degrades to "it compiled."
+Decision: a fuzz gate item is satisfied only by all of:
+(a) a **bounded run in CI** (`-runs=N` or `-max_total_time=`) that exits zero;
+(b) a **committed seed corpus** covering at least: valid containers, empty input, truncated
+headers/directories/data, and bad signatures;
+(c) **every crasher ever found is committed as a regression input** and additionally
+exercised by the ordinary `check` suite (corpus regression test), so regressions fail even
+on platforms/configurations without the fuzz runtime.
+Consequences: `tests/fuzz/corpus/` and `tests/fuzz/regression/` are gate artifacts, not
+scratch space; CI green without the bounded fuzz run does not tick any fuzz item.
