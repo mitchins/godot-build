@@ -101,3 +101,42 @@ a follow-up decision record, not optional cleanup.
 Consequences: the pin tracks a moving upstream lineage until a tag exists — the pinned commit
 in `.gitmodules`/submodule state is authoritative, never "master". Provenance entry records
 the commit and license.
+
+### D0008 — Engine/game repository boundary at the M12 seam
+
+Status: accepted
+Date: 2026-08-22 (human ruling at M1 acceptance)
+Context: the plan (§5 layout, §11 integration; M13/M14 milestones) places the original game
+inside this repository. This repository is public and functions as the engine/tech demo for
+an upstream game that will consume it as a dependency with free public CI/CD. Writing game
+content here would also collide with the M12 freeze: `fauxbuild-core-v0.1` is exactly the
+seam where the engine repo stops and the game repo starts.
+Decision: this repository's scope ends at the engine conformance freeze (M12, tag
+`fauxbuild-core-v0.1`). M13 (game framework) and M14 (vertical slice) execute in a separate
+game repository consuming this one as an upstream dependency. `godot/game/` in this repo is
+demoted to engine sample/test content only. Plan §5/§11 "game" layer references are
+superseded for this repo by this decision.
+Consequences: MILESTONES.md M13/M14 are annotated out-of-repo; no agent writes game code
+here. The game repository becomes the "second genuine consumer" that reopens D0005 (public
+API/ABI question) when it starts consuming the engine; the GDScript extension surface is the
+game-facing API in the meantime.
+
+### D0009 — Evidence classes: CI-carried vs human-attested
+
+Status: accepted
+Date: 2026-08-22 (human ruling at M1 acceptance)
+Context: `local_reference/` is gitignored and must never enter CI (plan §4.4), and no CI
+runner has an iPhone. Every gate item resting on the local `DUKE3D.GRP` (M3 E1L1 counts,
+M5 recognizable shell, M8 full traversal, the M12 acceptance test) and every iOS
+device-launch item are structurally laptop-only. Left implicit, these become gates that
+report green without executing — the exact failure mode of M0/M1 review rounds 1–3.
+Decision: two evidence classes, recorded per item in MILESTONES.md:
+(a) **CI evidence** — synthetic fixtures carry the entire automated burden and must be
+sufficient on their own. The synthetic suite is what proves the generic model; e.g. M8's
+kill gate ("if E1L1 only works through per-level tolerances, stop") is judged against the
+synthetic collision suite, with E1L1 as confirmation only.
+(b) **HUMAN-ATTESTED evidence** — proprietary-content and physical-device gates are executed
+by a human on the development machine, recorded as `HUMAN-ATTESTED <date> <commands>` in the
+milestone entry, and can never be ticked by CI.
+Consequences: gate items in M3/M5/M8/M11(device)/M12 are annotated with their class; CI
+greenness never substitutes for the attested items and vice versa.

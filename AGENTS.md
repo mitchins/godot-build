@@ -6,9 +6,19 @@ The full implementation contract is `docs/PROJECT_CONTRACT.md` and the source pl
 
 ## Active milestone
 
-**M1 — Godot/GDExtension and Apple build smoke: GATE_REVIEW** (all gate items have
-executed evidence; awaiting human acceptance). Next: **M2 — Safe binary IO, VFS, and GRP**.
-No implementation work begins until a task names M2 and a bounded subtask, per plan §16.
+**M1 — Godot/GDExtension and Apple build smoke: ACCEPTED 2026-08-22.** Next: **M2 — Safe
+binary IO, VFS, and GRP** (NOT_STARTED). No implementation work begins until a task names M2
+and a bounded subtask, per plan §16.
+
+## Repository boundary and evidence classes
+
+- This is the **engine repo** (public tech demo). The original game lives in a separate
+  repository consuming this one; no game code is written here, and `godot/game/` holds
+  engine sample/test content only (D0008). This repo's scope ends at the M12 tag
+  `fauxbuild-core-v0.1`.
+- Gate evidence is either **CI** (synthetic fixtures; must be sufficient alone) or
+  **HUMAN-ATTESTED** (local proprietary GRP/E1L1 items, physical-device launches) — recorded
+  as such in `docs/MILESTONES.md`; never mixed, never substituted (D0009).
 
 ## Clean-room rules (non-negotiable)
 
@@ -39,6 +49,7 @@ No implementation work begins until a task names M2 and a bounded subtask, per p
 - `core/` must never include Godot headers or types.
 - `extension/` is the only place godot-cpp appears (from M1).
 - All tools link `libfauxbuild_core`; never duplicate parsers.
+- Game logic does not belong in this repository (D0008).
 
 ## Build and verify commands
 

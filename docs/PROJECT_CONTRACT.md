@@ -78,7 +78,9 @@ this passes (M12), engine archaeology stops.
 ```text
 fauxbuild_core     pure C++20, no Godot headers, deterministic headless tests
 fauxbuild_godot    godot-cpp GDExtension adapters + rendering backend
-game               GDScript, original rules/UI/audio, commands FauxBuild
+game               separate repository, upstream consumer of this one (D0008);
+                   this repo's scope ends at the M12 tag fauxbuild-core-v0.1;
+                   godot/game/ here holds engine sample/test content only
 tools              CLI validators/dumpers/probes linking fauxbuild_core
 ```
 

@@ -35,6 +35,14 @@ Milestone status
 
 plus the mandatory line: `Next milestone work was not started.`
 
+**Evidence classes (D0009):** every gate item records its class. *CI evidence* — synthetic
+fixtures carry the entire automated burden and must be sufficient on their own; the
+synthetic suite is what proves the generic model (e.g. M8's kill gate). *HUMAN-ATTESTED
+evidence* — proprietary-content items (local `DUKE3D.GRP`, E1L1) and physical-device items
+(iOS launches) are executed by a human on the development machine and recorded as
+`HUMAN-ATTESTED <date> <commands>`; CI can never tick them, and they can never be
+substituted by CI greenness.
+
 ---
 
 ## M0 — Contract and repository
@@ -81,8 +89,10 @@ outputs for every gate item.
 
 ## M1 — Godot/GDExtension and Apple build smoke
 
-Status: **GATE_REVIEW**
+Status: **ACCEPTED**
 Started: 2026-08-22
+Gate accepted: 2026-08-22 (human review; amendments — real CI run + automated scene
+gate — satisfied the same day, CI run 32542509152 on commit 8660876)
 
 ### Scope
 
@@ -106,9 +116,10 @@ build; iOS native package/export smoke; CI matrix skeleton.
       run headless prints the same two lines, exit 0.
 - [x] An iOS device or signed development build launches a blank scene
       containing the extension.
-      Evidence: self-contained `libfauxbuild.ios.a` (1093 objects); Xcode project
-      export; xcodebuild Debug with automatic development signing; installed and
-      **launched on iPhone 15 Pro Max** via `devicectl` (2026-08-22).
+      Evidence: HUMAN-ATTESTED 2026-08-22 — self-contained `libfauxbuild.ios.a`
+      (1093 objects); Xcode project export; xcodebuild Debug with automatic
+      development signing; installed and **launched on iPhone 15 Pro Max** via
+      `devicectl` (steps in docs/IOS.md; structurally laptop-only per D0009).
 - [x] No custom Godot engine fork is required.
       Evidence: stock 4.7.2 stable editor + official export templates only.
 
@@ -128,17 +139,18 @@ gate), Linux x86_64 (clang+asan), Format all green; Windows skeleton job
 failed as expected and is `continue-on-error` until the §14.4 MSVC wiring
 lands.
 
-## M2 — Safe binary IO, VFS, and GRP — NOT_STARTED
+## M2 — Safe binary IO, VFS, and GRP — NEXT (active once a task names it)
 
 Gate summary: synthetic GRPs enumerate/read exact bytes; truncated/corrupt cases fail safely;
 duplicate/case behavior documented and tested; local untouched `DUKE3D.GRP` enumerates without
-extraction; no hard-coded proprietary filenames.
+extraction (HUMAN-ATTESTED per D0009); no hard-coded proprietary filenames.
 
 ## M3 — MAP v7 parser, validator, and writer — NOT_STARTED
 
 Gate summary: all synthetic maps parse; parse→write→parse semantically identical; byte-identical
-round-trip where promised; generated maps open in Mapster and Mapster saves re-parse; fuzz and
-malformed tests pass; local E1L1 reports plausible counts/start pose without fatal errors.
+round-trip where promised; generated maps open in Mapster and Mapster saves re-parse (HUMAN-ATTESTED);
+fuzz and malformed tests pass; local E1L1 reports plausible counts/start pose without fatal errors
+(HUMAN-ATTESTED).
 Do not implement rendering, collision, Duke tags, or game logic.
 
 ## M4 — ART, palette, lookup, and tile tooling — NOT_STARTED
@@ -150,7 +162,7 @@ original fixture ART works in Mapster.
 ## M5 — Static structural world viewer — NOT_STARTED
 
 Gate summary: structural fixtures render with correct topology; holes/non-convex sectors render;
-no persistent Godot scene becomes authority; local E1L1 loads as recognizable 3D shell;
+no persistent Godot scene becomes authority; local E1L1 loads as recognizable 3D shell (HUMAN-ATTESTED);
 diagnostics instead of crashes. Allowed shortcuts: untextured diagnostic materials,
 render-all visibility.
 
@@ -169,13 +181,13 @@ renderer-derived query data.
 
 Gate summary: collision fixtures pass exactly; no tunneling in supported matrix; acute corners
 stable; portal/slope transitions stable; generic player traverses all reachable static E1L1
-areas; no map/tile/Duke-specific branches; no Godot physics bodies. **Kill gate:** if E1L1
+areas (HUMAN-ATTESTED — confirmation; the synthetic suite is the proof, D0009); no map/tile/Duke-specific branches; no Godot physics bodies. **Kill gate:** if E1L1
 only works through per-level tolerances, stop and fix the generic model first.
 
 ## M9 — Hitscan and line of sight — NOT_STARTED
 
 Gate summary: nearest-hit matrix passes; portal-chain traces pass; sprite orientation matrix
-passes; cross-platform traces match; plausible hits throughout local E1L1 traversal.
+passes; cross-platform traces match; plausible hits throughout local E1L1 traversal (HUMAN-ATTESTED).
 
 ## M10 — Portal-aware visibility and production renderer — NOT_STARTED
 
@@ -189,17 +201,22 @@ Gate summary: dynamic fixtures pass; elevator carries player and sprites; rotati
 sectors update rendering/collision/hitscan/membership together; blocked/crush reported without
 game damage; no Duke effector/tag semantics.
 
-## M12 — Engine conformance freeze — NOT_STARTED
+## M12 — Engine conformance freeze — NOT_STARTED (this repo's terminal milestone per D0008)
 
-Acceptance procedure and gate per plan §15/M12. Result: tag `fauxbuild-core-v0.1`.
+Acceptance procedure and gate per plan §15/M12; the untouched-GRP/E1L1 acceptance test is
+HUMAN-ATTESTED end to end (D0009), with the synthetic conformance suite carrying the CI burden.
+Result: tag `fauxbuild-core-v0.1` — the seam where this engine repo ends and the separate game
+repository begins (D0008).
 
-## M13 — Original game framework — NOT_STARTED
+## M13 — Original game framework — OUT-OF-REPO (D0008)
 
+Executes in the separate game repository consuming this engine as an upstream dependency.
+No game code is written in this repo; `godot/game/` holds engine sample/test content only.
 Gate summary per plan §15/M13.
 
-## M14 — First game vertical slice — NOT_STARTED
+## M14 — First game vertical slice — OUT-OF-REPO (D0008)
 
-Gate summary per plan §15/M14.
+Executes in the separate game repository. Gate summary per plan §15/M14.
 
 ## M15 — Apple/mobile hardening and production tooling — NOT_STARTED
 
