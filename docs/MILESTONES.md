@@ -141,8 +141,14 @@ lands.
 
 ## M2 — Safe binary IO, VFS, and GRP
 
-Status: **GATE_REVIEW** (CI items executed; one HUMAN-ATTESTED item pending the local GRP)
+Status: **ACCEPTED**
 Started: 2026-08-22
+Gate accepted: 2026-08-23 (human ruling at M2 review, conditional on the local-GRP
+read-through, which was then executed and recorded below)
+Ruling: D0011 accepted as implemented (`kMaxEntryCount = 65536`, reject rather than
+truncate, silent partial mounting prohibited); local real-GRP portion passed. No further
+resource-budget configurability is wanted — 65536 is a hard safety ceiling and parser-policy
+knobs wait for a real use case.
 
 ### Task rules (binding, from M1 acceptance review)
 
@@ -177,7 +183,24 @@ generator.
       Evidence: duplicate names within a GRP (first entry wins + warning), duplicate names
       across mounts (newest mount shadows + diagnostic), case-normalized flat lookup,
       traversal rejection — all asserted in tests; documented in `core/include/fauxbuild/vfs.hpp`.
-- [ ] A local untouched `DUKE3D.GRP` can be enumerated without extraction. *(HUMAN-ATTESTED)*
+- [x] A local untouched `DUKE3D.GRP` can be enumerated without extraction. *(HUMAN-ATTESTED)*
+      Evidence: HUMAN-ATTESTED 2026-08-23 — reviewer ran
+      `./build/dev/fbtool dump-grp local_reference/duke/DUKE3D.GRP` against an untouched
+      Duke Nukem 3D **shareware v1.3D** `DUKE3D.GRP` (11,035,779 bytes, dated 1996-04-24),
+      mounted in place from gitignored `local_reference/`, no extraction or conversion.
+      Result: 215 entries, `data starts at offset 3456` = 16 + 215x16 exactly; entries
+      contiguous (each offset == previous offset + size); final entry ends at
+      10,928,557 + 107,222 = 11,035,779, matching the archive size with no trailing data;
+      no warnings. Expected resources present: `LOOKUP.DAT`, `PALETTE.DAT`, `TABLES.DAT`,
+      `TILES000.ART`..`TILES012.ART`, `E1L1.MAP`..`E1L6.MAP`. 215 entries against
+      `kMaxEntryCount` 65536 is ~305x headroom (D0011).
+      Read-through verified with `fbtool vfs-stat` (added for this check, since `dump-grp`
+      parses the container directly and bypasses the mount): `PALETTE.DAT` 82,690,
+      `TILES000.ART` 528,139, `E1L1.MAP` 102,806, `LOOKUP.DAT` 10,266, `TABLES.DAT` 8,448
+      — each opened through `GrpMount` + normalized VFS lookup and delivering exactly its
+      declared size. Case-folded queries (`palette.dat`, `e1l1.map`) resolve to the same
+      entries; an absent name returns a structured `not_found`.
+      No proprietary bytes, hashes, or extracted content entered the repository or CI.
       PENDING: no `local_reference/duke/DUKE3D.GRP` on this machine. Command to run:
       `./build/dev/fbtool dump-grp local_reference/duke/DUKE3D.GRP | head` (must list the
       container contents; nothing is extracted or committed).

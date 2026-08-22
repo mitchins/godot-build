@@ -38,4 +38,4 @@ explicitly — what is rejected, why, and what would change it — before the M1
 
 | # | Item | Status | Bound |
 |---|---|---|---|
-| 1 | GRP containers declaring more than 65,536 files are rejected | Proposed (D0011) | Parser resource limit `kMaxEntryCount` (D0011), not a format claim. Real archives hold low thousands of files. Raising it is a decision record. |
+| 1 | GRP containers declaring more than 65,536 files are rejected | Accepted, bounded (D0011) | Parser resource limit `kMaxEntryCount` (D0011), not a format claim. Real archives hold low thousands of files. Raising it is a decision record. |

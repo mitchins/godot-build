@@ -42,6 +42,15 @@ with tempfile.TemporaryDirectory() as tmp:
     if "data starts at offset 96" not in proc.stdout:
         failures.append("dump-grp: data_start is not 16 + 16*file_count")
 
+    # vfs-stat reads through GrpMount + the normalized VFS lookup, not the
+    # directory parse that dump-grp uses.
+    proc = run(["vfs-stat", good, "SYN0000.DAT"], 0, "vfs-stat hit", expect_out="OK")
+    if "via grp:" not in proc.stdout:
+        failures.append("vfs-stat: origin not reported")
+    run(["vfs-stat", good, "syn0000.dat"], 0, "vfs-stat case-folded", expect_out="OK")
+    run(["vfs-stat", good, "NOSUCH.DAT"], 1, "vfs-stat miss", expect_out="MISS")
+    run(["vfs-stat", good], 2, "vfs-stat usage", expect_err="usage")
+
     bad = pathlib.Path(tmp) / "bad.grp"
     bad.write_bytes(b"NotSilverman" + b"\x00" * 8)
     run(["dump-grp", str(bad)], 1, "dump-grp bad signature", expect_err="bad_signature")

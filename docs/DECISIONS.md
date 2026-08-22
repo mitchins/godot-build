@@ -161,14 +161,17 @@ scratch space; CI green without the bounded fuzz run does not tick any fuzz item
 
 ### D0011 — GRP parser entry-count resource limit
 
-Status: proposed (implemented, awaiting human ruling)
-Date: 2026-08-23
-Note: the bound is already in the code because it closes a live memory
-amplification found in PR review, and shipping the parser without it would leave
-the defect open. The *decision* is still unratified: the specific value (65536)
-and the choice to reject rather than truncate are contractual, and no human has
-ruled on either. Every other accepted record in this file cites a human ruling;
-this one cannot yet, so it stays proposed.
+Status: accepted
+Date: 2026-08-23 (human ruling 2026-08-23, at M2 review)
+Ruling: "FauxBuild GRP parsing is bounded to 65,536 directory entries. Archives
+declaring more entries are rejected with a structured `TooLarge` error rather
+than truncated. This is a defensive parser/runtime limit, not a claim about the
+GRP format itself. Silent partial mounting is prohibited." Parse-first-N-and-warn
+was considered and rejected: an archive that appears to mount while its namespace
+is silently incomplete turns a parser bound into distant, bizarre failures in map,
+art and audio lookup. Fail-closed is the correct behaviour for a container layer.
+Resource-budget configurability is explicitly *not* wanted: 65,536 is a hard
+safety ceiling, and parser-policy knobs wait for a real use case.
 Context: the GRP format states no maximum file count. The directory costs 16
 bytes per entry while a parsed `GrpEntry` costs 64, so an unbounded count lets
 untrusted input amplify ~4x into process memory: a 1 GiB container (the

@@ -11,6 +11,7 @@
 #include "fauxbuild/grp.hpp"
 #include "fauxbuild/grp_synth.hpp"
 #include "fauxbuild/version.hpp"
+#include "fauxbuild/vfs.hpp"
 
 namespace {
 
@@ -162,6 +163,50 @@ int gen_grp(int argc, char** argv) {
     return 0;
 }
 
+// Reads named entries through the mounted-file API rather than the directory.
+// dump-grp parses the container directly; this exercises GrpMount + the
+// case-normalized VFS lookup and confirms each file reads to its declared size.
+int vfs_stat(int argc, char** argv) {
+    if (argc < 2) {
+        std::fprintf(stderr, "fbtool: vfs-stat: usage: vfs-stat <grp> <name> [name...]\n");
+        return 2;
+    }
+    const std::string path = argv[0];
+    fauxbuild::grp::GrpDiagnostics grp_diags;
+    auto mount = fauxbuild::GrpMount::create(path, &grp_diags);
+    if (!mount.is_ok()) {
+        std::fprintf(stderr, "fbtool: %s\n", mount.error().to_string().c_str());
+        return 1;
+    }
+
+    fauxbuild::Vfs vfs;
+    vfs.add_mount(mount.take());
+    std::printf("mounted: %s (%zu mount)\n", path.c_str(), vfs.mount_count());
+    for (const auto& warning : grp_diags.warnings) {
+        std::printf("warning: %s\n", warning.c_str());
+    }
+
+    int failures = 0;
+    for (int i = 1; i < argc; ++i) {
+        const std::string query = argv[i];
+        auto file = vfs.open(query);
+        if (!file.is_ok()) {
+            std::printf("%-14s  MISS  %s\n", query.c_str(), file.error().to_string().c_str());
+            ++failures;
+            continue;
+        }
+        const auto& f = file.value();
+        // Read-to-EOF check: the mounted file must deliver exactly its size.
+        const bool exact = f.bytes.size() == f.size;
+        std::printf("%-14s  %s  %llu bytes  via %s\n", query.c_str(), exact ? "OK  " : "SHORT",
+                    static_cast<unsigned long long>(f.size), f.origin.c_str());
+        if (!exact) {
+            ++failures;
+        }
+    }
+    return failures == 0 ? 0 : 1;
+}
+
 int gen_fixtures(int argc, char** argv) {
     std::filesystem::path out = "fixtures/generated";
     for (int i = 0; i < argc; ++i) {
@@ -220,6 +265,9 @@ int main(int argc, char** argv) {
     }
     if (std::strcmp(cmd, "dump-grp") == 0) {
         return dump_grp(argc - 2, argv + 2);
+    }
+    if (std::strcmp(cmd, "vfs-stat") == 0) {
+        return vfs_stat(argc - 2, argv + 2);
     }
     if (std::strcmp(cmd, "gen-grp") == 0) {
         return gen_grp(argc - 2, argv + 2);
