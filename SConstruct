@@ -159,8 +159,14 @@ if host_build:
 
     # '${SOURCE.abspath}': a bare '$SOURCE' string action is dropped by SCons when the
     # action list also contains Action objects; the abspath form executes reliably.
+    # halt_on_error: UBSan otherwise prints a diagnostic and keeps going, so a
+    # test that provokes UB still reports SUCCESS and `check` stays green. Any
+    # undefined behaviour reached by the suite must fail the build.
+    test_cmd = '${SOURCE.abspath}'
+    if cfg == 'asan' and not is_msvc:
+        test_cmd = 'UBSAN_OPTIONS=halt_on_error=1 ' + test_cmd
     run_tests = tests_env.Command(
-        f'{bdir}/tests.stamp', [tests], ['${SOURCE.abspath}', Touch('$TARGET')])
+        f'{bdir}/tests.stamp', [tests], [test_cmd, Touch('$TARGET')])
     smoke_fbtool = env.Command(
         f'{bdir}/fbtool.stamp', [fbtool], ['${SOURCE.abspath} --version', Touch('$TARGET')])
     # Command contracts (exit codes, stdout) are not observable from the unit

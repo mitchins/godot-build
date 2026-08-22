@@ -51,8 +51,16 @@ std::vector<std::uint8_t> generate_grp(const GrpSpec& spec) {
         layout.push_back({name, size, next(state)});
     }
 
+    // Reserve the exact image size from the layout that was just computed. The
+    // previous estimate scaled with max_file_size, so a large bound requested a
+    // huge allocation regardless of the sizes actually generated (UINT32_MAX
+    // asked for ~34 GB and threw bad_alloc on Linux and MSVC).
+    std::uint64_t data_total = 0;
+    for (const auto& file : layout) {
+        data_total += file.size;
+    }
     std::vector<std::uint8_t> out;
-    out.reserve(16 + 16ull * spec.file_count + 16ull * spec.max_file_size / 2);
+    out.reserve(16 + 16ull * spec.file_count + data_total);
     const char* signature = "KenSilverman";
     out.insert(out.end(), signature, signature + 12);
 
