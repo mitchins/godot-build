@@ -48,6 +48,9 @@ compatibility references), reviewer, date.
 | 2 | Godot 4.7.2 stable (editor binary, `/Applications/Godot.app`) | Godot Engine project | MIT | Pinned engine binary for M1+ integration; not linked yet | no | mitchellcurrie | 2026-08-21 |
 | 3 | SCons 4.10.1 (system install via Homebrew) | SCons Foundation | MIT | Build system driving all native targets; invoked as a tool, not linked | no | mitchellcurrie | 2026-08-21 |
 | 4 | Apple clang 21.0.0 / LLVM libc++ (Xcode 26.6 toolchain) | Apple / LLVM | Apache-2.0 with LLVM exception | Compiler and C++ standard library for all native targets | no | mitchellcurrie | 2026-08-21 |
+| 5 | godot-cpp @ `9c8aeff0f58ad030f3d1030e8262de1322cd0ccd` (submodule `third_party/godot-cpp`, built `api_version=4.7`) | Godot Engine project | MIT | GDExtension C++ bindings; links the extension layer against Godot 4.7 APIs | yes (verbatim vendored submodule, permitted: permissive license) | mitchellcurrie | 2026-08-22 |
+| 6 | Godot 4.7.2 export templates (`Godot_v4.7.2-stable_export_templates.tpz`, official release asset) | Godot Engine project | MIT | macOS/iOS export templates installed to `~/Library/Application Support/Godot/export_templates/4.7.2.stable/` for export gates | no | mitchellcurrie | 2026-08-22 |
+| 7 | Godot 4.7.2 editor binary, macOS universal zip (official release asset, downloaded per-run by CI) | Godot Engine project | MIT | Drives the automated scene gate on the macOS CI runner | no | mitchellcurrie | 2026-08-22 |
 
 Vendor checksums (SHA-256):
 

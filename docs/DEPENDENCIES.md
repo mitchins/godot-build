@@ -12,11 +12,13 @@ in `PROVENANCE.md`.
 | Godot | 4.7.2 stable, `/Applications/Godot.app` | MIT | Engine host; not linked until M1 | Pinned by plan §3.1 (D0001) |
 | C++ standard library (libc++) | Apple clang 21 toolchain | Apache-2.0 with LLVM exception | Core language runtime | Toolchain baseline, no choice to make |
 
+| godot-cpp | submodule `third_party/godot-cpp` @ `9c8aeff0f58ad030f3d1030e8262de1322cd0ccd`, built with `api_version=4.7` | MIT | GDExtension C++ bindings for the extension layer | Only upstream artifact supporting the 4.7 extension API; no 4.7 tag exists yet (D0007) |
+| Godot export templates | 4.7.2 stable (official `tpz`, installed under `~/Library/Application Support/Godot/export_templates/`) | MIT | macOS/iOS export gates and future release pipelines | Official release artifact matching the pinned engine (M1) |
+
 ## Pending (must be resolved in the milestone that introduces them)
 
 | Dependency | Introduced at | Notes |
 |---|---|---|
-| godot-cpp (matching branch/tag + exact commit) | M1 | Must be pinned and recorded here with checksum |
 | Triangulation library for sector loops (or tested internal implementation) | M5 | Plan §9.3: a dependency decision, not an incidental code paste |
 | Fuzz harness (e.g. libFuzzer via clang) | M2 | Toolchain-provided, record usage when wired |
 

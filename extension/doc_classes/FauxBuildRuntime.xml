@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="FauxBuildRuntime" inherits="Node" version="4.7">
+	<brief_description>
+		Hosts the FauxBuild world runtime inside a Godot scene.
+	</brief_description>
+	<description>
+		<para>
+			The single owner of the FauxBuild world state within the scene tree. In later
+			milestones this node mounts content sources, loads maps, owns the mutable
+			[code]WorldState[/code], advances the fixed-step simulation, accepts world
+			commands, and drains world events. Godot presentation reads through this node;
+			it never modifies a parallel copy of the world.
+		</para>
+		<para>
+			Milestone M1 scope: class registration and a core-version probe.
+		</para>
+	</description>
+	<methods>
+		<method name="get_core_version">
+			<return type="String" />
+			<description>
+				<para>
+					Returns the linked [code]fauxbuild_core[/code] version string, proving
+					that the extension is linked against the pure C++ core.
+				</para>
+			</description>
+		</method>
+	</methods>
+</class>

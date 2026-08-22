@@ -84,3 +84,20 @@ record kind, error code) and fail atomically.
 Consequences: content-safety invariants in core use `FB_CHECK`, never bare `assert()`;
 parsers return structured errors for all bad input; behavior relying on `FB_CHECK` needs
 tests (the fork/SIGABRT death test in `tests/unit/check.test.cpp` is the reference).
+
+### D0007 — godot-cpp pin: master @ 9c8aeff0 with api_version=4.7
+
+Status: accepted
+Date: 2026-08-22
+Context: D0001 expected a godot-cpp branch/tag matching Godot 4.7.2. Upstream has no 4.7
+tag and no 4.7 branch; the newest stable tag is `godot-4.5-stable`. godot-cpp `master`
+(HEAD `9c8aeff0f58ad030f3d1030e8262de1322cd0ccd`) ships `extension_api-4-7.json` and
+declares `supported_api_versions = ["4.3", "4.4", "4.5", "4.6", "4.7"]`, so it is the only
+upstream artifact that can target the pinned engine.
+Decision: vendor godot-cpp as a git submodule at `third_party/godot-cpp`, pinned to commit
+`9c8aeff0f58ad030f3d1030e8262de1322cd0ccd`, built with `api_version=4.7`. Re-pin to the
+official `godot-4.7.2-stable` tag (or equivalent) when upstream creates one; that re-pin is
+a follow-up decision record, not optional cleanup.
+Consequences: the pin tracks a moving upstream lineage until a tag exists — the pinned commit
+in `.gitmodules`/submodule state is authoritative, never "master". Provenance entry records
+the commit and license.

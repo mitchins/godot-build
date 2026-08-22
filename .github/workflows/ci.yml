@@ -1,0 +1,86 @@
+name: CI
+
+# M1 CI matrix skeleton (plan §14.4, ruling from M0 review round 3).
+# This repository has no remote yet — the workflow is staged and takes effect
+# when pushed. Jobs run with FAUXBUILD_STRICT_TOOLS=1: a missing tool is a
+# failure, never a silent skip.
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  format:
+    name: Format
+    runs-on: ubuntu-latest
+    env:
+      FAUXBUILD_STRICT_TOOLS: "1"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+      - run: sudo apt-get update && sudo apt-get install -y clang-format scons
+      - run: scons config=dev format-check
+
+  linux:
+    name: Linux x86_64 (clang, asan)
+    runs-on: ubuntu-latest
+    env:
+      FAUXBUILD_STRICT_TOOLS: "1"
+      CXX: clang++
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+      - run: sudo apt-get update && sudo apt-get install -y clang-format scons
+      - run: scons config=dev check
+      - run: scons config=asan check
+
+  macos:
+    name: macOS arm64 (clang, asan, extension, scene gate)
+    runs-on: macos-14
+    env:
+      FAUXBUILD_STRICT_TOOLS: "1"
+      CXX: clang++
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+      - run: brew install scons
+      - run: scons config=dev check
+      - run: scons config=asan check
+      # Desktop GDExtension (debug pairing).
+      - run: scons config=dev extension target=template_debug
+      # Scene gate: official 4.7.2 editor binary drives the sample scene
+      # headless; ci/check_scene.py handles the cold-cache import retry.
+      - name: Download Godot 4.7.2 stable
+        run: |
+          curl -fsSL -o /tmp/godot.zip \
+            https://github.com/godotengine/godot/releases/download/4.7.2-stable/Godot_v4.7.2-stable_macos.universal.zip
+          unzip -q /tmp/godot.zip -d /tmp
+      - run: scons config=dev scene-check godot=/tmp/Godot.app/Contents/MacOS/Godot
+
+  windows:
+    name: Windows x64 (MSVC)
+    runs-on: windows-latest
+    continue-on-error: true # skeleton: MSVC wiring lands with the plan §14.4 matrix
+    env:
+      FAUXBUILD_STRICT_TOOLS: "1"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+      - run: pip install scons
+      - run: scons config=dev check

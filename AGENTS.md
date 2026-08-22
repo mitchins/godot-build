@@ -6,9 +6,9 @@ The full implementation contract is `docs/PROJECT_CONTRACT.md` and the source pl
 
 ## Active milestone
 
-**M0 — Contract and repository: ACCEPTED 2026-08-21.** Next: **M1 — Godot/GDExtension and
-Apple build smoke** (NOT_STARTED). No implementation work begins until a task names M1 and a
-bounded subtask, per plan §16.
+**M1 — Godot/GDExtension and Apple build smoke: GATE_REVIEW** (all gate items have
+executed evidence; awaiting human acceptance). Next: **M2 — Safe binary IO, VFS, and GRP**.
+No implementation work begins until a task names M2 and a bounded subtask, per plan §16.
 
 ## Clean-room rules (non-negotiable)
 
@@ -43,11 +43,18 @@ bounded subtask, per plan §16.
 ## Build and verify commands
 
 ```sh
+git submodule update --init --recursive   # once, after clone (godot-cpp)
+
 scons config=dev          # build libfauxbuild_core, fbtool, fauxbuild_tests
 scons config=dev check    # run headless tests + fbtool smoke + layering guard
 scons config=asan check   # sanitizer build + tests (where supported)
 scons config=dev format-check   # clang-format dry-run (skips with warning if not installed)
 ./build/dev/fbtool --version
+
+# GDExtension (installs into godot/bin/):
+scons config=dev extension                           # macOS debug (editor/dev runs)
+scons config=dev extension target=template_release   # macOS release (exports)
+scons config=release extension platform=ios target=template_release  # iOS static package
 ```
 
 There is no separate lint command yet; `-Wall -Wextra -Werror` is enforced by the build.

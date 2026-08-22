@@ -6,9 +6,14 @@
 *.dSYM/
 .sconsign.dblite
 
-# Godot (note: godot/bin/*.gdextension is source and gets committed at M1)
+# Godot
+# The committed .gdextension source is extension/fauxbuild.gdextension; the build
+# installs a copy plus the binaries into godot/bin/, which are generated artifacts.
 .godot/
 godot/bin/*.dylib
+godot/bin/*.a
+godot/bin/fauxbuild.gdextension
+godot/bin/fauxbuild.gdextension.uid
 
 # proprietary local stress data (plan §4.4) — never commit
 /local_reference/

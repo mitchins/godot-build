@@ -1,0 +1,12 @@
+[configuration]
+
+entry_symbol = "fauxbuild_library_init"
+compatibility_minimum = "4.7"
+reloadable = false
+
+[libraries]
+
+macos.debug = "res://bin/libfauxbuild.macos.template_debug.arm64.dylib"
+macos.release = "res://bin/libfauxbuild.macos.template_release.arm64.dylib"
+ios.debug = "res://bin/libfauxbuild.ios.a"
+ios.release = "res://bin/libfauxbuild.ios.a"

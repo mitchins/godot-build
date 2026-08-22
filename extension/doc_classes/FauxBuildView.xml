@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="FauxBuildView" inherits="Node3D" version="4.7">
+	<brief_description>
+		Presents the FauxBuild world through Godot rendering.
+	</brief_description>
+	<description>
+		<para>
+			The rendering adapter for a FauxBuild world. In later milestones this node owns
+			the camera adapter, GPU resources, shaders, the geometry cache, portal-visible
+			instance state, render interpolation, and debug drawing. It consumes world data
+			from [FauxBuildRuntime]; it never becomes the authority for world state.
+		</para>
+		<para>
+			Milestone M1 scope: class registration only.
+		</para>
+	</description>
+</class>
