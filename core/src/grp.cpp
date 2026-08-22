@@ -1,5 +1,6 @@
 #include "fauxbuild/grp.hpp"
 
+#include <algorithm>
 #include <cstring>
 #include <set>
 
@@ -58,7 +59,14 @@ Result<GrpData> parse(std::string_view image, std::string source, GrpDiagnostics
 
     std::set<std::string> seen_keys;
     std::uint64_t cursor = data.data_start;
-    data.entries.reserve(data.file_count);
+    // Clamp the speculative reserve. file_count is bounded by the directory-fits
+    // check above, but GrpEntry is 64 bytes against 16 bytes of directory, so a
+    // declared count still amplifies 4x: a 1 GiB image (read_file_bytes' default
+    // cap) would reserve 4 GiB before a single entry is validated. Beyond the
+    // clamp the vector grows as entries actually parse, and every parsed entry
+    // is paid for by 16 real bytes in the image.
+    constexpr std::uint32_t kEntryReserveClamp = 4096;
+    data.entries.reserve(std::min(data.file_count, kEntryReserveClamp));
     for (std::uint32_t i = 0; i < data.file_count; ++i) {
         const auto record = "grp.directory[" + std::to_string(i) + "]";
         auto name_bytes = reader.read_bytes(12);

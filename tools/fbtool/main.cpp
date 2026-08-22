@@ -19,6 +19,10 @@ namespace {
 // allocation and are well above anything a fixture needs.
 constexpr std::uint32_t kMaxSynthFiles = 65536;
 constexpr std::uint32_t kMaxSynthFileSize = 16u * 1024u * 1024u;
+// The per-option bounds are independently reasonable but multiply: 65536 files
+// at 16 MiB each is a ~1 TiB request that passes both. Fixtures never need
+// anything near this, so bound the product too.
+constexpr std::uint64_t kMaxSynthPayload = 256ull * 1024ull * 1024ull;
 
 // Strict unsigned option parsing: strtoul accepts an empty string, ignores
 // trailing garbage ("12x"), and its result wraps when narrowed. Every numeric
@@ -134,6 +138,17 @@ int gen_grp(int argc, char** argv) {
     }
     if (out.empty()) {
         std::fprintf(stderr, "fbtool: gen-grp: --out is required\n");
+        return 2;
+    }
+    const std::uint64_t worst_case =
+        static_cast<std::uint64_t>(spec.file_count) * spec.max_file_size;
+    if (worst_case > kMaxSynthPayload) {
+        std::fprintf(stderr,
+                     "fbtool: gen-grp: --files %u x --max-size %u could generate %llu bytes, "
+                     "over the %llu-byte limit\n",
+                     spec.file_count, spec.max_file_size,
+                     static_cast<unsigned long long>(worst_case),
+                     static_cast<unsigned long long>(kMaxSynthPayload));
         return 2;
     }
     const auto bytes = fauxbuild::synth::generate_grp(spec);

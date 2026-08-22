@@ -215,3 +215,29 @@ TEST_CASE("empty and single-byte inputs fail safely") {
     REQUIRE_FALSE(one.is_ok());
     CHECK(one.error().offset == 0);
 }
+
+TEST_CASE("directory larger than the reserve clamp parses to every entry") {
+    // The parser reserves at most kEntryReserveClamp (4096) entries up front so a
+    // declared count cannot amplify into a multi-gigabyte allocation before any
+    // entry is validated. Growth past the clamp must stay transparent: this
+    // directory declares 5000 zero-size entries in ~80 KiB of image.
+    constexpr std::uint32_t kCount = 5000;
+    Handmade made;
+    made.header(kCount);
+    for (std::uint32_t i = 0; i < kCount; ++i) {
+        char name[12];
+        std::snprintf(name, sizeof(name), "F%05u.DAT", i);
+        made.entry(name, 0);
+    }
+    REQUIRE(made.bytes.size() == 16 + 16ull * kCount);
+
+    auto parsed = parse(view(made.bytes), "clamped");
+    REQUIRE(parsed.is_ok());
+    const auto& grp = parsed.value();
+    REQUIRE(grp.entries.size() == kCount);
+    CHECK(grp.entries.front().name == "F00000.DAT");
+    CHECK(grp.entries.back().name == "F04999.DAT");
+    // Zero-size entries all sit at the first data byte.
+    CHECK(grp.entries.front().offset == grp.data_start);
+    CHECK(grp.entries.back().offset == grp.data_start);
+}

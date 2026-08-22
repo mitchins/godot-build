@@ -57,6 +57,9 @@ with tempfile.TemporaryDirectory() as tmp:
     run(["gen-grp", "--out", good, "--max-size", "4294967295"], 2, "gen-grp max-size overflow")
     run(["gen-grp", "--out", "/nonexistent/dir/out.grp"], 1, "gen-grp unwritable",
         expect_err="io_error")
+    # Per-option bounds pass individually but multiply into a ~1 TiB request.
+    run(["gen-grp", "--out", good, "--files", "65536", "--max-size", "16777216"],
+        2, "gen-grp aggregate payload", expect_err="over the")
     run(["no-such-command"], 2, "unknown command", expect_err="unknown command")
 
 if failures:
