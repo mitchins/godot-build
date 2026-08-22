@@ -161,8 +161,14 @@ scratch space; CI green without the bounded fuzz run does not tick any fuzz item
 
 ### D0011 — GRP parser entry-count resource limit
 
-Status: accepted
+Status: proposed (implemented, awaiting human ruling)
 Date: 2026-08-23
+Note: the bound is already in the code because it closes a live memory
+amplification found in PR review, and shipping the parser without it would leave
+the defect open. The *decision* is still unratified: the specific value (65536)
+and the choice to reject rather than truncate are contractual, and no human has
+ruled on either. Every other accepted record in this file cites a human ruling;
+this one cannot yet, so it stays proposed.
 Context: the GRP format states no maximum file count. The directory costs 16
 bytes per entry while a parsed `GrpEntry` costs 64, so an unbounded count lets
 untrusted input amplify ~4x into process memory: a 1 GiB container (the
