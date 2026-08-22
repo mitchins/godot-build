@@ -73,25 +73,27 @@ Result<std::uint32_t> ByteReader::read_u32_le() {
 }
 
 Result<ByteSpan> ByteReader::read_bytes(std::size_t count) {
-    const auto wide = static_cast<std::uint64_t>(count);
-    if (pos_ + wide > size_) {
+    // Compare against remaining() (== size_ - pos_, exact under the pos_ <=
+    // size_ invariant): a pos_ + count sum wraps for huge counts and would
+    // pass the check. Found in M2 review; M3 parsers feed file-derived
+    // products into this call.
+    if (count > remaining()) {
         return Result<ByteSpan>::err({source_, pos_, "bytes", ErrorCode::Truncated,
                                       "need " + std::to_string(count) + " bytes, " +
-                                          std::to_string(size_ - pos_) + " remaining"});
+                                          std::to_string(remaining()) + " remaining"});
     }
     const ByteSpan span{data_ + pos_, count}; // braces: portable aggregate init
-    pos_ += wide;
+    pos_ += count;
     return Result<ByteSpan>::ok(span);
 }
 
 Result<void> ByteReader::skip(std::size_t count) {
-    const auto wide = static_cast<std::uint64_t>(count);
-    if (pos_ + wide > size_) {
+    if (count > remaining()) {
         return Result<void>::err({source_, pos_, "skip", ErrorCode::Truncated,
                                   "need " + std::to_string(count) + " bytes, " +
-                                      std::to_string(size_ - pos_) + " remaining"});
+                                      std::to_string(remaining()) + " remaining"});
     }
-    pos_ += wide;
+    pos_ += count;
     return Result<void>::ok();
 }
 

@@ -128,6 +128,32 @@ void write_file(const std::filesystem::path& path, const std::vector<std::uint8_
 }
 } // namespace
 
+TEST_CASE("directory-mount collision resolution is deterministic regardless of iteration order") {
+    using Table = std::map<std::string, std::string>;
+    const std::vector<std::pair<std::string, std::string>> colliding = {{"TILES.ART", "tiles.art"},
+                                                                        {"TILES.ART", "TILES.ART"}};
+
+    // Every permutation of the input must resolve identically: the
+    // lexicographically first filename wins (M2 review finding — ext4
+    // directory iteration order is unspecified/hash-derived, and M7's gate
+    // requires Linux/macOS results to match).
+    for (auto order :
+         {std::vector<std::pair<std::string, std::string>>(colliding),
+          std::vector<std::pair<std::string, std::string>>(colliding.rbegin(), colliding.rend())}) {
+        const Table table = fauxbuild::DirectoryMount::resolve_file_table(order);
+        REQUIRE(table.size() == 1);
+        CHECK(table.at("TILES.ART") == "TILES.ART");
+    }
+
+    // Distinct keys are unaffected; ties pick the lexicographically first
+    // filename ("A.DAT" sorts before "a.dat" in ASCII).
+    const Table mixed = fauxbuild::DirectoryMount::resolve_file_table(
+        {{"b.dat", "b.dat"}, {"a.dat", "a.dat"}, {"a.dat", "A.DAT"}});
+    REQUIRE(mixed.size() == 2);
+    CHECK(mixed.at("a.dat") == "A.DAT");
+    CHECK(mixed.at("b.dat") == "b.dat");
+}
+
 TEST_CASE("directory mount snapshots a flat, case-insensitive view") {
     namespace fs = std::filesystem;
     const auto unique = std::to_string(std::chrono::steady_clock::now().time_since_epoch().count());

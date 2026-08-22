@@ -95,3 +95,25 @@ TEST_CASE("empty input rejects the first read") {
     CHECK(byte.error().offset == 0);
     CHECK(byte.error().source == "empty");
 }
+
+TEST_CASE("huge counts cannot wrap the bounds check") {
+    // Regression for the M2-review overflow: pos_ + count wrapped for counts
+    // near SIZE_MAX and produced a bogus OK span (or rewound the position).
+    ByteReader reader(kSample, sizeof(kSample), "wrap");
+    REQUIRE(reader.skip(4).is_ok());
+
+    auto huge_span = reader.read_bytes(SIZE_MAX - 15);
+    REQUIRE_FALSE(huge_span.is_ok());
+    CHECK(huge_span.error().code == ErrorCode::Truncated);
+    CHECK(huge_span.error().offset == 4);
+
+    auto huge_skip = reader.skip(SIZE_MAX - 15);
+    REQUIRE_FALSE(huge_skip.is_ok());
+    CHECK(huge_skip.error().code == ErrorCode::Truncated);
+
+    // State is untouched by the rejected calls; normal reads still work.
+    CHECK(reader.position() == 4);
+    auto rest = reader.read_bytes(4);
+    REQUIRE(rest.is_ok());
+    CHECK(rest.value().size == 4);
+}

@@ -81,9 +81,20 @@ class MemoryMount final : public Mount {
 // Directory mount (development, loose game files). Snapshots the flat list of
 // regular files at create() time; names containing separators and dotfiles
 // are skipped. Names are matched case-insensitively via normalization.
+// Case-insensitive collisions resolve deterministically on every filesystem:
+// the lexicographically first filename wins (resolve_file_table).
 class DirectoryMount final : public Mount {
   public:
     static Result<std::unique_ptr<DirectoryMount>> create(const std::string& root);
+
+    // Deterministic collision resolution: sorts entries by (key, filename)
+    // and keeps the first registration of each key. Exposed for tests because
+    // case-colliding files cannot be constructed on case-insensitive
+    // filesystems (macOS APFS default) — the rule must not depend on
+    // directory_iterator's unspecified order (M2 review; M7 cross-platform
+    // determinism gate).
+    static std::map<std::string, std::string>
+    resolve_file_table(std::vector<std::pair<std::string, std::string>> entries);
 
     std::string describe() const override;
     bool contains(const std::string& key) const override;

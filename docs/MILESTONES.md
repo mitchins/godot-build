@@ -201,6 +201,25 @@ doctest TUs). CI fully green on 6cee4a4: Linux x86_64 (dev+asan+fuzz), macOS arm
 (check+extension+scene gate), Format, Windows MSVC (dev+check; job stays
 continue-on-error until §14.4 makes the Windows matrix mandatory).
 
+Review round 1 (2026-08-22, three findings, all fixed):
+
+- **ByteReader bounds-check bypass** (blocking): `read_bytes`/`skip` tested
+  `pos_ + count > size_`, which wraps for counts near SIZE_MAX — an OK Result
+  carrying an 18-exabyte span into a 100-byte buffer (reviewer-proven against the
+  built library). Unreachable in M2 (all callers pass literals) but exactly what
+  M3's file-derived products (`numwalls * 32`) would walk into. Fix: compare
+  `count > remaining()` (exact under the `pos_ <= size_` invariant). Regression
+  test reproduces the reviewer's probe (SIZE_MAX-15 at a non-zero position) and
+  asserts state is untouched after rejection.
+- **DirectoryMount determinism gap** (M7 landing): collision resolution depended
+  on `directory_iterator`'s unspecified (ext4: hash-derived) order; on
+  case-insensitive APFS the collision cannot even be constructed, so the suite
+  never covered it. Fix: `resolve_file_table` sorts `(key, filename)` and keeps
+  the first — "first wins" is now "lexicographically first" on every filesystem;
+  exposed for tests and covered for every permutation.
+- **Nit:** `Vfs::diagnostics()` said "shadowed by" — the active mount shadows the
+  older ones; wording corrected with a comment fixing the provider order rule.
+
 ## M3 — MAP v7 parser, validator, and writer — NOT_STARTED
 
 Gate summary: all synthetic maps parse; parse→write→parse semantically identical; byte-identical

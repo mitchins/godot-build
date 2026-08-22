@@ -85,7 +85,9 @@ VfsDiagnostics Vfs::diagnostics() const {
             }
         }
         if (providers.size() > 1) {
-            std::string text = name + " active from " + providers.back() + ", shadowed by ";
+            // providers are in mount order: the last added (newest) is active
+            // and shadows every earlier one.
+            std::string text = name + " active from " + providers.back() + ", shadowing ";
             for (std::size_t i = 0; i + 1 < providers.size(); ++i) {
                 if (i > 0) {
                     text += ", ";
@@ -155,7 +157,10 @@ Result<std::unique_ptr<DirectoryMount>> DirectoryMount::create(const std::string
             {root, 0, "directory_mount", ErrorCode::IoError, "not a directory"});
     }
 
-    std::map<std::string, std::string> files;
+    // Collect, then resolve: directory_iterator order is unspecified (hash
+    // derived on ext4), so "first wins" is decided by an explicit sort, not
+    // by whatever the filesystem hands us first.
+    std::vector<std::pair<std::string, std::string>> found;
     for (fs::directory_iterator it(root_path, ec), end; !ec && it != end; it.increment(ec)) {
         const std::string filename = it->path().filename().string();
         if (ec || !it->is_regular_file(ec) || filename.starts_with('.')) {
@@ -166,10 +171,20 @@ Result<std::unique_ptr<DirectoryMount>> DirectoryMount::create(const std::string
             key.find('\\') != std::string::npos) {
             continue;
         }
-        files.emplace(key, filename); // first entry wins on case-insensitive collisions
+        found.emplace_back(key, filename);
     }
-    return Result<std::unique_ptr<DirectoryMount>>::ok(
-        std::unique_ptr<DirectoryMount>(new DirectoryMount(root, std::move(files))));
+    return Result<std::unique_ptr<DirectoryMount>>::ok(std::unique_ptr<DirectoryMount>(
+        new DirectoryMount(root, resolve_file_table(std::move(found)))));
+}
+
+std::map<std::string, std::string>
+DirectoryMount::resolve_file_table(std::vector<std::pair<std::string, std::string>> entries) {
+    std::sort(entries.begin(), entries.end());
+    std::map<std::string, std::string> files;
+    for (auto& [key, filename] : entries) {
+        files.emplace(std::move(key), std::move(filename)); // first wins
+    }
+    return files;
 }
 
 DirectoryMount::DirectoryMount(std::string root, std::map<std::string, std::string> files)
