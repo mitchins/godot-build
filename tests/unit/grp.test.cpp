@@ -216,6 +216,36 @@ TEST_CASE("empty and single-byte inputs fail safely") {
     CHECK(one.error().offset == 0);
 }
 
+TEST_CASE("file count above the parser limit is rejected before allocating") {
+    // A clamped reserve only defers the allocation: entries still grow to 64
+    // bytes each, so an unbounded count amplifies untrusted input ~4x into
+    // process memory. kMaxEntryCount is the bound (D0011). The rejection must
+    // happen on the header alone, without the directory being present.
+    Handmade made;
+    made.header(fauxbuild::grp::kMaxEntryCount + 1);
+    auto parsed = parse(view(made.bytes), "oversized");
+    REQUIRE_FALSE(parsed.is_ok());
+    CHECK(parsed.error().code == fauxbuild::ErrorCode::TooLarge);
+    CHECK(parsed.error().record == "grp.header");
+    CHECK(parsed.error().offset == 12);
+    // 16 bytes of header rejected it; no directory was read.
+    CHECK(made.bytes.size() == 16);
+}
+
+TEST_CASE("file count exactly at the parser limit is accepted") {
+    constexpr std::uint32_t kCount = fauxbuild::grp::kMaxEntryCount;
+    Handmade made;
+    made.header(kCount);
+    for (std::uint32_t i = 0; i < kCount; ++i) {
+        char name[12];
+        std::snprintf(name, sizeof(name), "F%05u.DAT", i);
+        made.entry(name, 0);
+    }
+    auto parsed = parse(view(made.bytes), "at-limit");
+    REQUIRE(parsed.is_ok());
+    CHECK(parsed.value().entries.size() == kCount);
+}
+
 TEST_CASE("directory larger than the reserve clamp parses to every entry") {
     // The parser reserves at most kEntryReserveClamp (4096) entries up front so a
     // declared count cannot amplify into a multi-gigabyte allocation before any

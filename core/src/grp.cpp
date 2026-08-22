@@ -44,6 +44,18 @@ Result<GrpData> parse(std::string_view image, std::string source, GrpDiagnostics
     if (!file_count.is_ok()) {
         return Result<GrpData>::err(file_count.error());
     }
+    // Reject before the directory check, the reserve and the parse loop: a
+    // clamped reserve only defers the allocation, since the entry vector still
+    // grows to 64 bytes per accepted entry (measured 4.2x amplification on a
+    // 15 MiB directory-only container). This is the resource bound; the clamp
+    // below is only about avoiding a large speculative first allocation.
+    if (file_count.value() > kMaxEntryCount) {
+        return Result<GrpData>::err({source, 12, "grp.header", ErrorCode::TooLarge,
+                                     "file count " + std::to_string(file_count.value()) +
+                                         " exceeds the parser limit " +
+                                         std::to_string(kMaxEntryCount)});
+    }
+
     GrpData data;
     data.file_count = file_count.value();
     data.data_start = 16 + 16ull * data.file_count; // 12 signature + 4 count
@@ -59,12 +71,9 @@ Result<GrpData> parse(std::string_view image, std::string source, GrpDiagnostics
 
     std::set<std::string> seen_keys;
     std::uint64_t cursor = data.data_start;
-    // Clamp the speculative reserve. file_count is bounded by the directory-fits
-    // check above, but GrpEntry is 64 bytes against 16 bytes of directory, so a
-    // declared count still amplifies 4x: a 1 GiB image (read_file_bytes' default
-    // cap) would reserve 4 GiB before a single entry is validated. Beyond the
-    // clamp the vector grows as entries actually parse, and every parsed entry
-    // is paid for by 16 real bytes in the image.
+    // Total allocation is bounded by kMaxEntryCount above (<= 4 MiB of entries).
+    // This clamp additionally avoids reserving for a declared count that the
+    // directory may not actually deliver.
     constexpr std::uint32_t kEntryReserveClamp = 4096;
     data.entries.reserve(std::min(data.file_count, kEntryReserveClamp));
     for (std::uint32_t i = 0; i < data.file_count; ++i) {

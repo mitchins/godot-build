@@ -28,15 +28,23 @@ struct GrpData {
     std::vector<GrpEntry> entries;
 };
 
+// Parser resource limit, not a format limit: the GRP format states no maximum
+// file count, but the directory is 16 bytes per entry while a parsed GrpEntry is
+// 64, so an unbounded count lets untrusted input amplify 4x into process memory
+// (a 1 GiB container would materialize ~4 GiB of entries). Real archives are in
+// the low thousands of files; this is ~40x the largest we expect. Raising it is
+// a decision record, not a code change (D0011).
+inline constexpr std::uint32_t kMaxEntryCount = 65536;
+
 struct GrpDiagnostics {
     std::vector<std::string> warnings;
 };
 
-// Parses a complete GRP image. Validation: signature, directory fits in the
-// image, every entry's name is a legal flat name, every entry's data range
-// fits in the image. Tolerated oddities become warnings via `diags`
-// (duplicate names: first entry wins; declared data length != actual sum).
-// Never partially initializes: the caller gets complete data or an error.
+// Parses a complete GRP image. Validation: signature, file count within
+// kMaxEntryCount, directory fits in the image, every entry's name is a legal
+// flat name, every entry's data range fits in the image. Tolerated oddities become warnings via
+// `diags` (duplicate names: first entry wins; declared data length != actual sum). Never partially
+// initializes: the caller gets complete data or an error.
 Result<GrpData> parse(std::string_view image, std::string source, GrpDiagnostics* diags = nullptr);
 
 } // namespace fauxbuild::grp

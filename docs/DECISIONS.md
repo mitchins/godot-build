@@ -158,3 +158,25 @@ exercised by the ordinary `check` suite (corpus regression test), so regressions
 on platforms/configurations without the fuzz runtime.
 Consequences: `tests/fuzz/corpus/` and `tests/fuzz/regression/` are gate artifacts, not
 scratch space; CI green without the bounded fuzz run does not tick any fuzz item.
+
+### D0011 — GRP parser entry-count resource limit
+
+Status: accepted
+Date: 2026-08-23
+Context: the GRP format states no maximum file count. The directory costs 16
+bytes per entry while a parsed `GrpEntry` costs 64, so an unbounded count lets
+untrusted input amplify ~4x into process memory: a 1 GiB container (the
+`read_file_bytes` default cap) materializes ~4 GiB of entries, plus reallocation
+peak. Measured at 4.2x on a 15 MiB directory-only container. Clamping the
+initial `reserve` only defers the allocation; it does not bound it.
+Decision: `fauxbuild::grp::kMaxEntryCount = 65536`. A file count above it is
+rejected with a structured `TooLarge` error on the header alone, before the
+directory is read or any per-entry allocation occurs. This is a **parser
+resource limit, not a format limit** — it makes no claim about what the GRP
+format permits, and it is deliberately distinct from the
+`FAUXBUILD_CLASSIC_V7` profile limits, which are world-representation limits.
+Real archives hold low thousands of files, so this is roughly 40x headroom.
+Consequences: recorded as a bounded known incompatibility in
+`COMPATIBILITY_SCOPE.md`. Raising the limit is a new decision record, not an
+incidental code change. Any future format parser that allocates per record from
+an untrusted count needs an equivalent bound.
