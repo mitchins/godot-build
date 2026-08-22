@@ -5,6 +5,8 @@ namespace fauxbuild {
 const char* build_config() {
 #if defined(FAUXBUILD_CONFIG_ASAN)
     return "asan";
+#elif defined(FAUXBUILD_CONFIG_FUZZ)
+    return "fuzz";
 #elif defined(FAUXBUILD_CONFIG_RELEASE)
     return "release";
 #else

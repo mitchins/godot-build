@@ -6,9 +6,8 @@ The full implementation contract is `docs/PROJECT_CONTRACT.md` and the source pl
 
 ## Active milestone
 
-**M1 — Godot/GDExtension and Apple build smoke: ACCEPTED 2026-08-22.** Next: **M2 — Safe
-binary IO, VFS, and GRP** (NOT_STARTED). No implementation work begins until a task names M2
-and a bounded subtask, per plan §16.
+**M2 — Safe binary IO, VFS, and GRP: GATE_REVIEW** (one HUMAN-ATTESTED item pending:
+local `DUKE3D.GRP` enumeration). Next after M2: M3.
 
 ## Repository boundary and evidence classes
 
@@ -60,6 +59,7 @@ scons config=dev          # build libfauxbuild_core, fbtool, fauxbuild_tests
 scons config=dev check    # run headless tests + fbtool smoke + layering guard
 scons config=asan check   # sanitizer build + tests (where supported)
 scons config=dev format-check   # clang-format dry-run (skips with warning if not installed)
+scons config=fuzz fuzz          # bounded fuzz run over committed corpus (D0010)
 ./build/dev/fbtool --version
 
 # GDExtension (installs into godot/bin/):

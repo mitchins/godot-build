@@ -1,9 +1,11 @@
 import os
+
+import SCons.Errors
 import subprocess
 
 vars = Variables()
 vars.Add(EnumVariable('config', 'Build configuration', 'dev',
-                      allowed_values=('dev', 'release', 'asan')))
+                      allowed_values=('dev', 'release', 'asan', 'fuzz')))
 vars.Add(PathVariable('godot', 'Path to Godot editor binary (used from M1)',
                       '/Applications/Godot.app/Contents/MacOS/Godot',
                       PathVariable.PathAccept))
@@ -11,30 +13,56 @@ vars.Add(PathVariable('godot', 'Path to Godot editor binary (used from M1)',
 env = Environment(variables=vars, ENV=os.environ)
 Help(vars.GenerateHelpText(env))
 
-# Plan §3.1 pins clang on POSIX; MSVC on Windows via SCons default detection.
-# An externally supplied CXX always wins.
-if env['PLATFORM'] != 'win32':
+# Plan §3.1 pins clang on POSIX and MSVC on Windows; an externally supplied
+# CXX always wins on POSIX. Warning/standard flags are per-toolchain.
+is_msvc = env['PLATFORM'] == 'win32'
+if is_msvc:
+    env.Append(CXXFLAGS=['/std:c++20', '/permissive-', '/Zc:__cplusplus', '/W4', '/WX',
+                         '/EHsc'],
+               CPPDEFINES=['_CRT_SECURE_NO_WARNINGS'])
+else:
     env['CXX'] = os.environ.get('CXX', 'clang++')
+    env.Append(CXXFLAGS=['-std=c++20', '-Wall', '-Wextra', '-Werror'])
 
-env.Append(
-    CXXFLAGS=['-std=c++20', '-Wall', '-Wextra', '-Werror'],
-    CPPPATH=['#core/include'],
-)
+env.Append(CPPPATH=['#core/include'])
 
 cfg = env['config']
 if cfg == 'dev':
-    env.Append(CXXFLAGS=['-O0', '-g3'], CPPDEFINES=['FAUXBUILD_CONFIG_DEV'])
+    if is_msvc:
+        env.Append(CXXFLAGS=['/Od', '/Zi', '/FS'], CPPDEFINES=['FAUXBUILD_CONFIG_DEV'])
+    else:
+        env.Append(CXXFLAGS=['-O0', '-g3'], CPPDEFINES=['FAUXBUILD_CONFIG_DEV'])
 elif cfg == 'release':
     # NDEBUG makes plain assert() development-only. Plan §3.3 content-safety
     # assertions are delivered by FB_CHECK, which is always live independent of
     # NDEBUG (D0006). That keeps "deliberate content-safety invariant" distinct
     # from "debug aid" in shipping builds.
-    env.Append(CXXFLAGS=['-O2'], CPPDEFINES=['FAUXBUILD_CONFIG_RELEASE', 'NDEBUG'])
+    if is_msvc:
+        env.Append(CXXFLAGS=['/O2'], CPPDEFINES=['FAUXBUILD_CONFIG_RELEASE', 'NDEBUG'])
+    else:
+        env.Append(CXXFLAGS=['-O2'], CPPDEFINES=['FAUXBUILD_CONFIG_RELEASE', 'NDEBUG'])
 elif cfg == 'asan':
     env.Append(
         CXXFLAGS=['-O1', '-g3', '-fsanitize=address,undefined', '-fno-omit-frame-pointer'],
         LINKFLAGS=['-fsanitize=address,undefined'],
         CPPDEFINES=['FAUXBUILD_CONFIG_ASAN'],
+    )
+elif cfg == 'fuzz':
+    # Sanitizer-driven fuzz builds (plan §3.3, D0010). Apple clang ships no
+    # libFuzzer runtime, so tests/fuzz/fuzz_main.cpp provides a portable
+    # deterministic driver with libFuzzer-compatible flags.
+    # MSVC cannot build this configuration (no -fsanitize=undefined, no POSIX
+    # env-prefix command form). Fail fast rather than emitting flags the
+    # toolchain silently mishandles; see docs/DEPENDENCIES.md.
+    if is_msvc:
+        raise SCons.Errors.UserError(
+            "config=fuzz is not supported on MSVC/Windows; run it on Linux or macOS "
+            "(documented in docs/DEPENDENCIES.md)")
+    env.Append(
+        CXXFLAGS=['-O1', '-g3', '-fsanitize=address,undefined',
+                  '-fno-omit-frame-pointer'],
+        LINKFLAGS=['-fsanitize=address,undefined'],
+        CPPDEFINES=['FAUXBUILD_CONFIG_FUZZ'],
     )
 
 # ---------------------------------------------------------------------------
@@ -59,11 +87,49 @@ if platform == 'ios':
 bdir = f'#build/{cfg}'
 
 VariantDir(f'{bdir}/core', '#core', duplicate=0)
-core_sources = [f'{bdir}/core/src/version.cpp', f'{bdir}/core/src/check.cpp']
+core_sources = [
+    f'{bdir}/core/src/version.cpp',
+    f'{bdir}/core/src/check.cpp',
+    f'{bdir}/core/src/result.cpp',
+    f'{bdir}/core/src/byte_reader.cpp',
+    f'{bdir}/core/src/file_io.cpp',
+    f'{bdir}/core/src/grp.cpp',
+    f'{bdir}/core/src/grp_synth.cpp',
+    f'{bdir}/core/src/vfs.cpp',
+]
 core_objects = env.Object(core_sources)
 core = env.StaticLibrary(f'{bdir}/libfauxbuild_core', core_objects)
 
-if platform == 'macos':
+if cfg == 'fuzz':
+    VariantDir(f'{bdir}/tests', '#tests', duplicate=0)
+    grp_fuzz = env.Program(f'{bdir}/fauxbuild_fuzz_grp',
+                           [f'{bdir}/tests/fuzz/grp_fuzz.cpp',
+                            f'{bdir}/tests/fuzz/fuzz_main.cpp'], LIBS=[core])
+    # D0010: bounded corpus run over committed seeds + regressions.
+    fuzz_run = env.Command(
+        f'{bdir}/fuzz.stamp', [grp_fuzz],
+        ['UBSAN_OPTIONS=halt_on_error=1 ${SOURCE.abspath} -runs=20000 -max_len=65536 '
+         'tests/fuzz/corpus/grp tests/fuzz/regression/grp',
+         Touch('$TARGET')])
+    env.AlwaysBuild(fuzz_run)
+    # The gate must be able to fail: assert the driver refuses to report success
+    # on a corpus it could not load, and that the real corpus loads > 1 seed.
+    fuzz_gate = env.Command(
+        f'{bdir}/fuzz_gate.stamp', [grp_fuzz],
+        ['python3 ci/check_fuzz_gate.py ${SOURCE.abspath}', Touch('$TARGET')])
+    env.AlwaysBuild(fuzz_gate)
+    Alias('all', [grp_fuzz])
+    Alias('fuzz', [fuzz_gate, fuzz_run])
+    Default('all')
+
+# Host tools/tests build whenever we are compiling for the host platform and
+# not in the fuzz config (libFuzzer owns main). Cross-compiles (e.g.
+# platform=ios) and the fuzz config skip this block. Note: guarding on
+# `platform == 'macos'` instead would silently reduce the Linux CI `check`
+# target to the layering script alone — a green gate that runs no tests.
+host_build = platform == _host_platform and cfg != 'fuzz'
+
+if host_build:
     VariantDir(f'{bdir}/tools', '#tools', duplicate=0)
     VariantDir(f'{bdir}/tests', '#tests', duplicate=0)
 
@@ -71,24 +137,48 @@ if platform == 'macos':
 
     tests_env = env.Clone()
     tests_env.Append(CPPPATH=['#third_party'])
+    if is_msvc:
+        # doctest's internal code is not /W4-clean; keep tests strict on POSIX.
+        tests_env['CXXFLAGS'] = [f for f in tests_env['CXXFLAGS'] if f not in ('/W4', '/WX')]
+        tests_env['CXXFLAGS'].append('/W3')
     tests = tests_env.Program(
         f'{bdir}/fauxbuild_tests',
         [
             f'{bdir}/tests/unit/main.cpp',
             f'{bdir}/tests/unit/version.test.cpp',
             f'{bdir}/tests/unit/check.test.cpp',
+            f'{bdir}/tests/unit/byte_reader.test.cpp',
+        f'{bdir}/tests/unit/file_io.test.cpp',
+            f'{bdir}/tests/unit/grp.test.cpp',
+            f'{bdir}/tests/unit/grp_synth.test.cpp',
+            f'{bdir}/tests/unit/vfs.test.cpp',
+            f'{bdir}/tests/unit/corpus_regression.test.cpp',
         ],
         LIBS=[core],
     )
 
     # '${SOURCE.abspath}': a bare '$SOURCE' string action is dropped by SCons when the
     # action list also contains Action objects; the abspath form executes reliably.
+    # halt_on_error: UBSan otherwise prints a diagnostic and keeps going, so a
+    # test that provokes UB still reports SUCCESS and `check` stays green. Any
+    # undefined behaviour reached by the suite must fail the build.
+    test_cmd = '${SOURCE.abspath}'
+    if cfg == 'asan' and not is_msvc:
+        test_cmd = 'UBSAN_OPTIONS=halt_on_error=1 ' + test_cmd
     run_tests = tests_env.Command(
-        f'{bdir}/tests.stamp', [tests], ['${SOURCE.abspath}', Touch('$TARGET')])
+        f'{bdir}/tests.stamp', [tests], [test_cmd, Touch('$TARGET')])
     smoke_fbtool = env.Command(
         f'{bdir}/fbtool.stamp', [fbtool], ['${SOURCE.abspath} --version', Touch('$TARGET')])
+    # Command contracts (exit codes, stdout) are not observable from the unit
+    # suite, so dump-grp/gen-grp get a process-level gate of their own.
+    fbtool_contract = env.Command(
+        f'{bdir}/fbtool_contract.stamp', [fbtool],
+        ['python3 ci/check_fbtool.py ${SOURCE.abspath}', Touch('$TARGET')])
+    env.AlwaysBuild(fbtool_contract)
 
-Alias('all', [core] + ([fbtool, tests] if platform == 'macos' else []))
+    Alias('all', [core, fbtool, tests])
+else:
+    Alias('all', [core])
 
 layering = env.Command(
     f'{bdir}/layering.stamp', [], ['python3 ci/check_layering.py', Touch('$TARGET')])
@@ -96,8 +186,8 @@ layering = env.Command(
 # would make them run once per build/<cfg> lifetime and report green forever after.
 env.AlwaysBuild(layering)
 
-if platform == 'macos':
-    Alias('check', [run_tests, smoke_fbtool, layering])
+if host_build:
+    Alias('check', [run_tests, smoke_fbtool, fbtool_contract, layering])
 else:
     Alias('check', [layering])
 
@@ -149,18 +239,25 @@ if os.path.exists(godot_cpp_sconstruct):
                           ['python3 ci/merge_static_libs.py $TARGET $SOURCES'])
         installed = env.Command('#godot/bin/libfauxbuild.ios.a', [ext],
                                 Copy('$TARGET', '$SOURCE'))
-    else:
+    elif platform == 'macos':
         ext_name = f'{bdir}/extension/libfauxbuild.macos.{gd_target}.arm64'
         ext = ext_env.SharedLibrary(ext_name, ext_sources,
                                     LIBS=[core] + list(ext_env['LIBS']))
         installed = env.Command(f'#godot/bin/libfauxbuild.macos.{gd_target}.arm64.dylib',
                                 [ext], Copy('$TARGET', '$SOURCE'))
+    else:
+        # Desktop extension targets are wired for macOS/iOS at M1/M2; Linux/
+        # Windows extension wiring lands with the plan §14.4 CI matrix.
+        installed = None
 
     installed_manifest = env.Command('#godot/bin/fauxbuild.gdextension',
                                      '#extension/fauxbuild.gdextension',
                                      Copy('$TARGET', '$SOURCE'))
-    Alias('extension', [installed, installed_manifest])
-    if platform == 'macos':
+    if installed is not None:
+        Alias('extension', [installed, installed_manifest])
+    else:
+        Alias('extension', [installed_manifest])
+    if installed is not None and platform == 'macos':
         scene_deps.append(installed)
         scene_deps.append(installed_manifest)
 

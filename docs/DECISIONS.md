@@ -140,3 +140,52 @@ by a human on the development machine, recorded as `HUMAN-ATTESTED <date> <comma
 milestone entry, and can never be ticked by CI.
 Consequences: gate items in M3/M5/M8/M11(device)/M12 are annotated with their class; CI
 greenness never substitutes for the attested items and vice versa.
+
+### D0010 — Definition of "fuzz tests pass"
+
+Status: accepted
+Date: 2026-08-22 (carried in from the M1 acceptance review)
+Context: plan §3.3 and the M2 gate require parser fuzz targets. A built-but-never-run fuzz
+target is the same failure shape as every gate defect found in M0/M1 review rounds 1–3 —
+it reports capability without executing it. Without a definition settled before the target
+exists, the gate item silently degrades to "it compiled."
+Decision: a fuzz gate item is satisfied only by all of:
+(a) a **bounded run in CI** (`-runs=N` or `-max_total_time=`) that exits zero;
+(b) a **committed seed corpus** covering at least: valid containers, empty input, truncated
+headers/directories/data, and bad signatures;
+(c) **every crasher ever found is committed as a regression input** and additionally
+exercised by the ordinary `check` suite (corpus regression test), so regressions fail even
+on platforms/configurations without the fuzz runtime.
+Consequences: `tests/fuzz/corpus/` and `tests/fuzz/regression/` are gate artifacts, not
+scratch space; CI green without the bounded fuzz run does not tick any fuzz item.
+
+### D0011 — GRP parser entry-count resource limit
+
+Status: accepted
+Date: 2026-08-23 (human ruling 2026-08-23, at M2 review)
+Ruling: "FauxBuild GRP parsing is bounded to 65,536 directory entries. Archives
+declaring more entries are rejected with a structured `TooLarge` error rather
+than truncated. This is a defensive parser/runtime limit, not a claim about the
+GRP format itself. Silent partial mounting is prohibited." Parse-first-N-and-warn
+was considered and rejected: an archive that appears to mount while its namespace
+is silently incomplete turns a parser bound into distant, bizarre failures in map,
+art and audio lookup. Fail-closed is the correct behaviour for a container layer.
+Resource-budget configurability is explicitly *not* wanted: 65,536 is a hard
+safety ceiling, and parser-policy knobs wait for a real use case.
+Context: the GRP format states no maximum file count. The directory costs 16
+bytes per entry while a parsed `GrpEntry` costs 64, so an unbounded count lets
+untrusted input amplify ~4x into process memory: a 1 GiB container (the
+`read_file_bytes` default cap) materializes ~4 GiB of entries, plus reallocation
+peak. Measured at 4.2x on a 15 MiB directory-only container. Clamping the
+initial `reserve` only defers the allocation; it does not bound it.
+Decision: `fauxbuild::grp::kMaxEntryCount = 65536`. A file count above it is
+rejected with a structured `TooLarge` error on the header alone, before the
+directory is read or any per-entry allocation occurs. This is a **parser
+resource limit, not a format limit** — it makes no claim about what the GRP
+format permits, and it is deliberately distinct from the
+`FAUXBUILD_CLASSIC_V7` profile limits, which are world-representation limits.
+Real archives hold low thousands of files, so this is roughly 40x headroom.
+Consequences: recorded as a bounded known incompatibility in
+`COMPATIBILITY_SCOPE.md`. Raising the limit is a new decision record, not an
+incidental code change. Any future format parser that allocates per record from
+an untrusted count needs an equivalent bound.

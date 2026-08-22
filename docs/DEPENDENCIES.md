@@ -14,13 +14,21 @@ in `PROVENANCE.md`.
 
 | godot-cpp | submodule `third_party/godot-cpp` @ `9c8aeff0f58ad030f3d1030e8262de1322cd0ccd`, built with `api_version=4.7` | MIT | GDExtension C++ bindings for the extension layer | Only upstream artifact supporting the 4.7 extension API; no 4.7 tag exists yet (D0007) |
 | Godot export templates | 4.7.2 stable (official `tpz`, installed under `~/Library/Application Support/Godot/export_templates/`) | MIT | macOS/iOS export gates and future release pipelines | Official release artifact matching the pinned engine (M1) |
+| Fuzz harness | Custom deterministic driver `tests/fuzz/fuzz_main.cpp` + ASan/UBSan from the pinned clang toolchains | In-repo (MIT, ours) / Apache-2.0 with LLVM exception | Bounded mutation runs over committed corpus (D0010) | Apple clang ships no libFuzzer runtime; one portable codepath on all platforms; Linux CI may add libFuzzer against the same entry point later |
 
 ## Pending (must be resolved in the milestone that introduces them)
 
 | Dependency | Introduced at | Notes |
 |---|---|---|
 | Triangulation library for sector loops (or tested internal implementation) | M5 | Plan §9.3: a dependency decision, not an incidental code paste |
-| Fuzz harness (e.g. libFuzzer via clang) | M2 | Toolchain-provided, record usage when wired |
+
+## Platform support notes
+
+`config=fuzz` is supported on Linux and macOS only. It requires
+`-fsanitize=address,undefined`, which MSVC does not provide, so `SConstruct`
+rejects the configuration on Windows with a clear message rather than emitting
+flags the toolchain silently mishandles. Windows fuzzing is not required by any
+milestone through M15; if it becomes required, it needs a decision record.
 
 ## Rejected / avoided
 

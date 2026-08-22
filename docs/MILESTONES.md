@@ -139,11 +139,113 @@ gate), Linux x86_64 (clang+asan), Format all green; Windows skeleton job
 failed as expected and is `continue-on-error` until the §14.4 MSVC wiring
 lands.
 
-## M2 — Safe binary IO, VFS, and GRP — NEXT (active once a task names it)
+## M2 — Safe binary IO, VFS, and GRP
 
-Gate summary: synthetic GRPs enumerate/read exact bytes; truncated/corrupt cases fail safely;
-duplicate/case behavior documented and tested; local untouched `DUKE3D.GRP` enumerates without
-extraction (HUMAN-ATTESTED per D0009); no hard-coded proprietary filenames.
+Status: **ACCEPTED**
+Started: 2026-08-22
+Gate accepted: 2026-08-23 (human ruling at M2 review, conditional on the local-GRP
+read-through, which was then executed and recorded below)
+Ruling: D0011 accepted as implemented (`kMaxEntryCount = 65536`, reject rather than
+truncate, silent partial mounting prohibited); local real-GRP portion passed. No further
+resource-budget configurability is wanted — 65536 is a hard safety ceiling and parser-policy
+knobs wait for a real use case.
+
+### Task rules (binding, from M1 acceptance review)
+
+1. **D0006 boundary gets its first real test here.** Untrusted input (file bytes, GRP
+   headers, directory entries) is **never** validated with `FB_CHECK` — a short read or bad
+   signature returns a structured error carrying source name, byte offset, record kind/index,
+   error code, and explanation (plan §6.3, NUMERICS.md). `FB_CHECK` is for our own code
+   violating its invariants, nothing else.
+2. **"Fuzz tests pass" means (D0010):** a bounded run in CI (`-runs=` or
+   `-max_total_time=`), a committed seed corpus, and every crasher ever found committed as a
+   regression input that also runs in the ordinary `check` suite (corpus regression test).
+   A target that merely compiles is not a passing gate.
+
+### Scope
+
+bounds-checked `ByteReader`; memory and directory mounts; GRP mount; deterministic
+precedence; structured errors; `fbtool dump-grp`; parser fuzz target; synthetic GRP
+generator.
+
+### Gate
+
+- [x] Synthetic GRPs enumerate and read exact bytes. *(CI)*
+      Evidence: 31 test cases / 753 assertions in `scons config=dev check` — generator
+      determinism, exact offsets/content slices via handcrafted images, cross-check of every
+      entry against generator layout; `fbtool gen-grp` + `fbtool dump-grp` round-trip.
+- [x] Truncated/corrupt cases fail safely. *(CI)*
+      Evidence: dedicated cases for bad signature, oversized directory, data past container
+      end, illegal/traversal names, empty input; **every prefix of a valid GRP** fails safely
+      with structured errors (source/offset/record/code); 2,000,000-run local mutation fuzz
+      + 20,000-run bounded CI fuzz clean under ASan/UBSan.
+- [x] Duplicate and case behavior is documented/tested. *(CI)*
+      Evidence: duplicate names within a GRP (first entry wins + warning), duplicate names
+      across mounts (newest mount shadows + diagnostic), case-normalized flat lookup,
+      traversal rejection — all asserted in tests; documented in `core/include/fauxbuild/vfs.hpp`.
+- [x] A local untouched `DUKE3D.GRP` can be enumerated without extraction. *(HUMAN-ATTESTED)*
+      Evidence: HUMAN-ATTESTED 2026-08-23 — reviewer ran
+      `./build/dev/fbtool dump-grp local_reference/duke/DUKE3D.GRP` against an untouched
+      Duke Nukem 3D **shareware v1.3D** `DUKE3D.GRP` (11,035,779 bytes, dated 1996-04-24),
+      mounted in place from gitignored `local_reference/`, no extraction or conversion.
+      Result: 215 entries, `data starts at offset 3456` = 16 + 215x16 exactly; entries
+      contiguous (each offset == previous offset + size); final entry ends at
+      10,928,557 + 107,222 = 11,035,779, matching the archive size with no trailing data;
+      no warnings. Expected resources present: `LOOKUP.DAT`, `PALETTE.DAT`, `TABLES.DAT`,
+      `TILES000.ART`..`TILES012.ART`, `E1L1.MAP`..`E1L6.MAP`. 215 entries against
+      `kMaxEntryCount` 65536 is ~305x headroom (D0011).
+      Read-through verified with `fbtool vfs-stat` (added for this check, since `dump-grp`
+      parses the container directly and bypasses the mount): `PALETTE.DAT` 82,690,
+      `TILES000.ART` 528,139, `E1L1.MAP` 102,806, `LOOKUP.DAT` 10,266, `TABLES.DAT` 8,448
+      — each opened through `GrpMount` + normalized VFS lookup and delivering exactly its
+      declared size. Case-folded queries (`palette.dat`, `e1l1.map`) resolve to the same
+      entries; an absent name returns a structured `not_found`.
+      No proprietary bytes, hashes, or extracted content entered the repository or CI.
+      PENDING: no `local_reference/duke/DUKE3D.GRP` on this machine. Command to run:
+      `./build/dev/fbtool dump-grp local_reference/duke/DUKE3D.GRP | head` (must list the
+      container contents; nothing is extracted or committed).
+- [x] No proprietary filenames are hard-coded beyond a developer-supplied test argument. *(CI)*
+      Evidence: `git grep` scan over all C++ finds zero proprietary names; every path in
+      tools/tests is an argument or synthetic (`SYN%04u.DAT`).
+
+### Notes
+
+`ByteReader` is the only decoding path (no `reinterpret_cast` of file bytes); GRP header is
+16 bytes (12 signature + 4 count) with 16-byte directory entries. An earlier revision read a
+phantom 4-byte declared-length field, shifting every entry by four bytes: the parser rejected
+real GRPs and the generator emitted non-standard archives, while the whole suite stayed green
+because `grp_synth` encoded the same mistake. Caught in PR review, not by CI — the class of
+defect the HUMAN-ATTESTED local-GRP item (D0009) exists to catch. Fuzz driver is
+a portable in-repo harness (`tests/fuzz/fuzz_main.cpp`) with libFuzzer-style flags because
+Apple clang 21 ships no libFuzzer runtime; committed corpus under `tests/fuzz/corpus/grp/`,
+future crashers go to `tests/fuzz/regression/grp/` and run in `check` via the corpus
+regression test (D0010c). M1-era defect found and fixed during M2: the `host_build` guard —
+Linux CI's `check` had silently degraded to the layering script only (no tests executed);
+now host tools/tests build on every host platform. Portability fixes driven by real CI
+runs: brace aggregate initialization (P0960 unsupported on runner clangs), direct
+includes, per-toolchain MSVC flags (/FS, /EHsc, _CRT_SECURE_NO_WARNINGS, /W3 for
+doctest TUs). CI fully green on 6cee4a4: Linux x86_64 (dev+asan+fuzz), macOS arm64
+(check+extension+scene gate), Format, Windows MSVC (dev+check; job stays
+continue-on-error until §14.4 makes the Windows matrix mandatory).
+
+Review round 1 (2026-08-22, three findings, all fixed):
+
+- **ByteReader bounds-check bypass** (blocking): `read_bytes`/`skip` tested
+  `pos_ + count > size_`, which wraps for counts near SIZE_MAX — an OK Result
+  carrying an 18-exabyte span into a 100-byte buffer (reviewer-proven against the
+  built library). Unreachable in M2 (all callers pass literals) but exactly what
+  M3's file-derived products (`numwalls * 32`) would walk into. Fix: compare
+  `count > remaining()` (exact under the `pos_ <= size_` invariant). Regression
+  test reproduces the reviewer's probe (SIZE_MAX-15 at a non-zero position) and
+  asserts state is untouched after rejection.
+- **DirectoryMount determinism gap** (M7 landing): collision resolution depended
+  on `directory_iterator`'s unspecified (ext4: hash-derived) order; on
+  case-insensitive APFS the collision cannot even be constructed, so the suite
+  never covered it. Fix: `resolve_file_table` sorts `(key, filename)` and keeps
+  the first — "first wins" is now "lexicographically first" on every filesystem;
+  exposed for tests and covered for every permutation.
+- **Nit:** `Vfs::diagnostics()` said "shadowed by" — the active mount shadows the
+  older ones; wording corrected with a comment fixing the provider order rule.
 
 ## M3 — MAP v7 parser, validator, and writer — NOT_STARTED
 
