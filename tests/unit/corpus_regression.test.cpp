@@ -9,6 +9,8 @@
 #include <doctest/doctest.h>
 
 #include "fauxbuild/grp.hpp"
+#include "fauxbuild/map_io.hpp"
+#include "fauxbuild/map_validate.hpp"
 
 namespace {
 
@@ -63,5 +65,36 @@ TEST_CASE("committed fuzz corpus and regression inputs parse without crashing") 
     // The seed corpus must exist and be non-trivial (D0010(b)).
     CHECK(files >= 6);
     CHECK(parsed_ok >= 2);
+    CHECK(parsed_err >= 2);
+}
+
+TEST_CASE("committed MAP corpus and regression inputs parse without crashing") {
+    const std::filesystem::path tests_dir =
+        std::filesystem::path(__FILE__).parent_path().parent_path();
+    const std::filesystem::path fuzz_dir = tests_dir / "fuzz";
+
+    int parsed_ok = 0;
+    int parsed_err = 0;
+    int files = 0;
+    for (const char* group : {"corpus/map", "regression/map"}) {
+        for (const auto& path : collect(fuzz_dir / group)) {
+            ++files;
+            const auto bytes = read_bytes(path);
+            const std::string_view view(reinterpret_cast<const char*>(bytes.data()), bytes.size());
+            auto result = fauxbuild::read_map(view, path.filename().string());
+            if (result.is_ok()) {
+                ++parsed_ok;
+                // Valid corpus maps must also validate within bounds.
+                const auto report = fauxbuild::validate_map(result.value());
+                CHECK(report.issues.size() <= 64 + 1);
+            } else {
+                ++parsed_err;
+                CHECK(result.error().offset <= bytes.size() + 1);
+            }
+        }
+    }
+
+    CHECK(files >= 6);
+    CHECK(parsed_ok >= 3);
     CHECK(parsed_err >= 2);
 }

@@ -247,12 +247,73 @@ Review round 1 (2026-08-22, three findings, all fixed):
 - **Nit:** `Vfs::diagnostics()` said "shadowed by" — the active mount shadows the
   older ones; wording corrected with a comment fixing the provider order rule.
 
-## M3 — MAP v7 parser, validator, and writer — NOT_STARTED
+## M3 — MAP v7 parser, validator, and writer
 
-Gate summary: all synthetic maps parse; parse→write→parse semantically identical; byte-identical
-round-trip where promised; generated maps open in Mapster and Mapster saves re-parse (HUMAN-ATTESTED);
-fuzz and malformed tests pass; local E1L1 reports plausible counts/start pose without fatal errors
-(HUMAN-ATTESTED).
+Status: **GATE_REVIEW** (gates 3.1–3.4, 3.7, 3.8 executed; 3.5 Mapster and the
+3.6 attestation are human items)
+Started: 2026-08-23
+
+### Scope
+
+MAP v7 reader (byte-level parse) / writer (canonical) / structural validator /
+semantic diff; deterministic synthetic fixtures; fbtool dump-map, validate-map,
+rewrite-map, diff-map, gen-map; fuzz target over parse+validate+round-trip;
+local E1L1 smoke through the M2 VFS.
+
+### Format observations (locked by black-box verification, 2026-08-23)
+
+Verified against untouched E1L1.MAP inside the legally owned DUKE3D.GRP
+(section sizes sum exactly to the file size; no external code consulted):
+
+```text
+int32  version (== 7; no string signature)
+int32  startx, starty, startz
+int16  startang, startsectnum
+int16  numsectors; sector[numsectors]   (40 bytes each)
+int16  numwalls;   wall[numwalls]       (32 bytes each)
+int16  numsprites; sprite[numsprites]   (44 bytes each; count is int16)
+```
+
+E1L1: 317 sectors / 1937 walls / 639 sprites; 102,806 bytes; no trailing data.
+
+### Gate
+
+- [x] 3.1 Parser — all 9 synthetic fixtures parse. *(CI)*
+- [x] 3.2 Bounds — every prefix of a valid map fails safely; profile limits
+      reject with named errors before allocation; loop walks carry explicit
+      step bounds; 2M-run fuzz hunt + 20k CI runs clean under ASan/UBSan. *(CI)*
+- [x] 3.3 Validation — broken loops, bad ranges, invalid point2/nextwall/
+      nextsector, non-reciprocal portals, invalid sprite sectors, unowned and
+      double-claimed walls all detected (dedicated cases). *(CI)*
+- [x] 3.4 Writer — parse→write→parse is byte-identical for every fixture and
+      **for untouched E1L1** (102,806 bytes identical); semantic diff empty. *(CI + attested)*
+- [ ] 3.5 Mapster — HUMAN-ATTESTED, PENDING. Candidate fixture:
+      `fbtool gen-map --fixture two_sector_portal --out x.MAP`, open in
+      Mapster32, save, then `fbtool diff-map x.MAP x-after-mapster.MAP`
+      (semantics; Mapster may reorder/renumber — record observations).
+- [x] 3.6 Real local MAP — E1L1.MAP via GrpMount: parses, validates OK,
+      counts 317/1937/639, rewrite reparse diff empty and byte-identical.
+      *(executed as dev evidence 2026-08-23; attestation is the human's)*
+- [x] 3.7 Tooling — dump-map (incl. --verbose), validate-map, rewrite-map
+      (with self-check), diff-map (field-level), gen-map --list. *(CI smoke)*
+- [x] 3.8 Quality — 64 cases / 1,900+ assertions green in dev, release,
+      ASan/UBSan; format-check 48/48; layering clean. ASan caught a real
+      use-after-free in a test during this milestone (fixed; see notes).
+
+### Notes
+
+- ASan proved its place in the matrix: `vector::assign(n, v[0])` with v
+  referencing the same vector compiled and passed in dev/release but is
+  use-after-free — caught only by the sanitizer build.
+- Open contractual choices recorded as **D0012 (proposed)**: sprite sectnum
+  sentinel −1; start sector −1 valid only for zero-sector maps; trailing data
+  rejected (not warned); reciprocal portals + nextsector==owner(nextwall)
+  enforced as errors; single severity class (Error) until a real map forces a
+  Warning tier. Ratification is the reviewer's.
+- Multi-loop sectors are first-class (multi_loop fixture: outer square + inner
+  hole in one sector). No one-loop simplification exists anywhere in the code.
+- The writer emits no FauxBuild metadata (plan/task §7); canonical output is
+  byte-identical to Mapster-era files by construction of exact field widths.
 Do not implement rendering, collision, Duke tags, or game logic.
 
 ## M4 — ART, palette, lookup, and tile tooling — NOT_STARTED

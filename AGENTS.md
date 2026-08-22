@@ -6,8 +6,10 @@ The full implementation contract is `docs/PROJECT_CONTRACT.md` and the source pl
 
 ## Active milestone
 
-**M2 — Safe binary IO, VFS, and GRP: GATE_REVIEW** (one HUMAN-ATTESTED item pending:
-local `DUKE3D.GRP` enumeration). Next after M2: M3.
+**M3 — MAP v7 parser, validator, and writer: GATE_REVIEW.** Gates 3.1–3.4,
+3.7, 3.8 have executed CI evidence; 3.5 (Mapster round-trip) and the 3.6
+attestation are human items. D0012 (sentinel/strictness rules) is proposed,
+awaiting ratification. Next after M3: M4.
 
 ## Repository boundary and evidence classes
 

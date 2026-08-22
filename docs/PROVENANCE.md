@@ -51,6 +51,7 @@ compatibility references), reviewer, date.
 | 5 | godot-cpp @ `9c8aeff0f58ad030f3d1030e8262de1322cd0ccd` (submodule `third_party/godot-cpp`, built `api_version=4.7`) | Godot Engine project | MIT | GDExtension C++ bindings; links the extension layer against Godot 4.7 APIs | yes (verbatim vendored submodule, permitted: permissive license) | mitchellcurrie | 2026-08-22 |
 | 6 | Godot 4.7.2 export templates (`Godot_v4.7.2-stable_export_templates.tpz`, official release asset) | Godot Engine project | MIT | macOS/iOS export templates installed to `~/Library/Application Support/Godot/export_templates/4.7.2.stable/` for export gates | no | mitchellcurrie | 2026-08-22 |
 | 7 | Godot 4.7.2 editor binary, macOS universal zip (official release asset, downloaded per-run by CI) | Godot Engine project | MIT | Drives the automated scene gate on the macOS CI runner | no | mitchellcurrie | 2026-08-22 |
+| 8 | MAP v7 binary layout (version field, section order/sizes, int16 sprite count, no trailer) | derived from the M3 task field specification + black-box verification against a legally owned E1L1.MAP via our own tools | our own observation | Section arithmetic verified exact (317/1937/639, 102,806 bytes, byte-identical rewrite); no Build/source-port code consulted | no | mitchellcurrie | 2026-08-23 |
 
 Vendor checksums (SHA-256):
 

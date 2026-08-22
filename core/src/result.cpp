@@ -20,6 +20,32 @@ const char* error_code_name(ErrorCode code) {
         return "too_large";
     case ErrorCode::IoError:
         return "io_error";
+    case ErrorCode::UnsupportedVersion:
+        return "unsupported_version";
+    case ErrorCode::InvalidCount:
+        return "invalid_count";
+    case ErrorCode::TooManySectors:
+        return "too_many_sectors";
+    case ErrorCode::TooManyWalls:
+        return "too_many_walls";
+    case ErrorCode::TooManySprites:
+        return "too_many_sprites";
+    case ErrorCode::TrailingData:
+        return "trailing_data";
+    case ErrorCode::InvalidStartSector:
+        return "invalid_start_sector";
+    case ErrorCode::InvalidSectorWallRange:
+        return "invalid_sector_wall_range";
+    case ErrorCode::InvalidPoint2:
+        return "invalid_point2";
+    case ErrorCode::InvalidNextWall:
+        return "invalid_next_wall";
+    case ErrorCode::InvalidNextSector:
+        return "invalid_next_sector";
+    case ErrorCode::InvalidSpriteSector:
+        return "invalid_sprite_sector";
+    case ErrorCode::InvalidTopology:
+        return "invalid_topology";
     case ErrorCode::Unsupported:
         return "unsupported";
     }

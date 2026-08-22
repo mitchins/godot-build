@@ -17,6 +17,20 @@ enum class ErrorCode {
     TooLarge,
     IoError,
     Unsupported,
+    // MAP v7 (M3)
+    UnsupportedVersion,
+    InvalidCount,
+    TooManySectors,
+    TooManyWalls,
+    TooManySprites,
+    TrailingData,
+    InvalidStartSector,
+    InvalidSectorWallRange,
+    InvalidPoint2,
+    InvalidNextWall,
+    InvalidNextSector,
+    InvalidSpriteSector,
+    InvalidTopology,
 };
 
 const char* error_code_name(ErrorCode code);
