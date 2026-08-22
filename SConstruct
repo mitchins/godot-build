@@ -16,7 +16,8 @@ Help(vars.GenerateHelpText(env))
 is_msvc = env['PLATFORM'] == 'win32'
 if is_msvc:
     env.Append(CXXFLAGS=['/std:c++20', '/permissive-', '/Zc:__cplusplus', '/W4', '/WX',
-                         '/EHsc'])
+                         '/EHsc'],
+               CPPDEFINES=['_CRT_SECURE_NO_WARNINGS'])
 else:
     env['CXX'] = os.environ.get('CXX', 'clang++')
     env.Append(CXXFLAGS=['-std=c++20', '-Wall', '-Wextra', '-Werror'])
