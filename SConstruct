@@ -25,7 +25,7 @@ env.Append(CPPPATH=['#core/include'])
 cfg = env['config']
 if cfg == 'dev':
     if is_msvc:
-        env.Append(CXXFLAGS=['/Od', '/Zi'], CPPDEFINES=['FAUXBUILD_CONFIG_DEV'])
+        env.Append(CXXFLAGS=['/Od', '/Zi', '/FS'], CPPDEFINES=['FAUXBUILD_CONFIG_DEV'])
     else:
         env.Append(CXXFLAGS=['-O0', '-g3'], CPPDEFINES=['FAUXBUILD_CONFIG_DEV'])
 elif cfg == 'release':
