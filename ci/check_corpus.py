@@ -46,6 +46,12 @@ def main() -> int:
     actual_set = set(actual)
 
     problems = []
+    # An empty corpus matches an empty manifest, so the diff alone would
+    # report green having verified nothing. The corpus is never empty.
+    if not actual:
+        print("corpus check FAILED: no corpus files found under tests/fuzz/")
+        return 1
+
     for line in sorted(committed_set - actual_set):
         problems.append(f"stale/changed: {line}")
     for line in sorted(actual_set - committed_set):

@@ -302,7 +302,7 @@ E1L1: 317 sectors / 1937 walls / 639 sprites; 102,806 bytes; no trailing data.
       in range or sentinel. Attestation remains the human's per D0009.
 - [x] 3.7 Tooling — dump-map (incl. --verbose), validate-map, rewrite-map
       (with self-check), diff-map (field-level), gen-map --list. *(CI smoke)*
-- [x] 3.8 Quality — 64 cases / 1,493 assertions green in dev, release,
+- [x] 3.8 Quality — 64 cases / 1,494 assertions green in dev, release,
       ASan/UBSan; format-check 48/48; layering clean; corpus MANIFEST gate
       green; CI on feature/m3 @ 5f00ea6: Linux (dev+asan+fuzz), macOS, Format,
       Windows MSVC all green. ASan caught a real use-after-free in a test
@@ -335,7 +335,7 @@ Review round 1 (2026-08-23) — findings and fixes:
 - **fbtool map commands**: unknown/dangling options now exit 2 (usage), never
   masquerade as positional paths (exit 1 content errors); ci/check_fbtool.py
   extended to all five map commands plus malformed-content and usage cases.
-- **Assertion count corrected**: 1,493 (identical dev/asan/release), not
+- **Assertion count corrected**: 1,494 (identical dev/asan/release), not
   "~1,900".
 - **Gate 3.6 unticked** until the human attests (D0009); reviewer's six-map
   independent verification recorded above as supporting evidence.
@@ -345,6 +345,22 @@ Review round 1 (2026-08-23) — findings and fixes:
   rule 4 (trailing data rejects) ratified with the named risk that a future
   resave introducing trailing data would be rejected — reversible by a later
   decision, consistent with D0011's fail-closed ruling.
+
+Review round 2 (2026-08-23) — two gates that could not fail, both closed:
+
+- **`check_fbtool.py` unknown-option case was inert.** `dump-map <map> --bogus`
+  passes on the arity check alone, so it stayed green against a binary with
+  unknown-option handling deleted (reviewer-proven: regressed build →
+  `dump-map --bogus` exit 1, gate exit 0). Fixed by dropping the positional;
+  the regressed build now fails with `dump-map unknown option: exit 1,
+  expected 2`.
+- **`check_corpus.py` reported green on nothing.** An empty corpus matches an
+  empty manifest, so deleting MANIFEST and the corpus directories printed
+  "0 files match MANIFEST" and exited 0. Fixed with an emptiness guard.
+  (`corpus_regression.test.cpp`'s `files >= 6` already caught this case in the
+  same `check` run — the layering held; the gate itself is what was wrong.)
+- Assertion count 1,493 → **1,494**: the round-1 fixes added one after the
+  round-1 figure was taken.
 Do not implement rendering, collision, Duke tags, or game logic.
 
 ## M4 — ART, palette, lookup, and tile tooling — NOT_STARTED

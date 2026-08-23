@@ -92,7 +92,9 @@ with tempfile.TemporaryDirectory() as tmp:
     bad_version.write_bytes((9).to_bytes(4, "little") + b"\x00" * 40)
     run(["validate-map", str(bad_version)], 1, "validate-map bad version",
         expect_err="unsupported_version")
-    run(["dump-map", fix, "--bogus"], 2, "dump-map unknown option")
+    # No positional: with one present the arity check yields exit 2 on its own,
+    # so the case would pass even with unknown-option handling deleted.
+    run(["dump-map", "--bogus"], 2, "dump-map unknown option")
     run(["dump-map", "--grp"], 2, "dump-map dangling option value")
     run(["diff-map", fix], 2, "diff-map arity")
     run(["rewrite-map", fix], 2, "rewrite-map arity")
@@ -110,4 +112,4 @@ if failures:
         print(f"  {f}")
     sys.exit(1)
 
-print("fbtool check: dump-grp/gen-grp contracts hold")
+print("fbtool check: grp + map command contracts hold")
