@@ -1,0 +1,47 @@
+# FauxBuild diagnostic palette v1 — original content.
+# 16 ramps of 16 entries each; every entry defined; components are 6-bit.
+
+palette diagnostic
+
+# Ramp 0: neutral gray ramp (indices 0..15) — shade-table anchor.
+ramp 0 16 0 0 0 -> 60 60 60
+# Ramp 1: red ramp (16..31).
+ramp 16 16 0 0 0 -> 60 0 0
+# Ramp 2: green (32..47).
+ramp 32 16 0 0 0 -> 0 60 0
+# Ramp 3: blue (48..63).
+ramp 48 16 0 0 0 -> 0 0 60
+# Ramp 4: cyan (64..79).
+ramp 64 16 0 0 0 -> 0 60 60
+# Ramp 5: magenta (80..95).
+ramp 80 16 0 0 0 -> 60 0 60
+# Ramp 6: yellow (96..111).
+ramp 96 16 0 0 0 -> 60 60 0
+# Ramp 7: brown (112..127).
+ramp 112 16 0 0 0 -> 40 24 8
+# Ramp 8: warm white (128..143).
+ramp 128 16 8 6 4 -> 62 60 58
+# Ramp 9: cool white (144..159).
+ramp 144 16 4 6 8 -> 58 60 62
+# Ramp 10: orange (160..175).
+ramp 160 16 0 0 0 -> 60 32 0
+# Ramp 11: teal (176..191).
+ramp 176 16 0 0 0 -> 0 32 32
+# Ramp 12: violet (192..207).
+ramp 192 16 0 0 0 -> 32 0 60
+# Ramp 13: olive (208..223).
+ramp 208 16 0 0 0 -> 32 32 0
+# Ramp 14: slate (224..239).
+ramp 224 16 8 10 14 -> 40 44 52
+# Ramp 15: error magenta/white hazard (240..255) — unmissable in any misuse.
+ramp 240 8 60 0 60 -> 62 62 62
+ramp 248 8 62 62 62 -> 60 0 60
+
+# Sprite palette swaps (LOOKUP.DAT): tint blends snapped to nearest entries.
+swap 1 tint 60 0 0
+swap 2 tint 0 60 0
+swap 3 tint 0 0 60
+swap 4 tint 60 60 0
+
+shades 32
+translucent on

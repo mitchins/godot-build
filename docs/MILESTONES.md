@@ -574,6 +574,33 @@ Delivery is sliced per the M4 task brief; each slice stops for review.
   max 142x400, 152 zero-dim). Nothing extracted; no real bytes or hashes
   committed.
 
+### Slice 3 — fixture compilers and stable tile manifest (delivered 2026-08-23)
+
+- Slice-2 review findings 1-3 landed first (loader .bin-only + exact
+  README.md manifest exclusion — both probe-verified; dump-art independent
+  maxima + largest actual tile; corroboration wording corrected in
+  PROVENANCE 10 / COMPATIBILITY 0d).
+- `tile_manifest` (core): the picnum authority — append-only max+1,
+  immutable entries, whole-line comments (frame names contain '#').
+  D0014 (proposed) records format + semantics.
+- `tile_build` (core): original text DSLs (tileset + palette spec, no image
+  dependencies — PNG import is game-repo pipeline work), deterministic
+  pattern generators, animation sets as consecutive frame tiles with
+  anchor-carried metadata; palette generation (luminance shade tables,
+  nearest-entry translucency and tint swaps) is fully original.
+- `fbtool build-art` / `build-palette` (plan §13 names); compiler sources
+  documented in tools/art_compiler + tools/palette_compiler READMEs (all
+  linked through the core; no duplicated parsers).
+- fixtures/source: diagnostics.tileset (13 tiles incl. 4-frame animation,
+  palette strip), diagnostic.palette (16 ramps, 4 swaps, 256/256 entries).
+- Tests: 81 -> 90 cases. STABILITY is a tested property (add -> prior
+  picnums byte-identical + new tile = max+1; remove/reshape -> hard error),
+  negative-tested by sabotaging the removal check (suite red, restored
+  green). fbtool contract includes the stable-rebuild identity (init ->
+  rebuild -> manifest text identical) and usage/malformed cases.
+- Built artifacts verified through the M2/M4 stack: built ART parses via
+  read_art, round-trips byte-identically, dump-art stats consistent.
+
 ### Slice 1 — palette, lookup, shade tables (delivered 2026-08-23)
 
 - Format facts corroborated against the legally owned content BEFORE encoding

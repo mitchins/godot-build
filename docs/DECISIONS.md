@@ -268,3 +268,29 @@ only. Tooling therefore defaults to mount-based reads (fbtool --grp), and the
 slice-1 record notes that plain-file palette loads of unknown provenance
 should not be trusted for rendering.
 
+### D0014 — Tile manifest format and stability semantics (M4)
+
+Status: proposed (implemented, awaiting human ratification)
+Date: 2026-08-23
+Context: plan §7.5 requires a stable tile manifest ("never casually renumber
+tiles after maps exist"). The M4 brief demands the stability property as a
+test, not a comment. This record proposes the format and the semantics the
+tests enforce.
+Decision:
+1. Format: deterministic text, one entry per tile — `picnum name w h xc yc
+   anim frames speed` with whole-line `#` comments (frame entries legitimately
+   contain `#` in names, so trailing comments are not supported). Canonical
+   write is stable across rewrites.
+2. The manifest is the picnum authority. Builds assign new tiles as max+1;
+   animation sets occupy `frames` consecutive entries named `name#k`, with
+   only the anchor (`#0`) recording frame count and animation type.
+3. Stability is enforced at build time: a manifest tile missing from the
+   tileset, or any change to dims/pivot/animation of an assigned tile, is a
+   hard error. Removal requires deleting the manifest explicitly (a conscious
+   act, never a silent renumber).
+Consequences: `fbtool build-art --init-manifest` bootstraps; later builds
+pass `--manifest`. The stable-rebuild contract (identical manifest text) and
+the add/remove/reshape unit properties live in
+tests/unit/tile_build.test.cpp; the removal check was negative-tested
+(sabotaged to tolerate removals -> suite red).
+

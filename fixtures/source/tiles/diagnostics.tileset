@@ -1,0 +1,27 @@
+# FauxBuild diagnostic tileset v1 — original content, no proprietary data.
+# Diagnostic tiles use "deliberately obvious indexed" patterns (plan §14.2).
+
+tileset diagnostics
+
+# Color swatch basics (indices into the diagnostic palette ramps).
+tile solid_dark  16 16 pattern=solid color=1
+tile solid_light 16 16 pattern=solid color=60
+pivot solid_light 0 0
+
+# Structural patterns for orientation/scale checks.
+tile checker_a  64 64 pattern=checker a=16 b=31 square=8
+tile checker_b  64 64 pattern=checker a=46 b=61 square=8
+tile ramp_gray  64 64 pattern=ramp from=16 to=31
+tile grid_major 32 32 pattern=grid major=8 line=4 bg=0
+
+# Palette test strip: 256 pixels, pixel i = palette index i (16x16 fold).
+tile strip_palette 16 16 pattern=indexed
+
+# Animation set: 4 frames of a marching checker phase, forward, medium speed.
+anim checker_march 32 32 frames=4 type=forward speed=2 pattern=checker a=16 b=46 square=4
+
+# Wall-matrix tiles: distinct x/y panning probes (identical pattern, pivots
+# differ so tests can distinguish orientation metadata).
+tile wall_uv_a 64 16 pattern=ramp from=0 to=15
+tile wall_uv_b 64 16 pattern=ramp from=32 to=47
+pivot wall_uv_b 0 -8

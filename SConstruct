@@ -102,6 +102,8 @@ core_sources = [
     f'{bdir}/core/src/map_synth.cpp',
     f'{bdir}/core/src/palette.cpp',
     f'{bdir}/core/src/art.cpp',
+    f'{bdir}/core/src/tile_manifest.cpp',
+    f'{bdir}/core/src/tile_build.cpp',
 ]
 core_objects = env.Object(core_sources)
 core = env.StaticLibrary(f'{bdir}/libfauxbuild_core', core_objects)
@@ -158,7 +160,7 @@ if host_build:
     fbtool = fbtool_env.Program(
         f'{bdir}/fbtool',
         [f'{bdir}/tools/fbtool/main.cpp', f'{bdir}/tools/fbtool/map_commands.cpp',
-         f'{bdir}/tools/fbtool/palette_commands.cpp', f'{bdir}/tools/fbtool/art_commands.cpp'],
+         f'{bdir}/tools/fbtool/palette_commands.cpp', f'{bdir}/tools/fbtool/art_commands.cpp', f'{bdir}/tools/fbtool/build_commands.cpp'],
         LIBS=[core])
 
     tests_env = env.Clone()
@@ -178,6 +180,7 @@ if host_build:
             f'{bdir}/tests/unit/map_synth.test.cpp',
             f'{bdir}/tests/unit/palette.test.cpp',
             f'{bdir}/tests/unit/art.test.cpp',
+            f'{bdir}/tests/unit/tile_build.test.cpp',
             f'{bdir}/tests/unit/byte_reader.test.cpp',
         f'{bdir}/tests/unit/file_io.test.cpp',
             f'{bdir}/tests/unit/grp.test.cpp',

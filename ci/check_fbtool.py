@@ -239,6 +239,48 @@ with tempfile.TemporaryDirectory() as tmp:
     run(["dump-art", "--grp"], 2, "dump-art dangling option")
     run(["dump-art"], 2, "dump-art arity")
 
+    # ---------------- build-art / build-palette (M4 slice 3) ----------------
+    src_dir = root / "fixtures/source"
+    art_out = str(pathlib.Path(tmp) / "diag.art")
+    man_out = str(pathlib.Path(tmp) / "diag.manifest")
+    run(["build-art", "--source", str(src_dir / "tiles/diagnostics.tileset"),
+         "--out", art_out], 2, "build-art without manifest flag",
+        expect_err="stable build needs --manifest")
+    run(["build-art", "--source", str(src_dir / "tiles/diagnostics.tileset"),
+         "--out", art_out, "--init-manifest"], 0, "build-art init", expect_out="built")
+    # --init-manifest writes beside the ART output; adopt that as the stable
+    # manifest path for the rebuild probe.
+    stable_manifest = art_out + ".manifest"
+    first_manifest = pathlib.Path(stable_manifest).read_text()
+    run(["build-art", "--source", str(src_dir / "tiles/diagnostics.tileset"),
+         "--out", art_out, "--manifest", stable_manifest], 0, "build-art stable rebuild",
+        expect_out="built")
+    rebuilt = pathlib.Path(stable_manifest).read_text()
+    if rebuilt != first_manifest:
+        failures.append("build-art: stable rebuild changed the manifest")
+
+    run(["dump-art", art_out], 0, "dump-art built", expect_out="tile range: 0..12")
+
+    pal_out = str(pathlib.Path(tmp) / "diag_palette.dat")
+    lut_out = str(pathlib.Path(tmp) / "diag_lookup.dat")
+    run(["build-palette", "--source", str(src_dir / "palettes/diagnostic.palette"),
+         "--palette-out", pal_out, "--lookup-out", lut_out], 0, "build-palette",
+        expect_out="PALETTE.DAT")
+    run(["dump-palette", pal_out], 0, "dump-palette built", expect_out="6-bit VGA")
+    run(["dump-lookup", lut_out], 0, "dump-lookup built", expect_out="swaps: 4")
+
+    run(["build-art", "--source", "/nonexistent.tileset", "--out", art_out,
+         "--init-manifest"], 1, "build-art missing source", expect_err="io_error")
+    bad_ts = pathlib.Path(tmp) / "bad.tileset"
+    bad_ts.write_text("tileset t\ntile a 8 8\n")
+    run(["build-art", "--source", str(bad_ts), "--out", art_out, "--init-manifest"], 1,
+        "build-art bad tileset", expect_err="tileset")
+    run(["build-art", "--source", str(src_dir / "tiles/diagnostics.tileset")], 2,
+        "build-art missing --out")
+    run(["build-art", "--wat"], 2, "build-art unknown option")
+    run(["build-palette", "--source"], 2, "build-palette dangling option value")
+    run(["build-palette"], 2, "build-palette arity")
+
     run(["no-such-command"], 2, "unknown command", expect_err="unknown command")
 
 if failures:
@@ -247,4 +289,4 @@ if failures:
         print(f"  {f}")
     sys.exit(1)
 
-print("fbtool check: grp + map + palette + art command contracts hold")
+print("fbtool check: grp + map + palette + art + build command contracts hold")

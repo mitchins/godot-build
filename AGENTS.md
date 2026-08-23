@@ -6,10 +6,10 @@ The full implementation contract is `docs/PROJECT_CONTRACT.md` and the source pl
 
 ## Active milestone
 
-**M4 — ART, palette, lookup, and tile tooling: IN_PROGRESS, slices 1-2 of 4
-delivered; slice 2 at checkpoint review.** D0013 accepted (ratified at
-slice-1 review). Slice-1 review findings 1-3 landed as follow-up. Remaining:
-slice 3 (fixture compilers + tile manifest), slice 4 (atlas + preview).
+**M4 — ART, palette, lookup, and tile tooling: IN_PROGRESS, slices 1-3 of 4
+delivered; slice 3 at checkpoint review.** D0013 accepted; D0014 (tile
+manifest format + stability) proposed. Remaining: slice 4 (atlas +
+indexed preview).
 
 ## Repository boundary and evidence classes
 
