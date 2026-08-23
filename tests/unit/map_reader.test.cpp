@@ -149,16 +149,27 @@ TEST_CASE("profile limits fail closed with named errors") {
     }
 }
 
-TEST_CASE("negative counts and trailing data are rejected") {
+TEST_CASE("saturated counts and trailing data are rejected") {
     auto bytes = serialize_map_fixture("minimal");
     REQUIRE(bytes.is_ok());
 
-    // numsectors at offset 20 (int16) -> -1
-    auto negative = patched(bytes.value(), {{20, 0xFF}, {21, 0xFF}});
+    // numsectors at offset 20 is uint16 on the wire, so 0xffff is 65535
+    // sectors — over the profile limit, not a negative count.
+    auto saturated = patched(bytes.value(), {{20, 0xFF}, {21, 0xFF}});
     {
-        auto parsed = read_map(view(negative), "negative");
+        auto parsed = read_map(view(saturated), "saturated");
         REQUIRE_FALSE(parsed.is_ok());
-        CHECK(parsed.error().code == ErrorCode::InvalidCount);
+        CHECK(parsed.error().code == ErrorCode::TooManySectors);
+        CHECK(parsed.error().detail.find("65535") != std::string::npos);
+    }
+
+    // 0x8000 would be INT16_MIN if the count were signed; unsigned it is 32768.
+    auto high_bit = patched(bytes.value(), {{20, 0x00}, {21, 0x80}});
+    {
+        auto parsed = read_map(view(high_bit), "high-bit");
+        REQUIRE_FALSE(parsed.is_ok());
+        CHECK(parsed.error().code == ErrorCode::TooManySectors);
+        CHECK(parsed.error().detail.find("32768") != std::string::npos);
     }
 
     auto trailing = bytes.value();

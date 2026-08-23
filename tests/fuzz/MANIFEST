@@ -8,7 +8,7 @@ f70797c99d3d8118       16 tests/fuzz/corpus/grp/zero_files.bin
 d9d5b42b6a3f836b      194 tests/fuzz/corpus/map/bad_version.bin
 cf079630d8907965      194 tests/fuzz/corpus/map/minimal.map.bin
 a4f67ffa4487b645      322 tests/fuzz/corpus/map/multi_loop.map.bin
-950ddb13908f51e7      370 tests/fuzz/corpus/map/sprite_orientations.map.bin
+1be75117897ea38f      370 tests/fuzz/corpus/map/sprite_orientations.map.bin
 833ec06a9a6ef776       11 tests/fuzz/corpus/map/truncated_header.bin
 e3392d2262a57621       30 tests/fuzz/corpus/map/truncated_walls.bin
 30e459d6252be7fd      362 tests/fuzz/corpus/map/two_sector_portal.map.bin

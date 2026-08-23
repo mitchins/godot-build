@@ -22,6 +22,24 @@ inline constexpr std::size_t kSpriteRecordSize = 44;
 // Sentinel for "no reference" in nextwall/nextsector and sprite sectnum.
 inline constexpr std::int16_t kNoIndex = -1;
 
+// Stat/cstat bit values from the published MAP v7 format description
+// (PROVENANCE row 9), each corroborated against six legally owned maps before
+// being adopted — see docs/MILESTONES.md M3 review round 4:
+//
+//   sector stat 0x0002   P(heinum != 0 | set) = 0.970 vs 0.121 clear (n=4900)
+//   wall cstat  0x0010   P(overpicnum != 0 | set) = 0.979 vs 0.029 base (n=15303)
+//   sprite cstat 0x0030  takes only 0x0000/0x0010/0x0020; 0x0030 never observed
+//                        (n=5355), as a two-bit enum with one reserved value
+//
+// M3 stores these raw and reports them; nothing interprets them for behaviour
+// (slope evaluation is M6, masked rendering M5+).
+inline constexpr std::int16_t kStatSloped = 0x0002;
+inline constexpr std::int16_t kWallCstatMasked = 0x0010;
+inline constexpr std::int16_t kSpriteCstatAlignMask = 0x0030;
+inline constexpr std::int16_t kSpriteAlignFace = 0x0000;
+inline constexpr std::int16_t kSpriteAlignWall = 0x0010;
+inline constexpr std::int16_t kSpriteAlignFloor = 0x0020;
+
 struct StartPose {
     std::int32_t x = 0;
     std::int32_t y = 0;

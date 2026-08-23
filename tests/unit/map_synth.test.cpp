@@ -53,19 +53,23 @@ TEST_CASE("fixture worlds have the intended shape") {
         REQUIRE(world.is_ok());
         CHECK(world.value().sectors[0].floorheinum == 1000);
         CHECK(world.value().sectors[0].ceilingheinum == -1000);
+        CHECK((world.value().sectors[0].floorstat & fauxbuild::mapv7::kStatSloped) != 0);
+        CHECK((world.value().sectors[0].ceilingstat & fauxbuild::mapv7::kStatSloped) != 0);
     }
     SUBCASE("masked_wall") {
         auto world = fauxbuild::synth::map_fixture("masked_wall");
         REQUIRE(world.is_ok());
-        CHECK((world.value().walls[1].cstat & 0x0002) != 0);
+        CHECK((world.value().walls[1].cstat & fauxbuild::mapv7::kWallCstatMasked) != 0);
         CHECK(world.value().walls[1].overpicnum == 210);
     }
     SUBCASE("sprite_orientations") {
         auto world = fauxbuild::synth::map_fixture("sprite_orientations");
         REQUIRE(world.is_ok());
         REQUIRE(world.value().sprites.size() == 4);
-        CHECK((world.value().sprites[1].cstat & 0x0008) != 0);
-        CHECK((world.value().sprites[2].cstat & 0x0010) != 0);
+        CHECK((world.value().sprites[1].cstat & fauxbuild::mapv7::kSpriteCstatAlignMask) ==
+              fauxbuild::mapv7::kSpriteAlignWall);
+        CHECK((world.value().sprites[2].cstat & fauxbuild::mapv7::kSpriteCstatAlignMask) ==
+              fauxbuild::mapv7::kSpriteAlignFloor);
     }
     SUBCASE("max_reasonable_counts") {
         auto world = fauxbuild::synth::map_fixture("max_reasonable_counts");
@@ -93,4 +97,60 @@ TEST_CASE("fixture bytes match the observed MAP v7 section arithmetic") {
     const std::size_t expected = 20 + 2 + world.sectors.size() * 40 + 2 + world.walls.size() * 32 +
                                  2 + world.sprites.size() * 44;
     CHECK(b.size() == expected);
+}
+
+TEST_CASE("fixtures carry the documented stat/cstat bits") {
+    namespace v7 = fauxbuild::mapv7;
+
+    SUBCASE("a sloped surface sets the slope bit, not just a heinum") {
+        auto parsed = read_map(view(serialize_map_fixture("slope_metadata").value()), "slope");
+        REQUIRE(parsed.is_ok());
+        const auto& sector = parsed.value().sectors[0];
+        CHECK(sector.floorheinum != 0);
+        CHECK(sector.ceilingheinum != 0);
+        CHECK((sector.floorstat & v7::kStatSloped) != 0);
+        CHECK((sector.ceilingstat & v7::kStatSloped) != 0);
+    }
+
+    SUBCASE("a masked wall sets the masking bit and carries an overpicnum") {
+        auto parsed = read_map(view(serialize_map_fixture("masked_wall").value()), "masked");
+        REQUIRE(parsed.is_ok());
+        std::size_t masked = 0;
+        for (const auto& wall : parsed.value().walls) {
+            if ((wall.cstat & v7::kWallCstatMasked) != 0) {
+                ++masked;
+                CHECK(wall.overpicnum != 0);
+                CHECK(wall.nextwall != v7::kNoIndex); // masking only means something on a portal
+            }
+        }
+        CHECK(masked == 2); // both sides of the shared edge
+    }
+
+    SUBCASE("sprite orientation is a two-bit field with one reserved value") {
+        auto parsed =
+            read_map(view(serialize_map_fixture("sprite_orientations").value()), "sprites");
+        REQUIRE(parsed.is_ok());
+        std::size_t face = 0, wall = 0, floor = 0;
+        for (const auto& sprite : parsed.value().sprites) {
+            const auto align = static_cast<std::int16_t>(sprite.cstat & v7::kSpriteCstatAlignMask);
+            // 0x0030 is reserved; it appears in no legally owned map we have read.
+            CHECK(align != v7::kSpriteCstatAlignMask);
+            face += align == v7::kSpriteAlignFace;
+            wall += align == v7::kSpriteAlignWall;
+            floor += align == v7::kSpriteAlignFloor;
+        }
+        CHECK(wall == 1);
+        CHECK(floor == 1);
+        CHECK(face >= 1);
+    }
+
+    SUBCASE("no fixture sets the reserved orientation combination") {
+        for (const auto& name : fauxbuild::synth::map_fixture_names()) {
+            auto parsed = read_map(view(serialize_map_fixture(name).value()), name);
+            REQUIRE(parsed.is_ok());
+            for (const auto& sprite : parsed.value().sprites) {
+                CHECK((sprite.cstat & v7::kSpriteCstatAlignMask) != v7::kSpriteCstatAlignMask);
+            }
+        }
+    }
 }

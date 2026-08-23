@@ -75,7 +75,7 @@ with tempfile.TemporaryDirectory() as tmp:
         expect_out="wrote")
     proc = run(["dump-map", fix], 0, "dump-map", expect_out="validation: OK")
     for expected in ("sectors: 2", "walls: 8", "portal walls: 2",
-                     "version: 7", "start:"):
+                     "version: 7", "start:", "cstat&0x30", "cstat&0x10"):
         if expected not in proc.stdout:
             failures.append(f"dump-map: stdout missing {expected!r}")
     run(["dump-map", "--verbose", fix], 0, "dump-map verbose")
@@ -130,6 +130,28 @@ with tempfile.TemporaryDirectory() as tmp:
         "rewrite-map rejects --verbose")
     run(["dump-map", "--grp", "--bogus", fix], 2, "--grp value may not be an option")
     run(["gen-map", "--list", "--wat"], 2, "gen-map --list is standalone")
+
+    # Sprite orientation is a two-bit field; 0x0030 is reserved and appears in
+    # no real map, so the classifier's fallback is otherwise unexercised.
+    ori = pathlib.Path(tmp) / "sprites.MAP"
+    run(["gen-map", "--fixture", "sprite_orientations", "--out", str(ori)], 0, "gen-map sprites")
+    raw = bytearray(ori.read_bytes())
+    nsec = int.from_bytes(raw[20:22], "little")
+    off = 22 + 40 * nsec
+    nwall = int.from_bytes(raw[off:off + 2], "little")
+    off += 2 + 32 * nwall
+    sprites = off + 2  # first sprite record; cstat is at +12
+    cstat = int.from_bytes(raw[sprites + 12:sprites + 14], "little")
+    raw[sprites + 12:sprites + 14] = ((cstat & ~0x0030) | 0x0030).to_bytes(2, "little")
+    reserved = pathlib.Path(tmp) / "reserved.MAP"
+    reserved.write_bytes(bytes(raw))
+    run(["dump-map", str(reserved)], 0, "reserved sprite orientation",
+        expect_out="reserved=1")
+
+    # gen-map option values may not be option tokens either.
+    run(["gen-map", "--fixture", "minimal", "--out", "--wat"], 2, "gen-map --out needs a value")
+    run(["gen-map", "--fixture", "--out", str(pathlib.Path(tmp) / "y.MAP")], 2,
+        "gen-map --fixture needs a value")
 
     run(["no-such-command"], 2, "unknown command", expect_err="unknown command")
 

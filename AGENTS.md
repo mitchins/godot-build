@@ -7,7 +7,7 @@ The full implementation contract is `docs/PROJECT_CONTRACT.md` and the source pl
 ## Active milestone
 
 **M3 — MAP v7 parser, validator, and writer: GATE_REVIEW.** Review round 1
-fixes applied; CI green on feature/m3 @ 5f00ea6 (all four jobs, MSVC
+fixes applied; CI green on feature/m3 (all four jobs, MSVC
 included). 3.5 (Mapster round-trip) and 3.6 (real-map attestation) are human
 items. D0012 ratified 2026-08-23. Next after M3: M4.
 

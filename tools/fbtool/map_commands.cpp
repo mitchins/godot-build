@@ -117,17 +117,26 @@ int dump_map(int argc, char** argv) {
         if (wall.nextwall != mapv7::kNoIndex) {
             ++portal_walls;
         }
-        if ((wall.cstat & 0x0002) != 0) {
+        if ((wall.cstat & mapv7::kWallCstatMasked) != 0) {
             ++masked_walls;
         }
     }
     for (const auto& sprite : world.sprites) {
-        if ((sprite.cstat & 0x0010) != 0) {
-            ++floor_sprites;
-        } else if ((sprite.cstat & 0x0008) != 0) {
-            ++wall_sprites;
-        } else {
+        // Orientation is a two-bit field, not independent flags: testing bits
+        // separately mis-sorts sprites and can report two orientations at once.
+        switch (sprite.cstat & mapv7::kSpriteCstatAlignMask) {
+        case mapv7::kSpriteAlignFace:
             ++face_sprites;
+            break;
+        case mapv7::kSpriteAlignWall:
+            ++wall_sprites;
+            break;
+        case mapv7::kSpriteAlignFloor:
+            ++floor_sprites;
+            break;
+        default:
+            ++other_sprites; // 0x0030 is reserved and unobserved in real content
+            break;
         }
     }
 
@@ -137,10 +146,9 @@ int dump_map(int argc, char** argv) {
                 world.start.z, world.start.angle, world.start.sector);
     std::printf("sectors: %zu  walls: %zu  sprites: %zu\n", world.sectors.size(),
                 world.walls.size(), world.sprites.size());
-    std::printf("portal walls: %zu  masked-flag walls (cstat&2): %zu\n", portal_walls,
-                masked_walls);
-    std::printf("sprites: face=%zu wall-aligned(cstat&8)=%zu floor-aligned(cstat&16)=%zu "
-                "other=%zu\n",
+    std::printf("portal walls: %zu  masked walls (cstat&0x10): %zu\n", portal_walls, masked_walls);
+    std::printf("sprites: face=%zu wall-aligned=%zu floor-aligned=%zu reserved=%zu"
+                " (cstat&0x30)\n",
                 face_sprites, wall_sprites, floor_sprites, other_sprites);
 
     std::printf("sector wall ranges:\n");
@@ -262,10 +270,14 @@ int gen_map(int argc, char** argv) {
     bool list = false;
     for (int i = 0; i < argc; ++i) {
         const std::string arg = argv[i];
-        if (arg == "--fixture" && i + 1 < argc) {
-            fixture = argv[++i];
-        } else if (arg == "--out" && i + 1 < argc) {
-            out = argv[++i];
+        if (arg == "--fixture" || arg == "--out") {
+            // An option token is never a value: `--out --wat` previously wrote
+            // a file called "--wat" instead of reporting a usage error.
+            if (i + 1 >= argc || looks_like_option(argv[i + 1])) {
+                std::fprintf(stderr, "fbtool: gen-map: %s needs a value\n", arg.c_str());
+                return 2;
+            }
+            (arg == "--fixture" ? fixture : out) = argv[++i];
         } else if (arg == "--list") {
             list = true;
         } else {

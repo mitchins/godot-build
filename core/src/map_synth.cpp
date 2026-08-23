@@ -137,6 +137,11 @@ mapv7::MapData multi_loop_world() {
 mapv7::MapData slope_metadata_world() {
     mapv7::MapData map = minimal_world();
     auto& sector = map.sectors[0];
+    // A nonzero heinum is only meaningful with the slope bit set; the fixture
+    // previously carried the heinum alone, which real content treats as an
+    // ignored leftover rather than a slope.
+    sector.floorstat |= mapv7::kStatSloped;
+    sector.ceilingstat |= mapv7::kStatSloped;
     sector.floorheinum = 1000;
     sector.ceilingheinum = -1000;
     sector.ceilingxpanning = 7;
@@ -151,11 +156,12 @@ mapv7::MapData slope_metadata_world() {
 
 mapv7::MapData masked_wall_world() {
     mapv7::MapData map = two_sector_portal_world();
-    // Masked-portal presentation flags on the shared edge (raw cstat bits;
-    // bit values are presentation-only at M3).
-    map.walls[1].cstat = 0x0002;
+    // Masking flag on both sides of the shared edge. 0x0002 was used here
+    // previously; it is not the masking bit, and real masked walls are
+    // identified by 0x0010 travelling with a nonzero overpicnum.
+    map.walls[1].cstat = mapv7::kWallCstatMasked;
     map.walls[1].overpicnum = 210;
-    map.walls[7].cstat = 0x0002;
+    map.walls[7].cstat = mapv7::kWallCstatMasked;
     map.walls[7].overpicnum = 210;
     return map;
 }
@@ -163,9 +169,12 @@ mapv7::MapData masked_wall_world() {
 mapv7::MapData sprite_orientations_world() {
     mapv7::MapData map = square_room_world();
     const std::int32_t half = kUnit / 2;
-    map.sprites.push_back(make_sprite(half - 8192, half, 0, 0, 0x0008)); // wall-aligned
-    map.sprites.push_back(make_sprite(half, half - 8192, 0, 0, 0x0010)); // floor-aligned
-    map.sprites.push_back(make_sprite(half + 8192, half, 0, 0, 0x0040)); // one-sided face
+    // Orientation is the two-bit field 0x0030, not independent flags: the old
+    // 0x0008/0x0010 pair could set "wall" and "floor" at once, which real
+    // content never does.
+    map.sprites.push_back(make_sprite(half - 8192, half, 0, 0, mapv7::kSpriteAlignWall));
+    map.sprites.push_back(make_sprite(half, half - 8192, 0, 0, mapv7::kSpriteAlignFloor));
+    map.sprites.push_back(make_sprite(half + 8192, half, 0, 0, mapv7::kSpriteAlignFace));
     map.sprites[1].ang = 768;
     map.sprites[2].statnum = 1;
     return map;

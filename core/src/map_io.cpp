@@ -12,6 +12,13 @@ void put_i16(std::vector<std::uint8_t>& out, std::int16_t value) {
     out.push_back(static_cast<std::uint8_t>(raw >> 8));
 }
 
+// Record counts are unsigned on the wire (published MAP v7 description,
+// PROVENANCE row 9); a separate helper keeps that visible at the call site.
+void put_u16(std::vector<std::uint8_t>& out, std::uint16_t value) {
+    out.push_back(static_cast<std::uint8_t>(value));
+    out.push_back(static_cast<std::uint8_t>(value >> 8));
+}
+
 void put_i32(std::vector<std::uint8_t>& out, std::int32_t value) {
     const auto raw = static_cast<std::uint32_t>(value);
     for (int i = 0; i < 4; ++i) {
@@ -217,16 +224,14 @@ Result<mapv7::MapData> read_map(std::string_view bytes, std::string source) {
         *field = value.value();
     }
 
-    auto check_count = [&](const Result<std::int16_t>& count, ErrorCode negative_code,
-                           ErrorCode limit_code, const char* what, int limit) -> Result<void> {
+    // Counts are uint16 on the wire, so there is no negative case to reject:
+    // 0xffff is 65535 sectors, which the profile limit rejects as TooMany*.
+    auto check_count = [&](const Result<std::uint16_t>& count, ErrorCode limit_code,
+                           const char* what, int limit) -> Result<void> {
         if (!count.is_ok()) {
             return propagate<void>(count);
         }
-        if (count.value() < 0) {
-            return Result<void>::err({source, reader.position() - 2, "map.header", negative_code,
-                                      std::string("negative ") + what + " count"});
-        }
-        if (count.value() > limit) {
+        if (static_cast<int>(count.value()) > limit) {
             return Result<void>::err({source, reader.position() - 2, "map.header", limit_code,
                                       std::to_string(count.value()) + " " + what +
                                           "s exceeds classic profile limit " +
@@ -235,39 +240,38 @@ Result<mapv7::MapData> read_map(std::string_view bytes, std::string source) {
         return Result<void>::ok();
     };
 
-    auto numsectors = reader.read_i16_le();
-    auto sector_count = check_count(numsectors, ErrorCode::InvalidCount, ErrorCode::TooManySectors,
-                                    "sector", mapv7::kMaxSectors);
+    auto numsectors = reader.read_u16_le();
+    auto sector_count =
+        check_count(numsectors, ErrorCode::TooManySectors, "sector", mapv7::kMaxSectors);
     if (!sector_count.is_ok())
         return propagate<mapv7::MapData>(sector_count);
     map.sectors.reserve(static_cast<std::size_t>(numsectors.value()));
-    for (std::int16_t i = 0; i < numsectors.value(); ++i) {
+    for (std::uint16_t i = 0; i < numsectors.value(); ++i) {
         auto record = read_sector(reader);
         if (!record.is_ok())
             return propagate<mapv7::MapData>(record);
         map.sectors.push_back(record.take());
     }
 
-    auto numwalls = reader.read_i16_le();
-    auto wall_count = check_count(numwalls, ErrorCode::InvalidCount, ErrorCode::TooManyWalls,
-                                  "wall", mapv7::kMaxWalls);
+    auto numwalls = reader.read_u16_le();
+    auto wall_count = check_count(numwalls, ErrorCode::TooManyWalls, "wall", mapv7::kMaxWalls);
     if (!wall_count.is_ok())
         return propagate<mapv7::MapData>(wall_count);
     map.walls.reserve(static_cast<std::size_t>(numwalls.value()));
-    for (std::int16_t i = 0; i < numwalls.value(); ++i) {
+    for (std::uint16_t i = 0; i < numwalls.value(); ++i) {
         auto record = read_wall(reader);
         if (!record.is_ok())
             return propagate<mapv7::MapData>(record);
         map.walls.push_back(record.take());
     }
 
-    auto numsprites = reader.read_i16_le();
-    auto sprite_count = check_count(numsprites, ErrorCode::InvalidCount, ErrorCode::TooManySprites,
-                                    "sprite", mapv7::kMaxSprites);
+    auto numsprites = reader.read_u16_le();
+    auto sprite_count =
+        check_count(numsprites, ErrorCode::TooManySprites, "sprite", mapv7::kMaxSprites);
     if (!sprite_count.is_ok())
         return propagate<mapv7::MapData>(sprite_count);
     map.sprites.reserve(static_cast<std::size_t>(numsprites.value()));
-    for (std::int16_t i = 0; i < numsprites.value(); ++i) {
+    for (std::uint16_t i = 0; i < numsprites.value(); ++i) {
         auto record = read_sprite(reader);
         if (!record.is_ok())
             return propagate<mapv7::MapData>(record);
@@ -316,7 +320,7 @@ Result<std::vector<std::uint8_t>> write_map(const mapv7::MapData& map) {
     put_i16(out, map.start.angle);
     put_i16(out, map.start.sector);
 
-    put_i16(out, static_cast<std::int16_t>(map.sectors.size()));
+    put_u16(out, static_cast<std::uint16_t>(map.sectors.size()));
     for (const auto& s : map.sectors) {
         put_i16(out, s.wallptr);
         put_i16(out, s.wallnum);
@@ -343,7 +347,7 @@ Result<std::vector<std::uint8_t>> write_map(const mapv7::MapData& map) {
         put_i16(out, s.extra);
     }
 
-    put_i16(out, static_cast<std::int16_t>(map.walls.size()));
+    put_u16(out, static_cast<std::uint16_t>(map.walls.size()));
     for (const auto& w : map.walls) {
         put_i32(out, w.x);
         put_i32(out, w.y);
@@ -364,7 +368,7 @@ Result<std::vector<std::uint8_t>> write_map(const mapv7::MapData& map) {
         put_i16(out, w.extra);
     }
 
-    put_i16(out, static_cast<std::int16_t>(map.sprites.size()));
+    put_u16(out, static_cast<std::uint16_t>(map.sprites.size()));
     for (const auto& sp : map.sprites) {
         put_i32(out, sp.x);
         put_i32(out, sp.y);

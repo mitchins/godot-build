@@ -201,9 +201,6 @@ generator.
       declared size. Case-folded queries (`palette.dat`, `e1l1.map`) resolve to the same
       entries; an absent name returns a structured `not_found`.
       No proprietary bytes, hashes, or extracted content entered the repository or CI.
-      PENDING: no `local_reference/duke/DUKE3D.GRP` on this machine. Command to run:
-      `./build/dev/fbtool dump-grp local_reference/duke/DUKE3D.GRP | head` (must list the
-      container contents; nothing is extracted or committed).
 - [x] No proprietary filenames are hard-coded beyond a developer-supplied test argument. *(CI)*
       Evidence: `git grep` scan over all C++ finds zero proprietary names; every path in
       tools/tests is an argument or synthetic (`SYN%04u.DAT`).
@@ -250,7 +247,7 @@ Review round 1 (2026-08-22, three findings, all fixed):
 ## M3 — MAP v7 parser, validator, and writer
 
 Status: **GATE_REVIEW** (3.1–3.4, 3.7, 3.8 executed — CI green on
-feature/m3 @ 5f00ea6, all four jobs including MSVC; 3.5 Mapster and the 3.6
+feature/m3 @ PENDING_HEAD, all four jobs including MSVC; 3.5 Mapster and the 3.6
 attestation are human items)
 Started: 2026-08-23
 
@@ -270,9 +267,9 @@ Verified against untouched E1L1.MAP inside the legally owned DUKE3D.GRP
 int32  version (== 7; no string signature)
 int32  startx, starty, startz
 int16  startang, startsectnum
-int16  numsectors; sector[numsectors]   (40 bytes each)
-int16  numwalls;   wall[numwalls]       (32 bytes each)
-int16  numsprites; sprite[numsprites]   (44 bytes each; count is int16)
+uint16 numsectors; sector[numsectors]   (40 bytes each)
+uint16 numwalls;   wall[numwalls]       (32 bytes each)
+uint16 numsprites; sprite[numsprites]   (44 bytes each)
 ```
 
 E1L1: 317 sectors / 1937 walls / 639 sprites; 102,806 bytes; no trailing data.
@@ -304,9 +301,9 @@ E1L1: 317 sectors / 1937 walls / 639 sprites; 102,806 bytes; no trailing data.
       in range or sentinel. Attestation remains the human's per D0009.
 - [x] 3.7 Tooling — dump-map (incl. --verbose), validate-map, rewrite-map
       (with self-check), diff-map (field-level), gen-map --list. *(CI smoke)*
-- [x] 3.8 Quality — 65 cases / 1,502 assertions green in dev, release,
+- [x] 3.8 Quality — 66 cases / 1,671 assertions green in dev, release,
       ASan/UBSan; format-check 48/48; layering clean; corpus MANIFEST gate
-      green; CI on feature/m3 @ 5f00ea6: Linux (dev+asan+fuzz), macOS, Format,
+      green; CI on feature/m3 @ PENDING_HEAD: Linux (dev+asan+fuzz), macOS, Format,
       Windows MSVC all green. ASan caught a real use-after-free in a test
       during this milestone (fixed; see notes).
 
@@ -421,6 +418,53 @@ Open provenance question for the human (not fixed, deliberately):
   rejected finding above: the plan describes masked and one-way walls but never
   assigns bit values. Presentation-only today and harmless, but it should be
   sourced or dropped before M6 gives stat bits behavioural weight.
+- **Resolved in round 4** (below): the human reviewer approved ModdingWiki's
+  published MAP description as a source, and the bit meanings were corrected.
+
+Review round 4 (2026-08-23) — format metadata corrections:
+
+The reviewer ruled that ModdingWiki's published MAP format description is an
+approved source under AGENTS.md rule 2 (published binary-format descriptions),
+recorded as PROVENANCE row 9. That reopened the round-3 rejection with a
+provenance-safe basis. **Every adopted fact was independently corroborated
+against six legally owned maps before it was written into the code** — the
+published description supplied the hypothesis, our own black-box observation
+supplied the evidence:
+
+| claim | evidence | n |
+|---|---|---|
+| sector stat `0x0002` = sloped | P(heinum≠0 \| set) = 0.970 vs 0.121 when clear; no other bit rises above the 0.33 base rate | 4,900 surfaces |
+| wall cstat `0x0010` = masked | P(overpicnum≠0 \| set) = 0.979 vs 0.029 base; 0.979 are portals | 15,303 walls |
+| sprite cstat `0x0030` = orientation | takes only 0x0000/0x0010/0x0020; the reserved 0x0030 never occurs | 5,355 sprites |
+
+The previously used values were refuted by the same data: `cstat & 0x0002` on
+walls shows 0.033 overpicnum correlation (base 0.029), and the old sprite
+scheme set "wall" (0x0008) and "floor" (0x0010) simultaneously on 20 real
+sprites — impossible for mutually exclusive orientations.
+
+Corrected:
+
+- **Fixtures** `slope_metadata` (slope bit alongside the heinum, which alone is
+  an ignored leftover in real content), `masked_wall` (0x0010, not 0x0002), and
+  `sprite_orientations` (0x0000/0x0010/0x0020, not 0x0008/0x0010).
+- **`dump-map`** classifies orientation by switching on the two-bit field
+  instead of testing bits independently. E1L1 reclassifies from
+  `face=497 wall=4 floor=138`, masked 33 → `face=493 wall=138 floor=8
+  reserved=0`, masked 19. The old output was objectively wrong.
+- **Unit tests that pinned the wrong values** were corrected; new tests assert
+  the reserved combination appears in no fixture, and the fbtool gate patches a
+  sprite to 0x0030 so the classifier's fallback is actually exercised.
+- **Counts are `uint16` on the wire**, read with `read_u16_le` and written with
+  a new `put_u16`. There is no negative-count case any more: `0xffff` is 65,535
+  sectors and fails as `TooManySectors`, `0x8000` is 32,768 rather than
+  INT16_MIN. Writer bytes are unchanged for all valid maps (verified: only the
+  `sprite_orientations` corpus seed changed, and that from the fixture fix).
+- **`gen-map --fixture`/`--out` rejected option tokens as values** (`--out
+  --wat` wrote a file called `--wat`). Same class as the `--grp` hole; both now
+  exit 2 with regression cases.
+- **Docs**: PROVENANCE row 8 said "int16 sprite count"; the M3 format block said
+  `int16` counts; a stale M2 line still claimed no local GRP was present,
+  contradicting the accepted M2 attestation above it. All corrected.
 Do not implement rendering, collision, Duke tags, or game logic.
 
 ## M4 — ART, palette, lookup, and tile tooling — NOT_STARTED
