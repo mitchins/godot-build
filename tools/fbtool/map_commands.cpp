@@ -213,17 +213,19 @@ int rewrite_map(int argc, char** argv) {
         std::fprintf(stderr, "fbtool: write: %s\n", bytes.error().to_string().c_str());
         return 1;
     }
-    auto written = write_file_bytes(args.positional[1], bytes.value().data(), bytes.value().size());
-    if (!written.is_ok()) {
-        std::fprintf(stderr, "fbtool: %s\n", written.error().to_string().c_str());
-        return 1;
-    }
-    // Self-check: the rewrite must parse and be semantically identical.
+    // Self-check before publishing: the rewrite must parse and be semantically
+    // identical. Writing first meant a failed check still left a corrupt map on
+    // disk for the next command to pick up.
     auto reparsed = read_map(
         std::string_view(reinterpret_cast<const char*>(bytes.value().data()), bytes.value().size()),
         "rewrite");
     if (!reparsed.is_ok() || !diff_maps(map.value(), reparsed.value()).identical) {
         std::fprintf(stderr, "fbtool: rewrite self-check failed\n");
+        return 1;
+    }
+    auto written = write_file_bytes(args.positional[1], bytes.value().data(), bytes.value().size());
+    if (!written.is_ok()) {
+        std::fprintf(stderr, "fbtool: %s\n", written.error().to_string().c_str());
         return 1;
     }
     std::printf("fbtool: rewrote %s -> %s (%zu bytes, semantic diff empty)\n",

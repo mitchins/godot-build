@@ -465,6 +465,20 @@ Corrected:
 - **Docs**: PROVENANCE row 8 said "int16 sprite count"; the M3 format block said
   `int16` counts; a stale M2 line still claimed no local GRP was present,
   contradicting the accepted M2 attestation above it. All corrected.
+
+Review round 5 (2026-08-23) — CodeRabbit residual on 4e80fd7, 2 findings:
+
+- **Accepted: `rewrite-map` published output before its own self-check.**
+  `write_file_bytes` ran ahead of the reparse-and-diff, so a failed self-check
+  printed "rewrite self-check failed", exited 1, and still left a corrupt map
+  on disk for the next command to consume. Reordered: the bytes are already in
+  memory, so the check simply moves ahead of the write — no temporary file
+  needed. Verified by injecting a writer bug (`lotag + 1`): the command exits 1
+  and leaves no file, where it previously wrote 102,806 corrupt bytes.
+  `check_fbtool.py` now asserts that a failing rewrite-map publishes nothing.
+- **Skipped: PENDING_HEAD placeholders in the CI evidence.** Already fixed —
+  the review ran against 4e80fd7 and the placeholders were replaced with that
+  SHA in df8d24c, the next commit.
 Do not implement rendering, collision, Duke tags, or game logic.
 
 ## M4 — ART, palette, lookup, and tile tooling — NOT_STARTED

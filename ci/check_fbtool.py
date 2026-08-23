@@ -95,6 +95,14 @@ with tempfile.TemporaryDirectory() as tmp:
     # No positional: with one present the arity check yields exit 2 on its own,
     # so the case would pass even with unknown-option handling deleted.
     run(["dump-map", "--bogus"], 2, "dump-map unknown option")
+
+    # A failing rewrite-map must publish nothing: output is written only after
+    # the parse and the semantic self-check succeed.
+    unwritten = pathlib.Path(tmp) / "unwritten.MAP"
+    run(["rewrite-map", str(bad_version), str(unwritten)], 1, "rewrite-map rejects bad input",
+        expect_err="unsupported_version")
+    if unwritten.exists():
+        failures.append("rewrite-map: wrote output despite failing")
     run(["dump-map", "--grp"], 2, "dump-map dangling option value")
     run(["diff-map", fix], 2, "diff-map arity")
     run(["rewrite-map", fix], 2, "rewrite-map arity")
