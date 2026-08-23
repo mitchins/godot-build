@@ -205,6 +205,40 @@ with tempfile.TemporaryDirectory() as tmp:
     run(["dump-palette", "--grp"], 2, "dump-palette dangling option")
     run(["dump-lookup"], 2, "dump-lookup arity")
 
+    # ---------------- ART command (M4 slice 2) ----------------
+    import struct as _s2
+    art = pathlib.Path(tmp) / "synth.art"
+    specs = [(0, 0, 0), (8, 8, 0x02000043), (3, 2, 0), (1, 1, 0)]  # frames=3 type=1 speed=2
+    art_bytes = bytearray(_s2.pack("<iiii", 1, 2816, 0, 3))
+    art_bytes += b"".join(_s2.pack("<h", w) for w, _, _ in specs)
+    art_bytes += b"".join(_s2.pack("<h", h) for _, h, _ in specs)
+    art_bytes += b"".join(_s2.pack("<i", m) for _, _, m in specs)
+    n = 0
+    for w, h, _ in specs:
+        for _ in range(w * h):
+            art_bytes.append(n & 0xFF)
+            n += 1
+    art.write_bytes(art_bytes)
+    run(["dump-art", str(art)], 0, "dump-art",
+        expect_out="tile range: 0..3 (4 tiles; numtiles field: 2816, global)")
+    proc = run(["dump-art", str(art)], 0, "dump-art stats")
+    for expected in ("animated tiles: 1", "version: 1"):
+        if expected not in proc.stdout:
+            failures.append(f"dump-art: stdout missing {expected!r}")
+    run(["dump-art", "--verbose", str(art)], 0, "dump-art verbose", expect_out="tile[1]:")
+
+    bad_art = pathlib.Path(tmp) / "bad.art"
+    bad_art.write_bytes(_s2.pack("<iiii", 2, 1, 0, 0) + b"\x00" * 8)
+    run(["dump-art", str(bad_art)], 1, "dump-art bad version",
+        expect_err="unsupported_version")
+    trailing_art = pathlib.Path(tmp) / "trailing.art"
+    trailing_art.write_bytes(bytes(art_bytes) + b"\xEE")
+    run(["dump-art", str(trailing_art)], 1, "dump-art trailing",
+        expect_err="trailing_data")
+    run(["dump-art", "--bogus", str(art)], 2, "dump-art unknown option")
+    run(["dump-art", "--grp"], 2, "dump-art dangling option")
+    run(["dump-art"], 2, "dump-art arity")
+
     run(["no-such-command"], 2, "unknown command", expect_err="unknown command")
 
 if failures:
@@ -213,4 +247,4 @@ if failures:
         print(f"  {f}")
     sys.exit(1)
 
-print("fbtool check: grp + map + palette command contracts hold")
+print("fbtool check: grp + map + palette + art command contracts hold")

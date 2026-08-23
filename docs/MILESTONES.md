@@ -547,6 +547,33 @@ Started: 2026-08-23
 
 Delivery is sliced per the M4 task brief; each slice stops for review.
 
+### Slice 2 — ART container and tile metadata (delivered 2026-08-23)
+
+- Corroborated before encoding (method per brief): version==1; numtiles is a
+  GLOBAL count (2816 in every shipped file) vs per-file n=256 — the wiki's
+  "unused" is really "not per-file"; ranges chain 0..255/256..511/512..767;
+  16 + n*8 + sum(w*h) closes EXACTLY on all three files; picanm structurally
+  corroborated (anim types dominated by 0 with a small animated minority,
+  frames <= 15 < 64, speeds set ~only on animated tiles, centers small
+  signed). Pixel ordering is not size-distinguishable: stored VERBATIM, zero
+  conversion, interpretation deferred to the presentation boundary.
+  COMPATIBILITY_SCOPE 0d records all of it.
+- `read_art`/`write_art`: version/range validated before allocation; dims
+  region fit-checked before arrays; per-tile pixel reads bounds-checked;
+  exact closure (no trailing bytes); byte-identical round-trip
+  (fuzz-enforced). `PicanmBits` decodes named fields AND preserves the raw
+  dword.
+- `fbtool dump-art` (generic stats by default, --verbose first-8 detail,
+  --grp mount reads, no extraction); contracts in ci/check_fbtool.py.
+- Tests: +7 cases (74 -> 81); non-sweep assertion growth is the meaningful
+  number (per slice-1 review finding 2). ART corpus (7 seeds incl. bad
+  version/range/trailing/truncated); MANIFEST 27 entries; corpus regression
+  covers ART.
+- Dev evidence (generic metadata only): TILES000.ART via --grp parses clean,
+  output matches the corroboration numbers exactly (256 tiles, 4 animated,
+  max 142x400, 152 zero-dim). Nothing extracted; no real bytes or hashes
+  committed.
+
 ### Slice 1 — palette, lookup, shade tables (delivered 2026-08-23)
 
 - Format facts corroborated against the legally owned content BEFORE encoding

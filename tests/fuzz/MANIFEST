@@ -1,3 +1,10 @@
+9f322b62adbfd8dd      248 tests/fuzz/corpus/art/bad_range.bin
+b4e3d872fb5ea88c      248 tests/fuzz/corpus/art/bad_version.bin
+bf98e8822a210933      249 tests/fuzz/corpus/art/trailing.bin
+d2b91e6a3ae44153      124 tests/fuzz/corpus/art/truncated.bin
+d6b16afcc25b66ef      248 tests/fuzz/corpus/art/valid_art.bin
+d952ac6bce6b7457       67 tests/fuzz/corpus/art/valid_minimal.bin
+35f3a38dc136c4ec       30 tests/fuzz/corpus/art/valid_single.bin
 55545c78bc93ded5       12 tests/fuzz/corpus/grp/bad_signature.bin
 cbf29ce484222325        0 tests/fuzz/corpus/grp/empty.bin
 76f247eaf614735c       16 tests/fuzz/corpus/grp/truncated_directory.bin
