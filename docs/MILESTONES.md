@@ -247,8 +247,8 @@ Review round 1 (2026-08-22, three findings, all fixed):
 ## M3 — MAP v7 parser, validator, and writer
 
 Status: **GATE_REVIEW** (3.1–3.4, 3.7, 3.8 executed — CI green on
-feature/m3 @ 4e80fd7, all four jobs including MSVC; 3.5 Mapster and the 3.6
-attestation are human items)
+feature/m3 @ 4e80fd7, all four jobs including MSVC; 3.6 HUMAN-ATTESTED
+2026-08-23; 3.5 Mapster round-trip is the last open gate)
 Started: 2026-08-23
 
 ### Scope
@@ -291,14 +291,29 @@ E1L1: 317 sectors / 1937 walls / 639 sprites; 102,806 bytes; no trailing data.
       `fbtool gen-map --fixture two_sector_portal --out x.MAP`, open in
       Mapster32, save, then `fbtool diff-map x.MAP x-after-mapster.MAP`
       (semantics; Mapster may reorder/renumber — record observations).
-- [ ] 3.6 Real local MAP — PENDING HUMAN-ATTESTED. Dev evidence 2026-08-23:
+- [x] 3.6 Real local MAP — **HUMAN-ATTESTED 2026-08-23** by mitchellcurrie, who
+      executed the commands below against their own legally owned DUKE3D.GRP:
+      `fbtool validate-map --grp local_reference/duke/DUKE3D.GRP E1L1.MAP`,
+      `fbtool dump-map --grp ... E1L1.MAP`,
+      `fbtool rewrite-map --grp ... E1L1.MAP /tmp/E1L1-fauxbuild.map`.
+      Result: `validation: OK (0 errors, 0 warnings)`; version 7;
+      start x=-31243 y=7160 z=-181472 angle=422 sector=309;
+      317 sectors / 1937 walls / 639 sprites; 1274 portal walls;
+      19 masked walls (cstat&0x10); sprites face=493 wall-aligned=138
+      floor-aligned=8 reserved=0 (cstat&0x30);
+      `rewrote E1L1.MAP -> /tmp/E1L1-fauxbuild.map (102806 bytes, semantic diff
+      empty)`. The rewrite self-check reparses the written bytes and diffs them
+      against the source before publishing (417396e), so "semantic diff empty"
+      is the round-trip result, not a size comparison.
+      No proprietary bytes, hashes, or extracted content entered the repository
+      or CI. Prior dev evidence 2026-08-23:
       E1L1.MAP via GrpMount parses, validates OK, counts 317/1937/639, rewrite
       reparses with empty semantic diff and byte-identical output. The
       reviewer's independent verification (own Python GRP extractor + MAP
       decoder, no shared code): all six shipped maps parse, validate 0/0, and
       rewrite byte-identically — 9,664 portal walls across six independently
       built maps all reciprocate, every loop closes, every sprite sectnum
-      in range or sentinel. Attestation remains the human's per D0009.
+      in range or sentinel.
 - [x] 3.7 Tooling — dump-map (incl. --verbose), validate-map, rewrite-map
       (with self-check), diff-map (field-level), gen-map --list. *(CI smoke)*
 - [x] 3.8 Quality — 66 cases / 1,671 assertions green in dev, release,
