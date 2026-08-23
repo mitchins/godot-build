@@ -290,3 +290,30 @@ TEST_CASE("palette spec rejects undefined entries and out-of-range values") {
         CHECK(parsed.error().code == ErrorCode::OutOfBounds);
     }
 }
+
+TEST_CASE("CRLF line endings parse identically in every text format") {
+    // Windows checkouts (core.autocrlf) hand the parsers CRLF files; found
+    // by the MSVC CI job (unknown directive '\r'). All three parsers strip
+    // a trailing CR — this case pins the behavior.
+    const char* tileset_lf =
+        "tileset t\r\n\r\ntile a 8 8 pattern=solid color=1\r\n";
+    auto ts = parse_tileset(tileset_lf, "crlf");
+    REQUIRE(ts.is_ok());
+    REQUIRE(ts.value().tiles.size() == 1);
+    CHECK(ts.value().tiles[0].params[0] == 1); // value parsed past the CR
+
+    TileManifest manifest;
+    REQUIRE(manifest.assign("a", 8, 8, 0, 0, 0, 0, 0).is_ok());
+    auto text = write_tile_manifest(manifest);
+    REQUIRE(text.is_ok());
+    auto crlf = parse_tile_manifest(
+        std::string(text.value()).insert(1, 1, '\r'), "crlf-manifest");
+    REQUIRE(crlf.is_ok());
+    REQUIRE(crlf.value().entries.size() == 1);
+
+    const char* palette_lf = "palette p\r\nentry 0 1 2 3\r\n";
+    auto bad = parse_palette_spec(palette_lf, "crlf-palette");
+    // coverage error expected (1 of 256 defined) — but NOT a directive error:
+    REQUIRE_FALSE(bad.is_ok());
+    CHECK(bad.error().record == "palette.coverage");
+}

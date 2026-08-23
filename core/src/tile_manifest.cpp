@@ -110,6 +110,9 @@ Result<TileManifest> parse_tile_manifest(std::string_view text, std::string sour
     std::string line;
     std::size_t line_no = 0;
     while (std::getline(stream, line)) {
+        if (!line.empty() && line.back() == '\r') {
+            line.pop_back(); // CRLF files (Windows checkouts, real-world edits)
+        }
         ++line_no;
         // Comments are whole lines only (leading '#'): generated animation
         // frame names contain '#' (name#frame) and must survive intact.

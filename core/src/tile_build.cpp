@@ -165,6 +165,9 @@ Result<TilesetDef> parse_tileset(std::string_view text, std::string source) {
     std::string line;
     std::size_t line_no = 0;
     while (std::getline(stream, line)) {
+        if (!line.empty() && line.back() == '\r') {
+            line.pop_back(); // CRLF files (Windows checkouts, real-world edits)
+        }
         ++line_no;
         const auto hash = line.find('#');
         if (hash != std::string::npos) {
@@ -448,6 +451,9 @@ Result<PaletteSpec> parse_palette_spec(std::string_view text, std::string source
     std::string line;
     std::size_t line_no = 0;
     while (std::getline(stream, line)) {
+        if (!line.empty() && line.back() == '\r') {
+            line.pop_back(); // CRLF files (Windows checkouts, real-world edits)
+        }
         ++line_no;
         const auto hash = line.find('#');
         if (hash != std::string::npos) {
