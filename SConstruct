@@ -189,6 +189,11 @@ if host_build:
         test_cmd = 'UBSAN_OPTIONS=halt_on_error=1 ' + test_cmd
     run_tests = tests_env.Command(
         f'{bdir}/tests.stamp', [tests], [test_cmd, Touch('$TARGET')])
+    # Tests read runtime inputs SCons cannot track: the committed fuzz corpus
+    # is loaded through __FILE__ paths (corpus_regression.test.cpp). Without
+    # AlwaysBuild a corrupted corpus leaves a stale green stamp — the failure
+    # shape found in M3 review. Tests re-run on every `check`.
+    tests_env.AlwaysBuild(run_tests)
     smoke_fbtool = env.Command(
         f'{bdir}/fbtool.stamp', [fbtool], ['${SOURCE.abspath} --version', Touch('$TARGET')])
     # Command contracts (exit codes, stdout) are not observable from the unit
@@ -208,10 +213,16 @@ layering = env.Command(
 # would make them run once per build/<cfg> lifetime and report green forever after.
 env.AlwaysBuild(layering)
 
+# Corpus integrity: the fuzz corpus is read at runtime via __FILE__ paths;
+# a corrupted or deleted file must fail `check` (M3 review item 3).
+corpus_check = env.Command(
+    f'{bdir}/corpus.stamp', [], ['python3 ci/check_corpus.py', Touch('$TARGET')])
+env.AlwaysBuild(corpus_check)
+
 if host_build:
-    Alias('check', [run_tests, smoke_fbtool, fbtool_contract, layering])
+    Alias('check', [run_tests, smoke_fbtool, fbtool_contract, layering, corpus_check])
 else:
-    Alias('check', [layering])
+    Alias('check', [layering, corpus_check])
 
 format_check = env.Command(f'{bdir}/format.stamp', [],
                            ['python3 ci/check_format.py', Touch('$TARGET')])

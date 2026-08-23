@@ -69,6 +69,39 @@ with tempfile.TemporaryDirectory() as tmp:
     # Per-option bounds pass individually but multiply into a ~1 TiB request.
     run(["gen-grp", "--out", good, "--files", "65536", "--max-size", "16777216"],
         2, "gen-grp aggregate payload", expect_err="over the")
+    # ---------------- MAP v7 commands (M3) ----------------
+    fix = str(pathlib.Path(tmp) / "two_sector.MAP")
+    run(["gen-map", "--fixture", "two_sector_portal", "--out", fix], 0, "gen-map",
+        expect_out="wrote")
+    proc = run(["dump-map", fix], 0, "dump-map", expect_out="validation: OK")
+    for expected in ("sectors: 2", "walls: 8", "portal walls: 2",
+                     "version: 7", "start:"):
+        if expected not in proc.stdout:
+            failures.append(f"dump-map: stdout missing {expected!r}")
+    run(["dump-map", "--verbose", fix], 0, "dump-map verbose")
+
+    run(["validate-map", fix], 0, "validate-map ok", expect_out="0 errors")
+    run(["rewrite-map", fix, str(pathlib.Path(tmp) / "rewritten.MAP")], 0, "rewrite-map",
+        expect_out="semantic diff empty")
+    run(["diff-map", fix, str(pathlib.Path(tmp) / "rewritten.MAP")], 0, "diff-map equal",
+        expect_out="semantically identical")
+    run(["gen-map", "--list"], 0, "gen-map list", expect_out="multi_loop")
+
+    # Malformed content is a content error (1); usage problems exit 2.
+    bad_version = pathlib.Path(tmp) / "bad_version.MAP"
+    bad_version.write_bytes((9).to_bytes(4, "little") + b"\x00" * 40)
+    run(["validate-map", str(bad_version)], 1, "validate-map bad version",
+        expect_err="unsupported_version")
+    run(["dump-map", fix, "--bogus"], 2, "dump-map unknown option")
+    run(["dump-map", "--grp"], 2, "dump-map dangling option value")
+    run(["diff-map", fix], 2, "diff-map arity")
+    run(["rewrite-map", fix], 2, "rewrite-map arity")
+    run(["gen-map", "--fixture", "nope", "--out", str(pathlib.Path(tmp) / "x.MAP")], 1,
+        "gen-map unknown fixture", expect_err="unknown fixture")
+    run(["gen-map", "--wat"], 2, "gen-map unknown option")
+    run(["dump-map", str(pathlib.Path(tmp) / "missing.MAP")], 1, "dump-map missing",
+        expect_err="io_error")
+
     run(["no-such-command"], 2, "unknown command", expect_err="unknown command")
 
 if failures:

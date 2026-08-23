@@ -191,8 +191,17 @@ incidental code change. Any future format parser that allocates per record from
 an untrusted count needs an equivalent bound.
 ### D0012 — MAP v7 sentinel and strictness rules (M3)
 
-Status: proposed (implemented, awaiting human ratification)
+Status: accepted (human ratification 2026-08-23)
 Date: 2026-08-23
+Ratification: rules 1, 2, 3, 5, 6 ratified outright — corroborated by the
+reviewer's independent decode of all six shipped maps (9,664 portal walls, all
+reciprocated; every loop closed; every sprite sectnum valid or sentinel).
+Rule 4 (trailing data rejects) ratified with the risk named: a legitimate
+resave that introduces trailing bytes would be rejected; zero shipped maps
+have trailing data today, and the rule is reversible by a later decision.
+Also noted for future profile discussions: largest shipped map is 557 sectors
+against the 1024 classic limit (~1.8x headroom) — full-game and user maps can
+exceed it; that is a future decision, not an M3 change.
 Context: task §16 requires explicit rulings for format ambiguities encountered at M3.
 All choices below were implemented to be strict and fail-closed; real-world exceptions
 discovered by later gates (Mapster, more maps) reopen the specific item.

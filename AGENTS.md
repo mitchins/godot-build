@@ -6,10 +6,10 @@ The full implementation contract is `docs/PROJECT_CONTRACT.md` and the source pl
 
 ## Active milestone
 
-**M3 — MAP v7 parser, validator, and writer: GATE_REVIEW.** Gates 3.1–3.4,
-3.7, 3.8 have executed CI evidence; 3.5 (Mapster round-trip) and the 3.6
-attestation are human items. D0012 (sentinel/strictness rules) is proposed,
-awaiting ratification. Next after M3: M4.
+**M3 — MAP v7 parser, validator, and writer: GATE_REVIEW.** Review round 1
+fixes applied on feature/m3 pending green CI (MSVC included) before judgment.
+3.5 (Mapster round-trip) and 3.6 (real-map attestation) are human items.
+D0012 ratified 2026-08-23. Next after M3: M4.
 
 ## Repository boundary and evidence classes
 

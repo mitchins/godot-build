@@ -1,0 +1,14 @@
+d68a512a0973e553       12 tests/fuzz/corpus/grp/bad_signature.bin
+14650fb0739d0383        0 tests/fuzz/corpus/grp/empty.bin
+c57ee788e6f6bed2       16 tests/fuzz/corpus/grp/truncated_directory.bin
+667884df3f08d688        4 tests/fuzz/corpus/grp/truncated_header.bin
+f877e7fd316f5722     2532 tests/fuzz/corpus/grp/valid_medium.grp.bin
+fdce4d15b5d5481a       85 tests/fuzz/corpus/grp/valid_tiny.grp.bin
+456997aa3fcdb116       16 tests/fuzz/corpus/grp/zero_files.bin
+3d3ff75dc0d9b7cd      194 tests/fuzz/corpus/map/bad_version.bin
+c253934677e777e3      194 tests/fuzz/corpus/map/minimal.map.bin
+7a596814e234eb13      322 tests/fuzz/corpus/map/multi_loop.map.bin
+90935b17a2491c71      370 tests/fuzz/corpus/map/sprite_orientations.map.bin
+55f6e4f104a3dfac       11 tests/fuzz/corpus/map/truncated_header.bin
+ddf4e58565fc0a07       30 tests/fuzz/corpus/map/truncated_walls.bin
+1028c77c9cb43d7b      362 tests/fuzz/corpus/map/two_sector_portal.map.bin

@@ -18,18 +18,28 @@ namespace {
 
 struct MapArgs {
     bool verbose = false;
+    bool usage_error = false;
     std::string grp;
     std::vector<std::string> positional;
 };
 
+// Recognized options per command; anything else starting with '-' is a usage
+// error (exit 2), never a positional path or a silent content error.
 MapArgs parse_args(int argc, char** argv) {
     MapArgs args;
     for (int i = 0; i < argc; ++i) {
         const std::string arg = argv[i];
         if (arg == "--verbose" || arg == "-v") {
             args.verbose = true;
-        } else if (arg == "--grp" && i + 1 < argc) {
+        } else if (arg == "--grp") {
+            if (i + 1 >= argc) {
+                args.usage_error = true;
+                break;
+            }
             args.grp = argv[++i];
+        } else if (!arg.empty() && arg[0] == '-') {
+            args.usage_error = true;
+            break;
         } else {
             args.positional.push_back(arg);
         }
@@ -79,7 +89,7 @@ bool print_report(const ValidationReport& report) {
 
 int dump_map(int argc, char** argv) {
     const MapArgs args = parse_args(argc, argv);
-    if (args.positional.size() != 1) {
+    if (args.usage_error || args.positional.size() != 1) {
         std::fprintf(stderr, "fbtool: dump-map [--grp FILE] <map-path-or-name> [--verbose]\n");
         return 2;
     }
@@ -160,7 +170,7 @@ int dump_map(int argc, char** argv) {
 
 int validate_map(int argc, char** argv) {
     const MapArgs args = parse_args(argc, argv);
-    if (args.positional.size() != 1) {
+    if (args.usage_error || args.positional.size() != 1) {
         std::fprintf(stderr, "fbtool: validate-map [--grp FILE] <map-path-or-name>\n");
         return 2;
     }
@@ -174,7 +184,7 @@ int validate_map(int argc, char** argv) {
 
 int rewrite_map(int argc, char** argv) {
     const MapArgs args = parse_args(argc, argv);
-    if (args.positional.size() != 2) {
+    if (args.usage_error || args.positional.size() != 2) {
         std::fprintf(stderr, "fbtool: rewrite-map [--grp FILE] <in> <out>\n");
         return 2;
     }
@@ -208,7 +218,7 @@ int rewrite_map(int argc, char** argv) {
 
 int diff_map(int argc, char** argv) {
     const MapArgs args = parse_args(argc, argv);
-    if (args.positional.size() != 2) {
+    if (args.usage_error || args.positional.size() != 2) {
         std::fprintf(stderr, "fbtool: diff-map [--grp FILE] <a> <b>\n");
         return 2;
     }

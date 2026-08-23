@@ -249,8 +249,8 @@ Review round 1 (2026-08-22, three findings, all fixed):
 
 ## M3 — MAP v7 parser, validator, and writer
 
-Status: **GATE_REVIEW** (gates 3.1–3.4, 3.7, 3.8 executed; 3.5 Mapster and the
-3.6 attestation are human items)
+Status: **GATE_REVIEW** (3.1–3.4, 3.7 executed; 3.5 Mapster and the 3.6
+attestation are human items; 3.8 pending green CI on feature/m3)
 Started: 2026-08-23
 
 ### Scope
@@ -286,19 +286,25 @@ E1L1: 317 sectors / 1937 walls / 639 sprites; 102,806 bytes; no trailing data.
       nextsector, non-reciprocal portals, invalid sprite sectors, unowned and
       double-claimed walls all detected (dedicated cases). *(CI)*
 - [x] 3.4 Writer — parse→write→parse is byte-identical for every fixture and
-      **for untouched E1L1** (102,806 bytes identical); semantic diff empty. *(CI + attested)*
+      **for untouched E1L1** (102,806 bytes identical); semantic diff empty. *(CI)*
 - [ ] 3.5 Mapster — HUMAN-ATTESTED, PENDING. Candidate fixture:
       `fbtool gen-map --fixture two_sector_portal --out x.MAP`, open in
       Mapster32, save, then `fbtool diff-map x.MAP x-after-mapster.MAP`
       (semantics; Mapster may reorder/renumber — record observations).
-- [x] 3.6 Real local MAP — E1L1.MAP via GrpMount: parses, validates OK,
-      counts 317/1937/639, rewrite reparse diff empty and byte-identical.
-      *(executed as dev evidence 2026-08-23; attestation is the human's)*
+- [ ] 3.6 Real local MAP — PENDING HUMAN-ATTESTED. Dev evidence 2026-08-23:
+      E1L1.MAP via GrpMount parses, validates OK, counts 317/1937/639, rewrite
+      reparses with empty semantic diff and byte-identical output. The
+      reviewer's independent verification (own Python GRP extractor + MAP
+      decoder, no shared code): all six shipped maps parse, validate 0/0, and
+      rewrite byte-identically — 9,664 portal walls across six independently
+      built maps all reciprocate, every loop closes, every sprite sectnum
+      in range or sentinel. Attestation remains the human's per D0009.
 - [x] 3.7 Tooling — dump-map (incl. --verbose), validate-map, rewrite-map
       (with self-check), diff-map (field-level), gen-map --list. *(CI smoke)*
-- [x] 3.8 Quality — 64 cases / 1,900+ assertions green in dev, release,
-      ASan/UBSan; format-check 48/48; layering clean. ASan caught a real
-      use-after-free in a test during this milestone (fixed; see notes).
+- [ ] 3.8 Quality — 64 cases / 1,493 assertions green in dev, release,
+      ASan/UBSan; format-check 48/48; layering clean; corpus MANIFEST gate
+      green. ASan caught a real use-after-free in a test during this milestone
+      (fixed; see notes). Remaining: green CI on feature/m3, MSVC included.
 
 ### Notes
 
@@ -314,6 +320,29 @@ E1L1: 317 sectors / 1937 walls / 639 sprites; 102,806 bytes; no trailing data.
   hole in one sector). No one-loop simplification exists anywhere in the code.
 - The writer emits no FauxBuild metadata (plan/task §7); canonical output is
   byte-identical to Mapster-era files by construction of exact field widths.
+
+Review round 1 (2026-08-23) — findings and fixes:
+
+- **run_tests was the only check gate without AlwaysBuild**: tests read the
+  corpus through __FILE__ paths SCons cannot track, so a corrupted corpus left
+  a stale green stamp (reviewer-proven: GARBAGE corpus → "done building
+  targets", 0 tests run). Fixed: AlwaysBuild(run_tests) **and** a corpus
+  integrity gate (ci/check_corpus.py + committed tests/fuzz/MANIFEST, FNV-1a64
+  matching fauxbuild::fnv1a64) — corruption, deletion, and unlisted additions
+  now fail `check` (verified by probe).
+- **fbtool map commands**: unknown/dangling options now exit 2 (usage), never
+  masquerade as positional paths (exit 1 content errors); ci/check_fbtool.py
+  extended to all five map commands plus malformed-content and usage cases.
+- **Assertion count corrected**: 1,493 (identical dev/asan/release), not
+  "~1,900".
+- **Gate 3.6 unticked** until the human attests (D0009); reviewer's six-map
+  independent verification recorded above as supporting evidence.
+- Profile headroom noted for the future (not M3): largest shipped map is 557
+  sectors against the 1024 classic limit.
+- D0012 **ratified** by the human reviewer: rules 1, 2, 3, 5, 6 outright;
+  rule 4 (trailing data rejects) ratified with the named risk that a future
+  resave introducing trailing data would be rejected — reversible by a later
+  decision, consistent with D0011's fail-closed ruling.
 Do not implement rendering, collision, Duke tags, or game logic.
 
 ## M4 — ART, palette, lookup, and tile tooling — NOT_STARTED
