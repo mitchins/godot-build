@@ -247,7 +247,7 @@ Review round 1 (2026-08-22, three findings, all fixed):
 ## M3 — MAP v7 parser, validator, and writer
 
 Status: **GATE_REVIEW** (3.1–3.4, 3.7, 3.8 executed — CI green on
-feature/m3 @ PENDING_HEAD, all four jobs including MSVC; 3.5 Mapster and the 3.6
+feature/m3 @ 4e80fd7, all four jobs including MSVC; 3.5 Mapster and the 3.6
 attestation are human items)
 Started: 2026-08-23
 
@@ -303,7 +303,7 @@ E1L1: 317 sectors / 1937 walls / 639 sprites; 102,806 bytes; no trailing data.
       (with self-check), diff-map (field-level), gen-map --list. *(CI smoke)*
 - [x] 3.8 Quality — 66 cases / 1,671 assertions green in dev, release,
       ASan/UBSan; format-check 48/48; layering clean; corpus MANIFEST gate
-      green; CI on feature/m3 @ PENDING_HEAD: Linux (dev+asan+fuzz), macOS, Format,
+      green; CI on feature/m3 @ 4e80fd7: Linux (dev+asan+fuzz), macOS, Format,
       Windows MSVC all green. ASan caught a real use-after-free in a test
       during this milestone (fixed; see notes).
 
