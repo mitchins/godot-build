@@ -96,13 +96,23 @@ with tempfile.TemporaryDirectory() as tmp:
     # so the case would pass even with unknown-option handling deleted.
     run(["dump-map", "--bogus"], 2, "dump-map unknown option")
 
-    # A failing rewrite-map must publish nothing: output is written only after
-    # the parse and the semantic self-check succeed.
+    # A failing rewrite-map must publish nothing. Note what this can and cannot
+    # reach: the self-check (reparse + semantic diff) cannot be made to fail
+    # from outside the process, because the reader and writer enforce identical
+    # limits and every field round-trips at fixed width — with a correct writer
+    # it is an assertion, not a validation. Its ordering was verified in review
+    # by injecting a writer bug (see MILESTONES M3 review round 5). What is
+    # externally observable is that neither a rejected parse nor a failed write
+    # leaves a file behind.
     unwritten = pathlib.Path(tmp) / "unwritten.MAP"
-    run(["rewrite-map", str(bad_version), str(unwritten)], 1, "rewrite-map rejects bad input",
-        expect_err="unsupported_version")
+    run(["rewrite-map", str(bad_version), str(unwritten)], 1,
+        "rewrite-map rejects bad input without writing", expect_err="unsupported_version")
     if unwritten.exists():
-        failures.append("rewrite-map: wrote output despite failing")
+        failures.append("rewrite-map: wrote output despite a rejected parse")
+
+    # Parse and self-check both succeed here; only the write fails.
+    run(["rewrite-map", fix, "/nonexistent-dir/out.MAP"], 1, "rewrite-map unwritable destination",
+        expect_err="io_error")
     run(["dump-map", "--grp"], 2, "dump-map dangling option value")
     run(["diff-map", fix], 2, "diff-map arity")
     run(["rewrite-map", fix], 2, "rewrite-map arity")

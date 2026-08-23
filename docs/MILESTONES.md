@@ -246,9 +246,9 @@ Review round 1 (2026-08-22, three findings, all fixed):
 
 ## M3 — MAP v7 parser, validator, and writer
 
-Status: **GATE_REVIEW** (3.1–3.4, 3.7, 3.8 executed — CI green on
-feature/m3 @ 4e80fd7, all four jobs including MSVC; 3.6 HUMAN-ATTESTED
-2026-08-23; 3.5 Mapster round-trip is the last open gate)
+Status: **ACCEPTED** 2026-08-23 by mitchellcurrie — all eight gates met.
+CI green on feature/m3, all four jobs including MSVC; 3.5 and 3.6 are
+HUMAN-ATTESTED per D0009.
 Started: 2026-08-23
 
 ### Scope
@@ -287,10 +287,33 @@ E1L1: 317 sectors / 1937 walls / 639 sprites; 102,806 bytes; no trailing data.
       fixture; semantic diff empty. *(CI)* Untouched E1L1 also rewrites
       byte-identically (102,806 bytes) — proprietary-content evidence, not CI,
       and covered by the 3.6 attestation rather than claimed here (D0009).
-- [ ] 3.5 Mapster — HUMAN-ATTESTED, PENDING. Candidate fixture:
-      `fbtool gen-map --fixture two_sector_portal --out x.MAP`, open in
-      Mapster32, save, then `fbtool diff-map x.MAP x-after-mapster.MAP`
-      (semantics; Mapster may reorder/renumber — record observations).
+- [x] 3.5 Mapster — **HUMAN-ATTESTED 2026-08-23, ACCEPTED** by mitchellcurrie.
+      Mapster32 r9598-25afea98f (native macOS build, used as a black box; no
+      source consulted) loaded and re-saved the original FauxBuild
+      `two_sector_portal` MAP v7 fixture successfully — the editor logged
+      `Loaded V7 map before.map successfully`. The resulting file validates with
+      0 errors / 0 warnings and preserves all pre-existing map semantics.
+      Mapster32 added one 44-byte default sprite record to the previously
+      sprite-empty map; no existing sector, wall, portal, start-pose, or other
+      record was modified. No trailing data was added and the file remained
+      MAP v7. This editor-authored addition is accepted as external-tool
+      normalization and does not alter the FauxBuild writer contract; FauxBuild
+      was not changed in response.
+
+      Evidence: 362 → 406 bytes (+44 = exactly one sprite record); the whole
+      semantic diff is `counts.sprites: 0 != 1`; independent decode confirms
+      `consumed 406 of 406 -> trailing 0`. The inserted sprite is an editor
+      default (picnum 0, cstat 1, clipdist 32, xrepeat/yrepeat 64, sectnum 0,
+      owner -1, extra -1, ang 1536), classified `face=1` under the corrected
+      0x0030 orientation field.
+
+      What this corroborates, from a tool with no connection to our reasoning:
+      the 44-byte sprite record width; that MAP v7 has no trailer convention;
+      that our synthetic output is accepted as ordinary v7 by a real editor;
+      that the validator is not merely self-consistent with our own writer; and
+      that the canonical writer produces editor-compatible topology. That is
+      the exact failure mode — parser and writer agreeing with each other's
+      mistakes — this gate existed to catch.
 - [x] 3.6 Real local MAP — **HUMAN-ATTESTED 2026-08-23** by mitchellcurrie, who
       executed the commands below against their own legally owned DUKE3D.GRP:
       `fbtool validate-map --grp local_reference/duke/DUKE3D.GRP E1L1.MAP`,
@@ -494,6 +517,27 @@ Review round 5 (2026-08-23) — CodeRabbit residual on 4e80fd7, 2 findings:
 - **Skipped: PENDING_HEAD placeholders in the CI evidence.** Already fixed —
   the review ran against 4e80fd7 and the placeholders were replaced with that
   SHA in df8d24c, the next commit.
+
+Review round 6 (2026-08-23) — CodeRabbit residual on 417396e, 1 finding:
+
+- **Partially accepted: the rewrite-map gate case only covers parse rejection,
+  not a failed self-check.** True, and it was flagged as a limitation when the
+  case was written. The rest is not constructible from outside the process: the
+  reader and writer enforce identical limits (`kMaxSectors`/`kMaxWalls`/
+  `kMaxSprites`) and every field round-trips at fixed width, so with a correct
+  writer the self-check is an assertion that cannot fail — forcing it requires
+  injecting a bug into the binary, which is how the ordering was verified in
+  round 5. Added the one branch that *is* externally observable (parse and
+  self-check succeed, write fails: unwritable destination), and documented the
+  reachability boundary in the gate itself so the next reader does not mistake
+  its coverage.
+
+Deferred to M6 (not M3 debt):
+
+- Optional black-box check — round-trip the `sprite_orientations` fixture
+  through Mapster32 and confirm `0x0010`/`0x0020` survive. Would be a third
+  independent source for the orientation field, but PROVENANCE row 9 plus the
+  n=5,355 corroboration already settle it; ruled not worth the operating cost.
 Do not implement rendering, collision, Duke tags, or game logic.
 
 ## M4 — ART, palette, lookup, and tile tooling — NOT_STARTED
@@ -513,6 +557,15 @@ render-all visibility.
 
 Gate summary: slope query and render share one function; UV/sprite-flag/palette-shade matrix
 fixtures pass; local E1L1 immediately recognizable; unsupported features listed explicitly.
+
+Carried in from M3 (optional, not debt): round-trip the `sprite_orientations`
+fixture through Mapster32 and confirm `0x0010`/`0x0020` survive untouched. M3
+established the orientation field from PROVENANCE row 9 plus n=5,355 sprites of
+black-box corroboration; this would add a third independent source at the point
+where M6 first gives those bits behavioural weight. M3 also established that
+`stat & 0x0002` marks a slope and that a nonzero heinum without it is an ignored
+leftover in real content (n=4,900 surfaces) — slope evaluation must honour the
+flag, not the heinum alone.
 
 ## M7 — Sector lookup and vertical world queries — NOT_STARTED
 

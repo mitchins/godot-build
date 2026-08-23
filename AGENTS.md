@@ -6,11 +6,11 @@ The full implementation contract is `docs/PROJECT_CONTRACT.md` and the source pl
 
 ## Active milestone
 
-**M3 — MAP v7 parser, validator, and writer: GATE_REVIEW.** Review round 1
-fixes applied; CI green on feature/m3 @ 4e80fd7 (all four jobs, MSVC
-included). 3.6 (real-map attestation) HUMAN-ATTESTED 2026-08-23; 3.5
-(Mapster round-trip) is the last open gate. D0012 ratified 2026-08-23.
-Next after M3: M4.
+**M4 — ART, palette, lookup, and tile tooling: NOT_STARTED.**
+
+M3 (MAP v7 parser, validator, canonical writer) was **ACCEPTED 2026-08-23**
+after six review rounds: all eight gates met, D0012 ratified, gates 3.5
+(Mapster32 round-trip) and 3.6 (real E1L1) HUMAN-ATTESTED per D0009.
 
 ## Repository boundary and evidence classes
 
