@@ -69,6 +69,108 @@ with tempfile.TemporaryDirectory() as tmp:
     # Per-option bounds pass individually but multiply into a ~1 TiB request.
     run(["gen-grp", "--out", good, "--files", "65536", "--max-size", "16777216"],
         2, "gen-grp aggregate payload", expect_err="over the")
+    # ---------------- MAP v7 commands (M3) ----------------
+    fix = str(pathlib.Path(tmp) / "two_sector.MAP")
+    run(["gen-map", "--fixture", "two_sector_portal", "--out", fix], 0, "gen-map",
+        expect_out="wrote")
+    proc = run(["dump-map", fix], 0, "dump-map", expect_out="validation: OK")
+    for expected in ("sectors: 2", "walls: 8", "portal walls: 2",
+                     "version: 7", "start:", "cstat&0x30", "cstat&0x10"):
+        if expected not in proc.stdout:
+            failures.append(f"dump-map: stdout missing {expected!r}")
+    run(["dump-map", "--verbose", fix], 0, "dump-map verbose")
+
+    run(["validate-map", fix], 0, "validate-map ok", expect_out="0 errors")
+    run(["rewrite-map", fix, str(pathlib.Path(tmp) / "rewritten.MAP")], 0, "rewrite-map",
+        expect_out="semantic diff empty")
+    run(["diff-map", fix, str(pathlib.Path(tmp) / "rewritten.MAP")], 0, "diff-map equal",
+        expect_out="semantically identical")
+    run(["gen-map", "--list"], 0, "gen-map list", expect_out="multi_loop")
+
+    # Malformed content is a content error (1); usage problems exit 2.
+    bad_version = pathlib.Path(tmp) / "bad_version.MAP"
+    bad_version.write_bytes((9).to_bytes(4, "little") + b"\x00" * 40)
+    run(["validate-map", str(bad_version)], 1, "validate-map bad version",
+        expect_err="unsupported_version")
+    # No positional: with one present the arity check yields exit 2 on its own,
+    # so the case would pass even with unknown-option handling deleted.
+    run(["dump-map", "--bogus"], 2, "dump-map unknown option")
+
+    # A failing rewrite-map must publish nothing. Note what this can and cannot
+    # reach: the self-check (reparse + semantic diff) cannot be made to fail
+    # from outside the process, because the reader and writer enforce identical
+    # limits and every field round-trips at fixed width — with a correct writer
+    # it is an assertion, not a validation. Its ordering was verified in review
+    # by injecting a writer bug (see MILESTONES M3 review round 5). What is
+    # externally observable is that neither a rejected parse nor a failed write
+    # leaves a file behind.
+    unwritten = pathlib.Path(tmp) / "unwritten.MAP"
+    run(["rewrite-map", str(bad_version), str(unwritten)], 1,
+        "rewrite-map rejects bad input without writing", expect_err="unsupported_version")
+    if unwritten.exists():
+        failures.append("rewrite-map: wrote output despite a rejected parse")
+
+    # Parse and self-check both succeed here; only the write fails.
+    run(["rewrite-map", fix, "/nonexistent-dir/out.MAP"], 1, "rewrite-map unwritable destination",
+        expect_err="io_error")
+    run(["dump-map", "--grp"], 2, "dump-map dangling option value")
+    run(["diff-map", fix], 2, "diff-map arity")
+    run(["rewrite-map", fix], 2, "rewrite-map arity")
+    run(["gen-map", "--fixture", "nope", "--out", str(pathlib.Path(tmp) / "x.MAP")], 1,
+        "gen-map unknown fixture", expect_err="unknown fixture")
+    run(["gen-map", "--wat"], 2, "gen-map unknown option")
+    run(["dump-map", str(pathlib.Path(tmp) / "missing.MAP")], 1, "dump-map missing",
+        expect_err="io_error")
+
+    # The --grp path routes through GrpMount + the normalized VFS lookup, which
+    # nothing else in this gate exercises for the MAP commands.
+    map_bytes = pathlib.Path(fix).read_bytes()
+    name = b"TWOSECT.MAP"
+    grp_with_map = pathlib.Path(tmp) / "maps.grp"
+    grp_with_map.write_bytes(
+        b"KenSilverman"
+        + (1).to_bytes(4, "little")
+        + name.ljust(12, b"\x00")
+        + len(map_bytes).to_bytes(4, "little")
+        + map_bytes
+    )
+    run(["dump-map", "--grp", str(grp_with_map), "TWOSECT.MAP"], 0, "dump-map via grp",
+        expect_out="validation: OK")
+    run(["validate-map", "--grp", str(grp_with_map), "twosect.map"], 0,
+        "validate-map via grp, case-folded", expect_out="0 errors")
+    run(["dump-map", "--grp", str(grp_with_map), "NOSUCH.MAP"], 1, "map not in grp",
+        expect_err="not_found")
+
+    # Options are per-command and a value may not be an option token: both
+    # shapes previously became positional paths (exit 1) instead of usage errors.
+    run(["validate-map", "--verbose", fix], 2, "validate-map rejects --verbose")
+    run(["rewrite-map", "--verbose", fix, str(pathlib.Path(tmp) / "v.MAP")], 2,
+        "rewrite-map rejects --verbose")
+    run(["dump-map", "--grp", "--bogus", fix], 2, "--grp value may not be an option")
+    run(["gen-map", "--list", "--wat"], 2, "gen-map --list is standalone")
+
+    # Sprite orientation is a two-bit field; 0x0030 is reserved and appears in
+    # no real map, so the classifier's fallback is otherwise unexercised.
+    ori = pathlib.Path(tmp) / "sprites.MAP"
+    run(["gen-map", "--fixture", "sprite_orientations", "--out", str(ori)], 0, "gen-map sprites")
+    raw = bytearray(ori.read_bytes())
+    nsec = int.from_bytes(raw[20:22], "little")
+    off = 22 + 40 * nsec
+    nwall = int.from_bytes(raw[off:off + 2], "little")
+    off += 2 + 32 * nwall
+    sprites = off + 2  # first sprite record; cstat is at +12
+    cstat = int.from_bytes(raw[sprites + 12:sprites + 14], "little")
+    raw[sprites + 12:sprites + 14] = ((cstat & ~0x0030) | 0x0030).to_bytes(2, "little")
+    reserved = pathlib.Path(tmp) / "reserved.MAP"
+    reserved.write_bytes(bytes(raw))
+    run(["dump-map", str(reserved)], 0, "reserved sprite orientation",
+        expect_out="reserved=1")
+
+    # gen-map option values may not be option tokens either.
+    run(["gen-map", "--fixture", "minimal", "--out", "--wat"], 2, "gen-map --out needs a value")
+    run(["gen-map", "--fixture", "--out", str(pathlib.Path(tmp) / "y.MAP")], 2,
+        "gen-map --fixture needs a value")
+
     run(["no-such-command"], 2, "unknown command", expect_err="unknown command")
 
 if failures:
@@ -77,4 +179,4 @@ if failures:
         print(f"  {f}")
     sys.exit(1)
 
-print("fbtool check: dump-grp/gen-grp contracts hold")
+print("fbtool check: grp + map command contracts hold")

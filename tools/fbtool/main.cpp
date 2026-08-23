@@ -12,6 +12,7 @@
 #include "fauxbuild/grp_synth.hpp"
 #include "fauxbuild/version.hpp"
 #include "fauxbuild/vfs.hpp"
+#include "tools/fbtool/map_commands.hpp"
 
 namespace {
 
@@ -64,14 +65,19 @@ void print_usage() {
                 "commands:\n"
                 "  --version              print version and build configuration\n"
                 "  dump-grp <file.grp>    parse a GRP container and list its directory\n"
+                "  dump-map [--grp G] <m> parse a MAP v7 and summarize the world\n"
+                "  validate-map [--grp G] <m>  structural validation report\n"
+                "  rewrite-map [--grp G] <in> <out>  canonical rewrite + self-check\n"
+                "  diff-map [--grp G] <a> <b>  semantic field diff of two maps\n"
+                "  gen-map --fixture N --out F | --list   synthetic MAP fixtures\n"
                 "  gen-grp --out FILE [--seed N] [--files N] [--max-size N]\n"
                 "                         write a deterministic synthetic GRP\n"
                 "  gen-fixtures [--out DIR]\n"
                 "                         (re)generate the empty fixture set\n"
                 "  help                   show this message\n"
                 "\n"
-                "Additional subcommands (dump-map, validate-map, roundtrip-map, dump-art,\n"
-                "probe, ...) are added by later milestones.\n",
+                "Additional subcommands (dump-art, probe, ...) are added by later\n"
+                "milestones.\n",
                 fauxbuild::version_string());
 }
 
@@ -271,6 +277,21 @@ int main(int argc, char** argv) {
     }
     if (std::strcmp(cmd, "gen-grp") == 0) {
         return gen_grp(argc - 2, argv + 2);
+    }
+    if (std::strcmp(cmd, "dump-map") == 0) {
+        return fauxbuild::tool::dump_map(argc - 2, argv + 2);
+    }
+    if (std::strcmp(cmd, "validate-map") == 0) {
+        return fauxbuild::tool::validate_map(argc - 2, argv + 2);
+    }
+    if (std::strcmp(cmd, "rewrite-map") == 0) {
+        return fauxbuild::tool::rewrite_map(argc - 2, argv + 2);
+    }
+    if (std::strcmp(cmd, "diff-map") == 0) {
+        return fauxbuild::tool::diff_map(argc - 2, argv + 2);
+    }
+    if (std::strcmp(cmd, "gen-map") == 0) {
+        return fauxbuild::tool::gen_map(argc - 2, argv + 2);
     }
     if (std::strcmp(cmd, "gen-fixtures") == 0) {
         return gen_fixtures(argc - 2, argv + 2);

@@ -201,9 +201,6 @@ generator.
       declared size. Case-folded queries (`palette.dat`, `e1l1.map`) resolve to the same
       entries; an absent name returns a structured `not_found`.
       No proprietary bytes, hashes, or extracted content entered the repository or CI.
-      PENDING: no `local_reference/duke/DUKE3D.GRP` on this machine. Command to run:
-      `./build/dev/fbtool dump-grp local_reference/duke/DUKE3D.GRP | head` (must list the
-      container contents; nothing is extracted or committed).
 - [x] No proprietary filenames are hard-coded beyond a developer-supplied test argument. *(CI)*
       Evidence: `git grep` scan over all C++ finds zero proprietary names; every path in
       tools/tests is an argument or synthetic (`SYN%04u.DAT`).
@@ -247,12 +244,300 @@ Review round 1 (2026-08-22, three findings, all fixed):
 - **Nit:** `Vfs::diagnostics()` said "shadowed by" — the active mount shadows the
   older ones; wording corrected with a comment fixing the provider order rule.
 
-## M3 — MAP v7 parser, validator, and writer — NOT_STARTED
+## M3 — MAP v7 parser, validator, and writer
 
-Gate summary: all synthetic maps parse; parse→write→parse semantically identical; byte-identical
-round-trip where promised; generated maps open in Mapster and Mapster saves re-parse (HUMAN-ATTESTED);
-fuzz and malformed tests pass; local E1L1 reports plausible counts/start pose without fatal errors
-(HUMAN-ATTESTED).
+Status: **ACCEPTED** 2026-08-23 by mitchellcurrie — all eight gates met.
+CI green on feature/m3, all four jobs including MSVC; 3.5 and 3.6 are
+HUMAN-ATTESTED per D0009.
+Started: 2026-08-23
+
+### Scope
+
+MAP v7 reader (byte-level parse) / writer (canonical) / structural validator /
+semantic diff; deterministic synthetic fixtures; fbtool dump-map, validate-map,
+rewrite-map, diff-map, gen-map; fuzz target over parse+validate+round-trip;
+local E1L1 smoke through the M2 VFS.
+
+### Format observations (locked by black-box verification, 2026-08-23)
+
+Verified against untouched E1L1.MAP inside the legally owned DUKE3D.GRP
+(section sizes sum exactly to the file size; no external code consulted):
+
+```text
+int32  version (== 7; no string signature)
+int32  startx, starty, startz
+int16  startang, startsectnum
+uint16 numsectors; sector[numsectors]   (40 bytes each)
+uint16 numwalls;   wall[numwalls]       (32 bytes each)
+uint16 numsprites; sprite[numsprites]   (44 bytes each)
+```
+
+E1L1: 317 sectors / 1937 walls / 639 sprites; 102,806 bytes; no trailing data.
+
+### Gate
+
+- [x] 3.1 Parser — all 9 synthetic fixtures parse. *(CI)*
+- [x] 3.2 Bounds — every prefix of a valid map fails safely; profile limits
+      reject with named errors before allocation; loop walks carry explicit
+      step bounds; 2M-run fuzz hunt + 20k CI runs clean under ASan/UBSan. *(CI)*
+- [x] 3.3 Validation — broken loops, bad ranges, invalid point2/nextwall/
+      nextsector, non-reciprocal portals, invalid sprite sectors, unowned and
+      double-claimed walls all detected (dedicated cases). *(CI)*
+- [x] 3.4 Writer — parse→write→parse is byte-identical for every synthetic
+      fixture; semantic diff empty. *(CI)* Untouched E1L1 also rewrites
+      byte-identically (102,806 bytes) — proprietary-content evidence, not CI,
+      and covered by the 3.6 attestation rather than claimed here (D0009).
+- [x] 3.5 Mapster — **HUMAN-ATTESTED 2026-08-23, ACCEPTED** by mitchellcurrie.
+      Mapster32 r9598-25afea98f (native macOS build, used as a black box; no
+      source consulted) loaded and re-saved the original FauxBuild
+      `two_sector_portal` MAP v7 fixture successfully — the editor logged
+      `Loaded V7 map before.map successfully`. The resulting file validates with
+      0 errors / 0 warnings and preserves all pre-existing map semantics.
+      Mapster32 added one 44-byte default sprite record to the previously
+      sprite-empty map; no existing sector, wall, portal, start-pose, or other
+      record was modified. No trailing data was added and the file remained
+      MAP v7. This editor-authored addition is accepted as external-tool
+      normalization and does not alter the FauxBuild writer contract; FauxBuild
+      was not changed in response.
+
+      Evidence: 362 → 406 bytes (+44 = exactly one sprite record); the whole
+      semantic diff is `counts.sprites: 0 != 1`; independent decode confirms
+      `consumed 406 of 406 -> trailing 0`. The inserted sprite is an editor
+      default (picnum 0, cstat 1, clipdist 32, xrepeat/yrepeat 64, sectnum 0,
+      owner -1, extra -1, ang 1536), classified `face=1` under the corrected
+      0x0030 orientation field.
+
+      What this corroborates, from a tool with no connection to our reasoning:
+      the 44-byte sprite record width; that MAP v7 has no trailer convention;
+      that our synthetic output is accepted as ordinary v7 by a real editor;
+      that the validator is not merely self-consistent with our own writer; and
+      that the canonical writer produces editor-compatible topology. That is
+      the exact failure mode — parser and writer agreeing with each other's
+      mistakes — this gate existed to catch.
+- [x] 3.6 Real local MAP — **HUMAN-ATTESTED 2026-08-23** by mitchellcurrie, who
+      executed the commands below against their own legally owned DUKE3D.GRP:
+      `fbtool validate-map --grp local_reference/duke/DUKE3D.GRP E1L1.MAP`,
+      `fbtool dump-map --grp ... E1L1.MAP`,
+      `fbtool rewrite-map --grp ... E1L1.MAP /tmp/E1L1-fauxbuild.map`.
+      Result: `validation: OK (0 errors, 0 warnings)`; version 7;
+      start x=-31243 y=7160 z=-181472 angle=422 sector=309;
+      317 sectors / 1937 walls / 639 sprites; 1274 portal walls;
+      19 masked walls (cstat&0x10); sprites face=493 wall-aligned=138
+      floor-aligned=8 reserved=0 (cstat&0x30);
+      `rewrote E1L1.MAP -> /tmp/E1L1-fauxbuild.map (102806 bytes, semantic diff
+      empty)`. The rewrite self-check reparses the written bytes and diffs them
+      against the source before publishing (417396e), so "semantic diff empty"
+      is the round-trip result, not a size comparison.
+      No proprietary bytes, hashes, or extracted content entered the repository
+      or CI. Prior dev evidence 2026-08-23:
+      E1L1.MAP via GrpMount parses, validates OK, counts 317/1937/639, rewrite
+      reparses with empty semantic diff and byte-identical output. The
+      reviewer's independent verification (own Python GRP extractor + MAP
+      decoder, no shared code): all six shipped maps parse, validate 0/0, and
+      rewrite byte-identically — 9,664 portal walls across six independently
+      built maps all reciprocate, every loop closes, every sprite sectnum
+      in range or sentinel.
+- [x] 3.7 Tooling — dump-map (incl. --verbose), validate-map, rewrite-map
+      (with self-check), diff-map (field-level), gen-map --list. *(CI smoke)*
+- [x] 3.8 Quality — 66 cases / 1,671 assertions green in dev, release,
+      ASan/UBSan; format-check 48/48; layering clean; corpus MANIFEST gate
+      green; CI on feature/m3 @ 4e80fd7: Linux (dev+asan+fuzz), macOS, Format,
+      Windows MSVC all green. ASan caught a real use-after-free in a test
+      during this milestone (fixed; see notes).
+
+### Notes
+
+- ASan proved its place in the matrix: `vector::assign(n, v[0])` with v
+  referencing the same vector compiled and passed in dev/release but is
+  use-after-free — caught only by the sanitizer build.
+- Contractual choices ratified as **D0012 (accepted)**: sprite sectnum
+  sentinel −1; start sector −1 valid only for zero-sector maps; trailing data
+  rejected (not warned); reciprocal portals + nextsector==owner(nextwall)
+  enforced as errors; single severity class (Error) until a real map forces a
+  Warning tier. Ratification is the reviewer's.
+- Multi-loop sectors are first-class (multi_loop fixture: outer square + inner
+  hole in one sector). No one-loop simplification exists anywhere in the code.
+- The writer emits no FauxBuild metadata (plan/task §7); canonical output is
+  byte-identical to Mapster-era files by construction of exact field widths.
+
+Review round 1 (2026-08-23) — findings and fixes:
+
+- **run_tests was the only check gate without AlwaysBuild**: tests read the
+  corpus through __FILE__ paths SCons cannot track, so a corrupted corpus left
+  a stale green stamp (reviewer-proven: GARBAGE corpus → "done building
+  targets", 0 tests run). Fixed: AlwaysBuild(run_tests) **and** a corpus
+  integrity gate (ci/check_corpus.py + committed tests/fuzz/MANIFEST, FNV-1a64
+  matching fauxbuild::fnv1a64) — corruption, deletion, and unlisted additions
+  now fail `check` (verified by probe).
+- **fbtool map commands**: unknown/dangling options now exit 2 (usage), never
+  masquerade as positional paths (exit 1 content errors); ci/check_fbtool.py
+  extended to all five map commands plus malformed-content and usage cases.
+- **Assertion count corrected**: 1,494 (identical dev/asan/release), not
+  "~1,900".
+- **Gate 3.6 unticked** until the human attests (D0009); reviewer's six-map
+  independent verification recorded above as supporting evidence.
+- Profile headroom noted for the future (not M3): largest shipped map is 557
+  sectors against the 1024 classic limit.
+- D0012 **ratified** by the human reviewer: rules 1, 2, 3, 5, 6 outright;
+  rule 4 (trailing data rejects) ratified with the named risk that a future
+  resave introducing trailing data would be rejected — reversible by a later
+  decision, consistent with D0011's fail-closed ruling.
+
+Review round 2 (2026-08-23) — two gates that could not fail, both closed:
+
+- **`check_fbtool.py` unknown-option case was inert.** `dump-map <map> --bogus`
+  passes on the arity check alone, so it stayed green against a binary with
+  unknown-option handling deleted (reviewer-proven: regressed build →
+  `dump-map --bogus` exit 1, gate exit 0). Fixed by dropping the positional;
+  the regressed build now fails with `dump-map unknown option: exit 1,
+  expected 2`.
+- **`check_corpus.py` reported green on nothing.** An empty corpus matches an
+  empty manifest, so deleting MANIFEST and the corpus directories printed
+  "0 files match MANIFEST" and exited 0. Fixed with an emptiness guard.
+  (`corpus_regression.test.cpp`'s `files >= 6` already caught this case in the
+  same `check` run — the layering held; the gate itself is what was wrong.)
+- Assertion count 1,493 → **1,494**: the round-1 fixes added one after the
+  round-1 figure was taken.
+
+Review round 3 (2026-08-23) — CodeRabbit on PR #2, 9 findings:
+
+Accepted and fixed (8):
+
+- **Self-referential portal wall.** `nextwall == w` with `nextsector` equal to
+  the wall's own owner satisfies every reciprocity rule in D0012 rule 5, so a
+  sector could be its own neighbour through a single wall and validate 0/0
+  (reproduced on a real map). Now rejected as `InvalidNextWall`; all six
+  shipped maps still validate 0/0, so the rule adds no false positives. Read
+  as a clarification of D0012 rule 5, not a new decision: a portal connects
+  two walls.
+- **`fnv1a64` was not FNV-1a.** The offset basis was the real constant with two
+  digits dropped (1469598103934665603 vs 14695981039346656037). C++ and the
+  Python port agreed, so nothing was broken and no hash was weak — but the name
+  was false. Corrected on both sides, MANIFEST regenerated, and pinned by
+  known-answer tests against the published vectors in **both** implementations
+  so they cannot silently diverge again. `empty.bin` now hashes to
+  `cbf29ce484222325`, which is the basis itself.
+- **`--grp` accepted an option token as its value** (`--grp --bogus` opened a
+  file named `--bogus`, exit 1). Now a usage error — the same defect class as
+  round 1, one argument position deeper.
+- **Options are now per-command**: `--verbose` is rejected by validate-map,
+  rewrite-map and diff-map instead of being silently ignored.
+- **`gen-map --list` acted from inside the argument loop**, so `--list --wat`
+  printed and exited 0. All arguments are validated before `--list` runs.
+- **`check_fbtool.py` had no GRP-backed MAP coverage**; added (hit, case-folded
+  hit, miss) plus the four new usage cases. Each new case was negative-tested
+  against a deliberately regressed build.
+- **Gate 3.4 mislabelled E1L1 as CI evidence** (D0009): split into the CI claim
+  (synthetic fixtures) and proprietary-content evidence deferred to 3.6.
+- **D0012 was still called "proposed"** in this file after ratification; and
+  `<algorithm>` added to map_diff.cpp for `std::min`.
+
+Rejected (1):
+
+- **Set stat bit `0x0002` on the slope fixture.** Declined on clean-room
+  grounds. The meaning of that bit appears in no permitted source: not in the
+  task specification, not in our own black-box observations. The most likely
+  origin for an assistant asserting it is training on Build/EDuke32 source,
+  which AGENTS.md rules 1-2 forbid as an input regardless of whether the answer
+  is right. It is also out of scope — slope semantics are M6, and the M3
+  validator interprets no stat bits. The fixture is our own synthetic content;
+  nothing reads the bit.
+
+Also found in review (not CodeRabbit):
+
+- **`ci/__pycache__/check_corpus.cpython-314.pyc` was committed** in fc17733
+  (`gen_manifest.py` imports `check_corpus`), and `.gitignore` had no
+  `__pycache__` rule. Removed and ignored.
+
+Open provenance question for the human (not fixed, deliberately):
+
+- `dump-map` reports `masked-flag walls (cstat&2)` and sprite alignment via
+  `cstat&8`/`cstat&16`. Those bit meanings have the same provenance gap as the
+  rejected finding above: the plan describes masked and one-way walls but never
+  assigns bit values. Presentation-only today and harmless, but it should be
+  sourced or dropped before M6 gives stat bits behavioural weight.
+- **Resolved in round 4** (below): the human reviewer approved ModdingWiki's
+  published MAP description as a source, and the bit meanings were corrected.
+
+Review round 4 (2026-08-23) — format metadata corrections:
+
+The reviewer ruled that ModdingWiki's published MAP format description is an
+approved source under AGENTS.md rule 2 (published binary-format descriptions),
+recorded as PROVENANCE row 9. That reopened the round-3 rejection with a
+provenance-safe basis. **Every adopted fact was independently corroborated
+against six legally owned maps before it was written into the code** — the
+published description supplied the hypothesis, our own black-box observation
+supplied the evidence:
+
+| claim | evidence | n |
+|---|---|---|
+| sector stat `0x0002` = sloped | P(heinum≠0 \| set) = 0.970 vs 0.121 when clear; no other bit rises above the 0.33 base rate | 4,900 surfaces |
+| wall cstat `0x0010` = masked | P(overpicnum≠0 \| set) = 0.979 vs 0.029 base; 0.979 are portals | 15,303 walls |
+| sprite cstat `0x0030` = orientation | takes only 0x0000/0x0010/0x0020; the reserved 0x0030 never occurs | 5,355 sprites |
+
+The previously used values were refuted by the same data: `cstat & 0x0002` on
+walls shows 0.033 overpicnum correlation (base 0.029), and the old sprite
+scheme set "wall" (0x0008) and "floor" (0x0010) simultaneously on 20 real
+sprites — impossible for mutually exclusive orientations.
+
+Corrected:
+
+- **Fixtures** `slope_metadata` (slope bit alongside the heinum, which alone is
+  an ignored leftover in real content), `masked_wall` (0x0010, not 0x0002), and
+  `sprite_orientations` (0x0000/0x0010/0x0020, not 0x0008/0x0010).
+- **`dump-map`** classifies orientation by switching on the two-bit field
+  instead of testing bits independently. E1L1 reclassifies from
+  `face=497 wall=4 floor=138`, masked 33 → `face=493 wall=138 floor=8
+  reserved=0`, masked 19. The old output was objectively wrong.
+- **Unit tests that pinned the wrong values** were corrected; new tests assert
+  the reserved combination appears in no fixture, and the fbtool gate patches a
+  sprite to 0x0030 so the classifier's fallback is actually exercised.
+- **Counts are `uint16` on the wire**, read with `read_u16_le` and written with
+  a new `put_u16`. There is no negative-count case any more: `0xffff` is 65,535
+  sectors and fails as `TooManySectors`, `0x8000` is 32,768 rather than
+  INT16_MIN. Writer bytes are unchanged for all valid maps (verified: only the
+  `sprite_orientations` corpus seed changed, and that from the fixture fix).
+- **`gen-map --fixture`/`--out` rejected option tokens as values** (`--out
+  --wat` wrote a file called `--wat`). Same class as the `--grp` hole; both now
+  exit 2 with regression cases.
+- **Docs**: PROVENANCE row 8 said "int16 sprite count"; the M3 format block said
+  `int16` counts; a stale M2 line still claimed no local GRP was present,
+  contradicting the accepted M2 attestation above it. All corrected.
+
+Review round 5 (2026-08-23) — CodeRabbit residual on 4e80fd7, 2 findings:
+
+- **Accepted: `rewrite-map` published output before its own self-check.**
+  `write_file_bytes` ran ahead of the reparse-and-diff, so a failed self-check
+  printed "rewrite self-check failed", exited 1, and still left a corrupt map
+  on disk for the next command to consume. Reordered: the bytes are already in
+  memory, so the check simply moves ahead of the write — no temporary file
+  needed. Verified by injecting a writer bug (`lotag + 1`): the command exits 1
+  and leaves no file, where it previously wrote 102,806 corrupt bytes.
+  `check_fbtool.py` now asserts that a failing rewrite-map publishes nothing.
+- **Skipped: PENDING_HEAD placeholders in the CI evidence.** Already fixed —
+  the review ran against 4e80fd7 and the placeholders were replaced with that
+  SHA in df8d24c, the next commit.
+
+Review round 6 (2026-08-23) — CodeRabbit residual on 417396e, 1 finding:
+
+- **Partially accepted: the rewrite-map gate case only covers parse rejection,
+  not a failed self-check.** True, and it was flagged as a limitation when the
+  case was written. The rest is not constructible from outside the process: the
+  reader and writer enforce identical limits (`kMaxSectors`/`kMaxWalls`/
+  `kMaxSprites`) and every field round-trips at fixed width, so with a correct
+  writer the self-check is an assertion that cannot fail — forcing it requires
+  injecting a bug into the binary, which is how the ordering was verified in
+  round 5. Added the one branch that *is* externally observable (parse and
+  self-check succeed, write fails: unwritable destination), and documented the
+  reachability boundary in the gate itself so the next reader does not mistake
+  its coverage.
+
+Deferred to M6 (not M3 debt):
+
+- Optional black-box check — round-trip the `sprite_orientations` fixture
+  through Mapster32 and confirm `0x0010`/`0x0020` survive. Would be a third
+  independent source for the orientation field, but PROVENANCE row 9 plus the
+  n=5,355 corroboration already settle it; ruled not worth the operating cost.
 Do not implement rendering, collision, Duke tags, or game logic.
 
 ## M4 — ART, palette, lookup, and tile tooling — NOT_STARTED
@@ -272,6 +557,15 @@ render-all visibility.
 
 Gate summary: slope query and render share one function; UV/sprite-flag/palette-shade matrix
 fixtures pass; local E1L1 immediately recognizable; unsupported features listed explicitly.
+
+Carried in from M3 (optional, not debt): round-trip the `sprite_orientations`
+fixture through Mapster32 and confirm `0x0010`/`0x0020` survive untouched. M3
+established the orientation field from PROVENANCE row 9 plus n=5,355 sprites of
+black-box corroboration; this would add a third independent source at the point
+where M6 first gives those bits behavioural weight. M3 also established that
+`stat & 0x0002` marks a slope and that a nonzero heinum without it is an ignored
+leftover in real content (n=4,900 surfaces) — slope evaluation must honour the
+flag, not the heinum alone.
 
 ## M7 — Sector lookup and vertical world queries — NOT_STARTED
 

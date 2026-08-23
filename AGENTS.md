@@ -6,8 +6,11 @@ The full implementation contract is `docs/PROJECT_CONTRACT.md` and the source pl
 
 ## Active milestone
 
-**M2 — Safe binary IO, VFS, and GRP: GATE_REVIEW** (one HUMAN-ATTESTED item pending:
-local `DUKE3D.GRP` enumeration). Next after M2: M3.
+**M4 — ART, palette, lookup, and tile tooling: NOT_STARTED.**
+
+M3 (MAP v7 parser, validator, canonical writer) was **ACCEPTED 2026-08-23**
+after six review rounds: all eight gates met, D0012 ratified, gates 3.5
+(Mapster32 round-trip) and 3.6 (real E1L1) HUMAN-ATTESTED per D0009.
 
 ## Repository boundary and evidence classes
 

@@ -189,3 +189,38 @@ Consequences: recorded as a bounded known incompatibility in
 `COMPATIBILITY_SCOPE.md`. Raising the limit is a new decision record, not an
 incidental code change. Any future format parser that allocates per record from
 an untrusted count needs an equivalent bound.
+### D0012 — MAP v7 sentinel and strictness rules (M3)
+
+Status: accepted (human ratification 2026-08-23)
+Date: 2026-08-23
+Ratification: rules 1, 2, 3, 5, 6 ratified outright — corroborated by the
+reviewer's independent decode of all six shipped maps (9,664 portal walls, all
+reciprocated; every loop closed; every sprite sectnum valid or sentinel).
+Rule 4 (trailing data rejects) ratified with the risk named: a legitimate
+resave that introduces trailing bytes would be rejected; zero shipped maps
+have trailing data today, and the rule is reversible by a later decision.
+Also noted for future profile discussions: largest shipped map is 557 sectors
+against the 1024 classic limit (~1.8x headroom) — full-game and user maps can
+exceed it; that is a future decision, not an M3 change.
+Context: task §16 requires explicit rulings for format ambiguities encountered at M3.
+All choices below were implemented to be strict and fail-closed; real-world exceptions
+discovered by later gates (Mapster, more maps) reopen the specific item.
+Decision:
+1. Version encoding is int32 == 7 with no string signature (observed on E1L1;
+   locked, not merely proposed — recorded here for completeness).
+2. Sprite `sectnum` -1 is a valid "no sector" sentinel; anything else out of
+   [0, numsectors) is an error.
+3. Start sector -1 is valid only for zero-sector maps; otherwise it must be in
+   [0, numsectors).
+4. Trailing bytes after the sprite table are rejected (TrailingData), not
+   warned. E1L1 and canonical writes have none; if a legitimate source map with
+   trailing data appears, downgrade to Warning via a new decision.
+5. Portals: nextwall/nextsector are both -1 or both set; nextwall must be
+   reciprocated and nextsector must equal the sector owning nextwall. All
+   violations are errors.
+6. Validation severity is a single Error tier at M3; a Warning tier is added
+   only when a real, legally-owned map is rejected by an Error that genuine
+   content exhibits.
+Consequences: validators stay deterministic and fail-closed; every rule above
+is covered by a named test case in tests/unit/map_validate.test.cpp.
+

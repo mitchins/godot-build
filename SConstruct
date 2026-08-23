@@ -96,30 +96,44 @@ core_sources = [
     f'{bdir}/core/src/grp.cpp',
     f'{bdir}/core/src/grp_synth.cpp',
     f'{bdir}/core/src/vfs.cpp',
+    f'{bdir}/core/src/map_io.cpp',
+    f'{bdir}/core/src/map_validate.cpp',
+    f'{bdir}/core/src/map_diff.cpp',
+    f'{bdir}/core/src/map_synth.cpp',
 ]
 core_objects = env.Object(core_sources)
 core = env.StaticLibrary(f'{bdir}/libfauxbuild_core', core_objects)
 
 if cfg == 'fuzz':
     VariantDir(f'{bdir}/tests', '#tests', duplicate=0)
-    grp_fuzz = env.Program(f'{bdir}/fauxbuild_fuzz_grp',
-                           [f'{bdir}/tests/fuzz/grp_fuzz.cpp',
-                            f'{bdir}/tests/fuzz/fuzz_main.cpp'], LIBS=[core])
-    # D0010: bounded corpus run over committed seeds + regressions.
-    fuzz_run = env.Command(
-        f'{bdir}/fuzz.stamp', [grp_fuzz],
-        ['UBSAN_OPTIONS=halt_on_error=1 ${SOURCE.abspath} -runs=20000 -max_len=65536 '
-         'tests/fuzz/corpus/grp tests/fuzz/regression/grp',
-         Touch('$TARGET')])
-    env.AlwaysBuild(fuzz_run)
-    # The gate must be able to fail: assert the driver refuses to report success
-    # on a corpus it could not load, and that the real corpus loads > 1 seed.
-    fuzz_gate = env.Command(
-        f'{bdir}/fuzz_gate.stamp', [grp_fuzz],
-        ['python3 ci/check_fuzz_gate.py ${SOURCE.abspath}', Touch('$TARGET')])
-    env.AlwaysBuild(fuzz_gate)
-    Alias('all', [grp_fuzz])
-    Alias('fuzz', [fuzz_gate, fuzz_run])
+    fuzz_targets = []
+    fuzz_runs = []
+    for name, target, corpus_dirs in [
+        ('grp', 'fauxbuild_fuzz_grp',
+         ['tests/fuzz/corpus/grp', 'tests/fuzz/regression/grp']),
+        ('map', 'fauxbuild_fuzz_map',
+         ['tests/fuzz/corpus/map', 'tests/fuzz/regression/map']),
+    ]:
+        program = env.Program(f'{bdir}/{target}',
+                              [f'{bdir}/tests/fuzz/{name}_fuzz.cpp',
+                               f'{bdir}/tests/fuzz/fuzz_main.cpp'], LIBS=[core])
+        fuzz_targets.append(program)
+        # D0010: bounded corpus run over committed seeds + regressions.
+        run = env.Command(
+            f'{bdir}/fuzz_{name}.stamp', [program],
+            ['UBSAN_OPTIONS=halt_on_error=1 ${SOURCE.abspath} -runs=20000 -max_len=65536 '
+             + ' '.join(corpus_dirs), Touch('$TARGET')])
+        env.AlwaysBuild(run)
+        fuzz_runs.append(run)
+        # The gate must be able to fail: assert the driver refuses to report
+        # success on a corpus it could not load, and that the corpus loads.
+        gate = env.Command(
+            f'{bdir}/fuzz_gate_{name}.stamp', [program],
+            ['python3 ci/check_fuzz_gate.py ${SOURCE.abspath}', Touch('$TARGET')])
+        env.AlwaysBuild(gate)
+        fuzz_runs.append(gate)
+    Alias('all', fuzz_targets)
+    Alias('fuzz', fuzz_runs)
     Default('all')
 
 # Host tools/tests build whenever we are compiling for the host platform and
@@ -133,7 +147,12 @@ if host_build:
     VariantDir(f'{bdir}/tools', '#tools', duplicate=0)
     VariantDir(f'{bdir}/tests', '#tests', duplicate=0)
 
-    fbtool = env.Program(f'{bdir}/fbtool', [f'{bdir}/tools/fbtool/main.cpp'], LIBS=[core])
+    fbtool_env = env.Clone()
+    fbtool_env.Append(CPPPATH=['#'])
+    fbtool = fbtool_env.Program(
+        f'{bdir}/fbtool',
+        [f'{bdir}/tools/fbtool/main.cpp', f'{bdir}/tools/fbtool/map_commands.cpp'],
+        LIBS=[core])
 
     tests_env = env.Clone()
     tests_env.Append(CPPPATH=['#third_party'])
@@ -147,6 +166,9 @@ if host_build:
             f'{bdir}/tests/unit/main.cpp',
             f'{bdir}/tests/unit/version.test.cpp',
             f'{bdir}/tests/unit/check.test.cpp',
+            f'{bdir}/tests/unit/map_reader.test.cpp',
+            f'{bdir}/tests/unit/map_validate.test.cpp',
+            f'{bdir}/tests/unit/map_synth.test.cpp',
             f'{bdir}/tests/unit/byte_reader.test.cpp',
         f'{bdir}/tests/unit/file_io.test.cpp',
             f'{bdir}/tests/unit/grp.test.cpp',
@@ -167,6 +189,11 @@ if host_build:
         test_cmd = 'UBSAN_OPTIONS=halt_on_error=1 ' + test_cmd
     run_tests = tests_env.Command(
         f'{bdir}/tests.stamp', [tests], [test_cmd, Touch('$TARGET')])
+    # Tests read runtime inputs SCons cannot track: the committed fuzz corpus
+    # is loaded through __FILE__ paths (corpus_regression.test.cpp). Without
+    # AlwaysBuild a corrupted corpus leaves a stale green stamp — the failure
+    # shape found in M3 review. Tests re-run on every `check`.
+    tests_env.AlwaysBuild(run_tests)
     smoke_fbtool = env.Command(
         f'{bdir}/fbtool.stamp', [fbtool], ['${SOURCE.abspath} --version', Touch('$TARGET')])
     # Command contracts (exit codes, stdout) are not observable from the unit
@@ -186,10 +213,16 @@ layering = env.Command(
 # would make them run once per build/<cfg> lifetime and report green forever after.
 env.AlwaysBuild(layering)
 
+# Corpus integrity: the fuzz corpus is read at runtime via __FILE__ paths;
+# a corrupted or deleted file must fail `check` (M3 review item 3).
+corpus_check = env.Command(
+    f'{bdir}/corpus.stamp', [], ['python3 ci/check_corpus.py', Touch('$TARGET')])
+env.AlwaysBuild(corpus_check)
+
 if host_build:
-    Alias('check', [run_tests, smoke_fbtool, fbtool_contract, layering])
+    Alias('check', [run_tests, smoke_fbtool, fbtool_contract, layering, corpus_check])
 else:
-    Alias('check', [layering])
+    Alias('check', [layering, corpus_check])
 
 format_check = env.Command(f'{bdir}/format.stamp', [],
                            ['python3 ci/check_format.py', Touch('$TARGET')])

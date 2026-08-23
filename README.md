@@ -8,7 +8,7 @@ Godot handles presentation, input, audio, UI, and platform export through a GDEx
 
 ## Status
 
-Milestone **M0 — Contract and repository** (see `docs/MILESTONES.md`).
+Milestone **M3 — MAP v7 parser, validator, and writer** accepted; **M4 — ART, palette, lookup, and tile tooling** is next (see `docs/MILESTONES.md`).
 
 ## Repository map
 
