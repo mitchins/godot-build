@@ -100,6 +100,7 @@ core_sources = [
     f'{bdir}/core/src/map_validate.cpp',
     f'{bdir}/core/src/map_diff.cpp',
     f'{bdir}/core/src/map_synth.cpp',
+    f'{bdir}/core/src/palette.cpp',
 ]
 core_objects = env.Object(core_sources)
 core = env.StaticLibrary(f'{bdir}/libfauxbuild_core', core_objects)
@@ -113,6 +114,8 @@ if cfg == 'fuzz':
          ['tests/fuzz/corpus/grp', 'tests/fuzz/regression/grp']),
         ('map', 'fauxbuild_fuzz_map',
          ['tests/fuzz/corpus/map', 'tests/fuzz/regression/map']),
+        ('palette', 'fauxbuild_fuzz_palette',
+         ['tests/fuzz/corpus/palette', 'tests/fuzz/regression/palette']),
     ]:
         program = env.Program(f'{bdir}/{target}',
                               [f'{bdir}/tests/fuzz/{name}_fuzz.cpp',
@@ -151,7 +154,8 @@ if host_build:
     fbtool_env.Append(CPPPATH=['#'])
     fbtool = fbtool_env.Program(
         f'{bdir}/fbtool',
-        [f'{bdir}/tools/fbtool/main.cpp', f'{bdir}/tools/fbtool/map_commands.cpp'],
+        [f'{bdir}/tools/fbtool/main.cpp', f'{bdir}/tools/fbtool/map_commands.cpp',
+         f'{bdir}/tools/fbtool/palette_commands.cpp'],
         LIBS=[core])
 
     tests_env = env.Clone()
@@ -169,6 +173,7 @@ if host_build:
             f'{bdir}/tests/unit/map_reader.test.cpp',
             f'{bdir}/tests/unit/map_validate.test.cpp',
             f'{bdir}/tests/unit/map_synth.test.cpp',
+            f'{bdir}/tests/unit/palette.test.cpp',
             f'{bdir}/tests/unit/byte_reader.test.cpp',
         f'{bdir}/tests/unit/file_io.test.cpp',
             f'{bdir}/tests/unit/grp.test.cpp',

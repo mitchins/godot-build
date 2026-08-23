@@ -13,6 +13,7 @@
 #include "fauxbuild/version.hpp"
 #include "fauxbuild/vfs.hpp"
 #include "tools/fbtool/map_commands.hpp"
+#include "tools/fbtool/palette_commands.hpp"
 
 namespace {
 
@@ -70,6 +71,8 @@ void print_usage() {
                 "  rewrite-map [--grp G] <in> <out>  canonical rewrite + self-check\n"
                 "  diff-map [--grp G] <a> <b>  semantic field diff of two maps\n"
                 "  gen-map --fixture N --out F | --list   synthetic MAP fixtures\n"
+                "  dump-palette [--grp G] <f>   parse PALETTE.DAT and summarize\n"
+                "  dump-lookup [--grp G] <f>    parse LOOKUP.DAT and summarize\n"
                 "  gen-grp --out FILE [--seed N] [--files N] [--max-size N]\n"
                 "                         write a deterministic synthetic GRP\n"
                 "  gen-fixtures [--out DIR]\n"
@@ -292,6 +295,12 @@ int main(int argc, char** argv) {
     }
     if (std::strcmp(cmd, "gen-map") == 0) {
         return fauxbuild::tool::gen_map(argc - 2, argv + 2);
+    }
+    if (std::strcmp(cmd, "dump-palette") == 0) {
+        return fauxbuild::tool::dump_palette(argc - 2, argv + 2);
+    }
+    if (std::strcmp(cmd, "dump-lookup") == 0) {
+        return fauxbuild::tool::dump_lookup(argc - 2, argv + 2);
     }
     if (std::strcmp(cmd, "gen-fixtures") == 0) {
         return gen_fixtures(argc - 2, argv + 2);

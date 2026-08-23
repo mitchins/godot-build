@@ -540,7 +540,34 @@ Deferred to M6 (not M3 debt):
   n=5,355 corroboration already settle it; ruled not worth the operating cost.
 Do not implement rendering, collision, Duke tags, or game logic.
 
-## M4 — ART, palette, lookup, and tile tooling — NOT_STARTED
+## M4 — ART, palette, lookup, and tile tooling
+
+Status: **IN_PROGRESS** — slice 1 of 4 delivered, checkpoint review requested
+Started: 2026-08-23
+
+Delivery is sliced per the M4 task brief; each slice stops for review.
+
+### Slice 1 — palette, lookup, shade tables (delivered 2026-08-23)
+
+- Format facts corroborated against the legally owned content BEFORE encoding
+  (method per brief): LOOKUP.DAT closes exactly (1 + 25*257 + 5*768; swap
+  indices are a permutation of 1..25; alt palettes are 6-bit). PALETTE.DAT
+  refuted the published size equation: declared count 32, actual table region
+  64 tables — deviance preserved and recorded as D0013 (proposed) +
+  COMPATIBILITY_SCOPE 0b/0c + PROVENANCE rows 10/11.
+- `read_palette_dat` / `read_lookup_dat` / canonical writers: bounded, counts
+  validated before allocation, fail-closed structured errors, byte-identical
+  round-trip for anything that parses (fuzz-enforced invariant).
+- `fbtool dump-palette` / `dump-lookup` (incl. `--grp`, reading through the
+  VFS mount — no extraction); contracts in ci/check_fbtool.py (happy,
+  malformed exit 1, usage exit 2).
+- Tests: +10 cases (64 -> 74; real count from the run below); palette corpus
+  (6 seeds) committed; MANIFEST regenerated (20 entries); corpus regression
+  test extended to palette inputs.
+- Gates touched: "Palette test strip is correct" waits on the slice-3
+  compiler; no gate is ticked by slice 1. Dev evidence on real content:
+  dump-palette/dump-lookup through --grp parse clean (output in slice report;
+  no proprietary bytes committed).
 
 Gate summary: fixture tiles decode exactly; palette test strip correct; pivot/animation
 round-trip; local Duke tile atlas inspectable without extraction; no RGBA-only assumption;

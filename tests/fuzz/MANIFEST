@@ -12,3 +12,9 @@ a4f67ffa4487b645      322 tests/fuzz/corpus/map/multi_loop.map.bin
 833ec06a9a6ef776       11 tests/fuzz/corpus/map/truncated_header.bin
 e3392d2262a57621       30 tests/fuzz/corpus/map/truncated_walls.bin
 30e459d6252be7fd      362 tests/fuzz/corpus/map/two_sector_portal.map.bin
+3eddabb4ce3792c6    66818 tests/fuzz/corpus/palette/bad_count_palette.bin
+362e1e2d5ab00082      259 tests/fuzz/corpus/palette/ragged_lookup.bin
+56e53810c3d25c7e      900 tests/fuzz/corpus/palette/truncated_palette.bin
+aca714f98d1ea19f    10266 tests/fuzz/corpus/palette/valid_lookup.bin
+553ccbe2e920b9cd    82690 tests/fuzz/corpus/palette/valid_palette.bin
+7201e003c86101c4    66562 tests/fuzz/corpus/palette/valid_palette_min.bin

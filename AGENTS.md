@@ -6,11 +6,10 @@ The full implementation contract is `docs/PROJECT_CONTRACT.md` and the source pl
 
 ## Active milestone
 
-**M4 — ART, palette, lookup, and tile tooling: NOT_STARTED.**
-
-M3 (MAP v7 parser, validator, canonical writer) was **ACCEPTED 2026-08-23**
-after six review rounds: all eight gates met, D0012 ratified, gates 3.5
-(Mapster32 round-trip) and 3.6 (real E1L1) HUMAN-ATTESTED per D0009.
+**M4 — ART, palette, lookup, and tile tooling: IN_PROGRESS, slice 1 of 4 at
+checkpoint review.** No slice 2 work until the reviewer accepts slice 1. D0013
+(PALETTE.DAT extra tables) is proposed, awaiting ratification. Next: slices
+2 (ART + picanm), 3 (compilers + manifest), 4 (atlas + preview).
 
 ## Repository boundary and evidence classes
 

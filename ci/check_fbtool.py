@@ -171,6 +171,40 @@ with tempfile.TemporaryDirectory() as tmp:
     run(["gen-map", "--fixture", "--out", str(pathlib.Path(tmp) / "y.MAP")], 2,
         "gen-map --fixture needs a value")
 
+    # ---------------- palette/lookup commands (M4 slice 1) ----------------
+    import struct as _struct
+    pal = pathlib.Path(tmp) / "synth.dat"
+    pal_bytes = bytearray(i % 64 for i in range(768))
+    pal_bytes += _struct.pack("<H", 2)
+    pal_bytes += bytes(256 * 2) + bytes(256 * 3)  # 2 declared + 3 extra tables
+    pal_bytes += bytes(65536)
+    pal.write_bytes(pal_bytes)
+    run(["dump-palette", str(pal)], 0, "dump-palette", expect_out="shade tables: 2")
+    proc = run(["dump-palette", str(pal)], 0, "dump-palette again")
+    if "extra tables: 768 bytes (3 tables" not in proc.stdout:
+        failures.append("dump-palette: extra tables not reported")
+    if "6-bit VGA" not in proc.stdout:
+        failures.append("dump-palette: 6-bit detection missing")
+
+    lut = pathlib.Path(tmp) / "synth_lut.dat"
+    lut_bytes = bytearray([1, 4]) + bytes(256) + bytes(i % 64 for i in range(768))
+    lut.write_bytes(lut_bytes)
+    run(["dump-lookup", str(lut)], 0, "dump-lookup", expect_out="swaps: 1")
+    run(["dump-lookup", str(lut)], 0, "dump-lookup alts", expect_out="alt palettes: 1")
+
+    bad = pathlib.Path(tmp) / "bad.dat"
+    bad.write_bytes(b"\x00" * 40)
+    run(["dump-palette", str(bad)], 1, "dump-palette truncated", expect_err="truncated")
+    empty_lut = pathlib.Path(tmp) / "empty_lut.dat"
+    empty_lut.write_bytes(b"")
+    run(["dump-lookup", str(empty_lut)], 1, "dump-lookup truncated", expect_err="truncated")
+    ragged = pathlib.Path(tmp) / "ragged.dat"
+    ragged.write_bytes(bytes(768) + _struct.pack("<H", 0) + bytes(65536 + 7))
+    run(["dump-palette", str(ragged)], 1, "dump-palette ragged", expect_err="trailing_data")
+    run(["dump-palette", "--bogus", str(pal)], 2, "dump-palette unknown option")
+    run(["dump-palette", "--grp"], 2, "dump-palette dangling option")
+    run(["dump-lookup"], 2, "dump-lookup arity")
+
     run(["no-such-command"], 2, "unknown command", expect_err="unknown command")
 
 if failures:

@@ -224,3 +224,33 @@ Decision:
 Consequences: validators stay deterministic and fail-closed; every rule above
 is covered by a named test case in tests/unit/map_validate.test.cpp.
 
+### D0013 — PALETTE.DAT table region beyond the declared count (M4)
+
+Status: proposed (implemented as preservation; awaiting human ratification)
+Date: 2026-08-23
+Context: the published PALETTE.DAT description (ModdingWiki, PROVENANCE row 11)
+models the file as 768-byte palette + int16 numpalookups + numpalookups*256
+shade tables + 65536 translucency. Corroborated against the legally owned
+DUKE3D.GRP: the declared count (32) is honored as the palette-0 shade ramp,
+but the file contains 64 tables' worth of bytes before the translucency
+region; the size equation closes only with 64 tables. The extra 32 tables are
+undeclared in-band. Property evidence: tables 0..31 form a monotone shade ramp
+(table 0 is 255/256 identity; distinct-value count collapses monotonically to
+18); table 32 breaks every property of that ramp (identity hits drop to 3,
+distinct values jump to 139) — the boundary is real, not an artifact.
+Decision (proposed):
+1. `read_palette_dat` accepts the file iff the total arithmetic closes exactly
+   (770 + 256*k + 65536 == size, k >= declared count). The bytes between the
+   declared tables and the translucency region are preserved verbatim as
+   `extra_tables` — parsed structure, no interpretation.
+2. Canonical write emits the region verbatim; round-trip is byte-identical
+   (unit-tested, fuzz-enforced).
+3. No attempt is made to name the extra tables (candidate hypotheses —
+   per-palette shade tables, etc. — are not encoded) until a genuine consumer
+   exists; guessing semantics ahead of need is the pre-building AGENTS.md
+   forbids.
+Consequences: real PALETTE.DAT files load and rewrite byte-identically; other
+Build games' palettes that pack a different number of tables still parse under
+the same closure rule; the deviation from the published description is bounded
+and recorded here and in COMPATIBILITY_SCOPE row 0b.
+
