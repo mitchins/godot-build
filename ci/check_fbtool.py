@@ -246,17 +246,25 @@ with tempfile.TemporaryDirectory() as tmp:
     run(["build-art", "--source", str(src_dir / "tiles/diagnostics.tileset"),
          "--out", art_out], 2, "build-art without manifest flag",
         expect_err="stable build needs --manifest")
-    run(["build-art", "--source", str(src_dir / "tiles/diagnostics.tileset"),
-         "--out", art_out, "--init-manifest"], 0, "build-art init", expect_out="built")
+    init_proc = run(["build-art", "--source", str(src_dir / "tiles/diagnostics.tileset"),
+                     "--out", art_out, "--init-manifest"], 0, "build-art init",
+                    expect_out="built")
     # --init-manifest writes beside the ART output; adopt that as the stable
     # manifest path for the rebuild probe.
     stable_manifest = art_out + ".manifest"
-    first_manifest = pathlib.Path(stable_manifest).read_text()
+    manifest_path = pathlib.Path(stable_manifest)
+    if not manifest_path.exists():
+        failures.append(
+            f"build-art init: manifest not written to {stable_manifest!r}; "
+            f"rc={init_proc.returncode} stdout={init_proc.stdout!r} "
+            f"stderr={init_proc.stderr!r}")
+    first_manifest = manifest_path.read_text() if manifest_path.exists() else ""
     run(["build-art", "--source", str(src_dir / "tiles/diagnostics.tileset"),
          "--out", art_out, "--manifest", stable_manifest], 0, "build-art stable rebuild",
         expect_out="built")
-    rebuilt = pathlib.Path(stable_manifest).read_text()
-    if rebuilt != first_manifest:
+    rebuilt = pathlib.Path(stable_manifest).read_text() if pathlib.Path(
+        stable_manifest).exists() else ""
+    if first_manifest and rebuilt != first_manifest:
         failures.append("build-art: stable rebuild changed the manifest")
 
     run(["dump-art", art_out], 0, "dump-art built", expect_out="tile range: 0..12")
