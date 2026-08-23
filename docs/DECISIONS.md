@@ -277,20 +277,38 @@ tiles after maps exist"). The M4 brief demands the stability property as a
 test, not a comment. This record proposes the format and the semantics the
 tests enforce.
 Decision:
-1. Format: deterministic text, one entry per tile — `picnum name w h xc yc
-   anim frames speed` with whole-line `#` comments (frame entries legitimately
-   contain `#` in names, so trailing comments are not supported). Canonical
-   write is stable across rewrites.
+1. Format (v2): deterministic text, one entry per tile — `picnum name w h xc
+   yc anim frames speed content` with whole-line `#` comments (frame entries
+   legitimately contain `#` in names, so trailing comments are not supported).
+   `content` is fnv1a64 of the tile's pixel bytes, written as exactly 16
+   lowercase hex digits and parsed strictly. Canonical write is stable across
+   rewrites.
 2. The manifest is the picnum authority. Builds assign new tiles as max+1;
    animation sets occupy `frames` consecutive entries named `name#k`, with
    only the anchor (`#0`) recording frame count and animation type.
 3. Stability is enforced at build time: a manifest tile missing from the
-   tileset, or any change to dims/pivot/animation of an assigned tile, is a
-   hard error. Removal requires deleting the manifest explicitly (a conscious
-   act, never a silent renumber).
+   tileset, or any change to dims/pivot/animation **or pixel content** of an
+   assigned tile, is a hard error. Removal requires deleting the manifest
+   explicitly (a conscious act, never a silent renumber).
+4. Content is part of a picnum's identity, not only its shape. Name, dims,
+   pivot and animation together do not pin what a picnum draws: a tile can
+   keep all of them and change its pattern, and every map referencing that
+   picnum would silently draw something else. Found in review by rebuilding
+   `pattern=solid color=1` as `color=9` — accepted, no error, pixels changed
+   under a fixed picnum. The hash makes the immutability check total.
+5. Source *order* is not part of identity: reordering tiles in the tileset, or
+   inserting a tile ahead of existing ones, must not renumber anything.
+   Picnums follow the manifest, never file position. Tested.
 Consequences: `fbtool build-art --init-manifest` bootstraps; later builds
 pass `--manifest`. The stable-rebuild contract (identical manifest text) and
 the add/remove/reshape unit properties live in
 tests/unit/tile_build.test.cpp; the removal check was negative-tested
-(sabotaged to tolerate removals -> suite red).
+(sabotaged to tolerate removals -> suite red), as was the content check
+(removed -> suite red at the same-shape-different-pixels case; CI probe red
+with "wrote output despite failing the stability check").
+
+Manifests written before v2 have nine fields and are rejected with a field
+count error rather than silently loaded without content hashes. No such
+manifest has been published outside this branch: `fixtures/` carries source
+DSLs, and manifests are build output. Regenerate with `--init-manifest`.
 

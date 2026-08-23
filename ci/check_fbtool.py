@@ -277,6 +277,27 @@ with tempfile.TemporaryDirectory() as tmp:
     run(["dump-palette", pal_out], 0, "dump-palette built", expect_out="6-bit VGA")
     run(["dump-lookup", lut_out], 0, "dump-lookup built", expect_out="swaps: 4")
 
+    # Content immutability, end to end: a tile that keeps its name, size, pivot
+    # and animation but changes its pixels must be rejected, and must publish
+    # nothing. Without this a picnum silently redefines what every map drawing
+    # it shows (review finding, slice 3).
+    tampered = pathlib.Path(tmp) / "tampered.tileset"
+    original = (src_dir / "tiles/diagnostics.tileset").read_text()
+    tampered_lines = []
+    for line in original.splitlines(keepends=True):
+        if line.startswith("tile solid_dark"):
+            line = line.replace("color=1", "color=63")
+        tampered_lines.append(line)
+    tampered.write_text("".join(tampered_lines))
+    if "".join(tampered_lines) == original:
+        failures.append("build-art: tamper probe did not modify the tileset (fixture changed?)")
+    tamper_out = str(pathlib.Path(tmp) / "tampered.art")
+    run(["build-art", "--source", str(tampered), "--out", tamper_out,
+         "--manifest", stable_manifest], 1, "build-art rejects changed pixels",
+        expect_err="different pixels")
+    if pathlib.Path(tamper_out).exists():
+        failures.append("build-art: wrote output despite failing the stability check")
+
     run(["build-art", "--source", "/nonexistent.tileset", "--out", art_out,
          "--init-manifest"], 1, "build-art missing source", expect_err="io_error")
     bad_ts = pathlib.Path(tmp) / "bad.tileset"

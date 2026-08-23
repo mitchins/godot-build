@@ -1,5 +1,7 @@
 #include "fauxbuild/tile_manifest.hpp"
 
+#include <cstdio>
+
 #include <algorithm>
 #include <sstream>
 
@@ -40,6 +42,12 @@ Result<long> parse_int(const std::string& text, const std::string& source, std::
         return Result<long>::err({source, line_no, "manifest.field", ErrorCode::InvalidCount,
                                   field + " '" + text + "' is not an integer"});
     }
+}
+
+std::string hex64(std::uint64_t value) {
+    char buffer[17];
+    std::snprintf(buffer, sizeof(buffer), "%016llx", static_cast<unsigned long long>(value));
+    return std::string(buffer, 16);
 }
 
 std::string anim_name(std::uint8_t type) {
@@ -90,7 +98,8 @@ const TileManifestEntry* TileManifest::find_picnum(std::int32_t picnum) const {
 Result<std::int32_t> TileManifest::assign(const std::string& name, std::int16_t width,
                                           std::int16_t height, std::int8_t x_center,
                                           std::int8_t y_center, std::uint8_t anim_type,
-                                          std::uint8_t frames, std::uint8_t speed) {
+                                          std::uint8_t frames, std::uint8_t speed,
+                                          std::uint64_t content) {
     if (find(name) != nullptr) {
         return Result<std::int32_t>::err(
             {"manifest", 0, "manifest.assign", ErrorCode::InvalidName,
@@ -100,7 +109,8 @@ Result<std::int32_t> TileManifest::assign(const std::string& name, std::int16_t 
     for (const auto& entry : entries) {
         next = std::max(next, entry.picnum + 1);
     }
-    entries.push_back({next, name, width, height, x_center, y_center, anim_type, frames, speed});
+    entries.push_back(
+        {next, name, width, height, x_center, y_center, anim_type, frames, speed, content});
     return Result<std::int32_t>::ok(next);
 }
 
@@ -124,10 +134,10 @@ Result<TileManifest> parse_tile_manifest(std::string_view text, std::string sour
         if (fields.empty()) {
             continue;
         }
-        if (fields.size() != 9) {
+        if (fields.size() != 10) {
             return Result<TileManifest>::err(
                 {source, line_no, "manifest.line", ErrorCode::InvalidCount,
-                 "expected 9 fields (picnum name w h xc yc anim frames speed), got " +
+                 "expected 10 fields (picnum name w h xc yc anim frames speed content), got " +
                      std::to_string(fields.size())});
         }
         TileManifestEntry entry;
@@ -167,6 +177,15 @@ Result<TileManifest> parse_tile_manifest(std::string_view text, std::string sour
         if (!speed.is_ok())
             return Result<TileManifest>::err(speed.error());
         entry.speed = static_cast<std::uint8_t>(speed.value());
+        // Content hash: exactly 16 lowercase hex digits, no 0x, no sign. Strict
+        // because this field is the immutability anchor.
+        const std::string& hex = fields[9];
+        if (hex.size() != 16 || hex.find_first_not_of("0123456789abcdef") != std::string::npos) {
+            return Result<TileManifest>::err(
+                {source, line_no, "manifest.line", ErrorCode::InvalidName,
+                 "content hash must be 16 lowercase hex digits, got '" + hex + "'"});
+        }
+        entry.content = std::stoull(hex, nullptr, 16);
         manifest.entries.push_back(std::move(entry));
     }
 
@@ -184,14 +203,14 @@ Result<std::string> write_tile_manifest(const TileManifest& manifest) {
     if (!valid.is_ok()) {
         return Result<std::string>::err(valid.error());
     }
-    std::string out = "# fauxbuild tile manifest v1\n";
-    out += "# picnum  name  w  h  xc  yc  anim  frames  speed\n";
+    std::string out = "# fauxbuild tile manifest v2\n";
+    out += "# picnum  name  w  h  xc  yc  anim  frames  speed  content\n";
     for (const auto& entry : manifest.entries) {
         out += std::to_string(entry.picnum) + "  " + entry.name + "  " +
                std::to_string(entry.width) + " " + std::to_string(entry.height) + "  " +
                std::to_string(entry.x_center) + " " + std::to_string(entry.y_center) + "  " +
                anim_name(entry.anim_type) + " " + std::to_string(entry.frames) + " " +
-               std::to_string(entry.speed) + "\n";
+               std::to_string(entry.speed) + "  " + hex64(entry.content) + "\n";
     }
     return Result<std::string>::ok(std::move(out));
 }

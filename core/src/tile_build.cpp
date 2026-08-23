@@ -4,6 +4,8 @@
 #include <cmath>
 #include <sstream>
 
+#include "fauxbuild/map_io.hpp" // fnv1a64
+
 namespace fauxbuild {
 
 namespace {
@@ -362,6 +364,18 @@ Result<BuiltArt> build_art_from_tileset(const TilesetDef& tileset, const TileMan
                      "' changed shape/pivot/animation vs the manifest; entries are "
                      "immutable once assigned"});
         }
+        // Shape and metadata are not enough: a tile can keep its name, size,
+        // pivot and animation and still be a different picture, which is
+        // exactly what a stable picnum must forbid (a map referencing it would
+        // silently draw something else). Content is the immutability anchor.
+        const ArtTile rendered = build_tile(*source, frame < 0 ? 0 : frame);
+        const std::uint64_t content = fnv1a64(rendered.pixels.data(), rendered.pixels.size());
+        if (content != entry.content) {
+            return Result<BuiltArt>::err({"tileset", 0, "build.stability", ErrorCode::InvalidName,
+                                          "tile '" + entry.name +
+                                              "' has the same shape but different pixels than the "
+                                              "manifest records; picnum content is immutable"});
+        }
     }
 
     // Stability pass 2: assign picnums for new tiles (append-only, max+1).
@@ -381,9 +395,11 @@ Result<BuiltArt> build_art_from_tileset(const TilesetDef& tileset, const TileMan
             const bool anchor = tile.frames <= 1 || frame == 0;
             const std::uint8_t recorded_frames = anchor && tile.frames > 1 ? tile.frames : 0;
             const std::uint8_t recorded_anim = anchor && tile.frames > 1 ? tile.anim_type : 0;
+            const ArtTile rendered = build_tile(tile, frame);
             auto assigned =
                 updated.assign(frame_name, tile.width, tile.height, tile.x_center, tile.y_center,
-                               recorded_anim, recorded_frames, tile.speed);
+                               recorded_anim, recorded_frames, tile.speed,
+                               fnv1a64(rendered.pixels.data(), rendered.pixels.size()));
             if (!assigned.is_ok()) {
                 return Result<BuiltArt>::err(assigned.error());
             }

@@ -26,7 +26,7 @@ tile alpha 8 8 pattern=solid color=1
 tile beta  16 8 pattern=checker a=1 b=2 square=4
 )TS";
 
-const char* kTilesetB = R"TS(tileset stability_a
+const char* kTilesetB = R"TS(tileset stability_b
 tile alpha 8 8 pattern=solid color=1
 tile beta  16 8 pattern=checker a=1 b=2 square=4
 tile gamma 32 32 pattern=ramp from=0 to=15
@@ -36,8 +36,8 @@ tile gamma 32 32 pattern=ramp from=0 to=15
 
 TEST_CASE("manifest round-trips and validates") {
     TileManifest manifest;
-    REQUIRE(manifest.assign("alpha", 8, 8, 0, 0, 0, 0, 0).is_ok());
-    REQUIRE(manifest.assign("beta", 16, 8, 4, -4, 2, 4, 2).is_ok());
+    REQUIRE(manifest.assign("alpha", 8, 8, 0, 0, 0, 0, 0, 0x1111111111111111ull).is_ok());
+    REQUIRE(manifest.assign("beta", 16, 8, 4, -4, 2, 4, 2, 0x2222222222222222ull).is_ok());
     auto text = write_tile_manifest(manifest);
     REQUIRE(text.is_ok());
 
@@ -58,33 +58,49 @@ TEST_CASE("manifest round-trips and validates") {
 
 TEST_CASE("manifest rejects gaps, duplicates, and malformed lines") {
     SUBCASE("gap in picnum sequence") {
-        auto parsed =
-            parse_tile_manifest("# fauxbuild tile manifest v1\n# h\n0 a 1 1 0 0 none 0 0\n"
-                                "2 b 1 1 0 0 none 0 0\n",
-                                "gap");
+        auto parsed = parse_tile_manifest(
+            "# fauxbuild tile manifest v2\n# h\n0 a 1 1 0 0 none 0 0 0000000000000000\n"
+            "2 b 1 1 0 0 none 0 0 0000000000000000\n",
+            "gap");
         REQUIRE_FALSE(parsed.is_ok());
         CHECK(parsed.error().code == ErrorCode::InvalidCount);
     }
     SUBCASE("duplicate names") {
-        auto parsed =
-            parse_tile_manifest("# fauxbuild tile manifest v1\n# h\n0 a 1 1 0 0 none 0 0\n"
-                                "1 a 1 1 0 0 none 0 0\n",
-                                "dup");
+        auto parsed = parse_tile_manifest(
+            "# fauxbuild tile manifest v2\n# h\n0 a 1 1 0 0 none 0 0 0000000000000000\n"
+            "1 a 1 1 0 0 none 0 0 0000000000000000\n",
+            "dup");
         REQUIRE_FALSE(parsed.is_ok());
         CHECK(parsed.error().code == ErrorCode::InvalidName);
     }
     SUBCASE("bad field") {
-        auto parsed =
-            parse_tile_manifest("# fauxbuild tile manifest v1\n# h\n0 a x 1 0 0 none 0 0\n", "bad");
+        auto parsed = parse_tile_manifest(
+            "# fauxbuild tile manifest v2\n# h\n0 a x 1 0 0 none 0 0 0000000000000000\n", "bad");
         REQUIRE_FALSE(parsed.is_ok());
         CHECK(parsed.error().code == ErrorCode::InvalidCount);
+    }
+    SUBCASE("wrong field count") {
+        auto parsed = parse_tile_manifest(
+            "# fauxbuild tile manifest v2\n# h\n0 a 1 1 0 0 none 0 0\n", "short");
+        REQUIRE_FALSE(parsed.is_ok());
+        CHECK(parsed.error().detail.find("expected 10 fields") != std::string::npos);
+    }
+    SUBCASE("malformed content hash") {
+        for (const char* bad_hash : {"xyz", "ABCDEF0123456789", "0x11111111111111", "111"}) {
+            auto parsed = parse_tile_manifest(
+                std::string("# fauxbuild tile manifest v2\n# h\n0 a 1 1 0 0 none 0 0 ") + bad_hash +
+                    "\n",
+                "hash");
+            REQUIRE_FALSE(parsed.is_ok());
+            CHECK(parsed.error().detail.find("16 lowercase hex digits") != std::string::npos);
+        }
     }
 }
 
 TEST_CASE("assign is append-only: names are immutable once assigned") {
     TileManifest manifest;
-    REQUIRE(manifest.assign("alpha", 8, 8, 0, 0, 0, 0, 0).is_ok());
-    auto dup = manifest.assign("alpha", 8, 8, 0, 0, 0, 0, 0);
+    REQUIRE(manifest.assign("alpha", 8, 8, 0, 0, 0, 0, 0, 0x1111111111111111ull).is_ok());
+    auto dup = manifest.assign("alpha", 8, 8, 0, 0, 0, 0, 0, 0x1111111111111111ull);
     REQUIRE_FALSE(dup.is_ok());
     CHECK(dup.error().code == ErrorCode::InvalidName);
 }
@@ -125,6 +141,59 @@ TEST_CASE("STABILITY: adding a tile leaves every prior picnum unchanged") {
               built_a.value().art.tiles[static_cast<std::size_t>(prior.picnum)].pixels);
     }
     CHECK(manifest_b.find("gamma")->picnum == 2); // max+1
+}
+
+TEST_CASE("STABILITY: same name and shape but different pixels is rejected") {
+    // Review finding (slice 3): name/dims/pivot/animation do not pin a picnum's
+    // meaning. A tile that keeps all of them and changes only its pattern would
+    // silently redefine what every map referencing that picnum draws.
+    const char* before = "tileset t\ntile alpha 8 8 pattern=solid color=1\n";
+    const char* after = "tileset t\ntile alpha 8 8 pattern=solid color=9\n";
+
+    auto a = parse_tileset(before, "before");
+    REQUIRE(a.is_ok());
+    TileManifest manifest;
+    auto built = build_art_from_tileset(a.value(), manifest);
+    REQUIRE(built.is_ok());
+
+    auto b = parse_tileset(after, "after");
+    REQUIRE(b.is_ok());
+    auto rebuilt = build_art_from_tileset(b.value(), built.value().manifest);
+    REQUIRE_FALSE(rebuilt.is_ok());
+    CHECK(rebuilt.error().record == "build.stability");
+    CHECK(rebuilt.error().detail.find("different pixels") != std::string::npos);
+
+    // The identical source must still rebuild cleanly — the check must not be
+    // so strict that a no-op rebuild fails.
+    auto same = parse_tileset(before, "same");
+    REQUIRE(same.is_ok());
+    auto again = build_art_from_tileset(same.value(), built.value().manifest);
+    REQUIRE(again.is_ok());
+    CHECK(again.value().manifest.entries.size() == built.value().manifest.entries.size());
+}
+
+TEST_CASE("STABILITY: reordering the source does not renumber picnums") {
+    // Picnums follow the manifest, not source order.
+    const char* one = "tileset t\ntile alpha 8 8 pattern=solid color=1\n"
+                      "tile beta 16 8 pattern=checker a=1 b=2 square=4\n";
+    const char* swapped = "tileset t\ntile beta 16 8 pattern=checker a=1 b=2 square=4\n"
+                          "tile alpha 8 8 pattern=solid color=1\n";
+    auto a = parse_tileset(one, "one");
+    REQUIRE(a.is_ok());
+    TileManifest manifest;
+    auto built = build_art_from_tileset(a.value(), manifest);
+    REQUIRE(built.is_ok());
+
+    auto b = parse_tileset(swapped, "swapped");
+    REQUIRE(b.is_ok());
+    auto rebuilt = build_art_from_tileset(b.value(), built.value().manifest);
+    REQUIRE(rebuilt.is_ok());
+    for (const auto& prior : built.value().manifest.entries) {
+        const auto* after = rebuilt.value().manifest.find(prior.name);
+        REQUIRE(after != nullptr);
+        CHECK(after->picnum == prior.picnum);
+        CHECK(after->content == prior.content);
+    }
 }
 
 TEST_CASE("STABILITY: removing or reshaping a tile is rejected") {
@@ -302,7 +371,7 @@ TEST_CASE("CRLF line endings parse identically in every text format") {
     CHECK(ts.value().tiles[0].params[0] == 1); // value parsed past the CR
 
     TileManifest manifest;
-    REQUIRE(manifest.assign("a", 8, 8, 0, 0, 0, 0, 0).is_ok());
+    REQUIRE(manifest.assign("a", 8, 8, 0, 0, 0, 0, 0, 0x3333333333333333ull).is_ok());
     auto text = write_tile_manifest(manifest);
     REQUIRE(text.is_ok());
     auto crlf = parse_tile_manifest(std::string(text.value()).insert(1, 1, '\r'), "crlf-manifest");

@@ -16,9 +16,15 @@ namespace fauxbuild {
 // tested property (tests/unit/tile_manifest.test.cpp), not a comment.
 //
 // Text format (deterministic, diff-friendly):
-//   # fauxbuild tile manifest v1
-//   # picnum  name  w  h  xc  yc  anim  frames  speed
-//   0  checker_a  64 64  0 0  none 0 0
+//   # fauxbuild tile manifest v2
+//   # picnum  name  w  h  xc  yc  anim  frames  speed  content
+//   0  checker_a  64 64  0 0  none 0 0  a1b2c3d4e5f60718
+//
+// `content` is fnv1a64 of the tile's pixel bytes. Name, dims, pivot and
+// animation alone do not pin a picnum's meaning: a tile can keep all of them
+// and still be a different picture, which is precisely what a stable picnum
+// must forbid (review finding, slice 3). The hash makes the immutability
+// check total rather than dimensional.
 struct TileManifestEntry {
     std::int32_t picnum = 0;
     std::string name;
@@ -29,6 +35,7 @@ struct TileManifestEntry {
     std::uint8_t anim_type = 0; // 0 none, 1 oscillating, 2 forward, 3 backward
     std::uint8_t frames = 0;
     std::uint8_t speed = 0;
+    std::uint64_t content = 0; // fnv1a64 of the tile's pixel bytes
 };
 
 struct TileManifest {
@@ -41,7 +48,7 @@ struct TileManifest {
     // name already exists — existing assignments are immutable.
     Result<std::int32_t> assign(const std::string& name, std::int16_t width, std::int16_t height,
                                 std::int8_t x_center, std::int8_t y_center, std::uint8_t anim_type,
-                                std::uint8_t frames, std::uint8_t speed);
+                                std::uint8_t frames, std::uint8_t speed, std::uint64_t content);
 };
 
 Result<TileManifest> parse_tile_manifest(std::string_view text, std::string source);

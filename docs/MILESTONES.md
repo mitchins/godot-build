@@ -598,6 +598,32 @@ Delivery is sliced per the M4 task brief; each slice stops for review.
   negative-tested by sabotaging the removal check (suite red, restored
   green). fbtool contract includes the stable-rebuild identity (init ->
   rebuild -> manifest text identical) and usage/malformed cases.
+
+Slice-3 review (2026-08-23) — one finding, fixed:
+
+- **The stability contract guarded shape but not content.** Name, dims, pivot
+  and animation together do not pin what a picnum draws. Reviewer probe:
+  rebuilding `tile alpha 8 8 pattern=solid color=1` as `color=9` was
+  **accepted** — picnum 0 kept its name and shape while its pixels became a
+  different picture, so every map referencing it would silently draw something
+  else. That is precisely what a stable manifest exists to prevent.
+  Fixed by adding an fnv1a64 content hash as a tenth manifest field (format
+  v2, D0014 updated) and comparing it in the build-time stability pass.
+  The same probe now reports:
+  `tile 'alpha' has the same shape but different pixels than the manifest
+  records; picnum content is immutable`.
+  The reviewer's other three probes — reorder tiles, insert a tile ahead of
+  existing ones, rename — already behaved correctly and are now pinned by
+  tests rather than left to chance.
+- Negative-tested both directions: removing the content comparison turns the
+  suite red at the new case, and the CI probe red with "wrote output despite
+  failing the stability check"; a tampered source is rejected end-to-end
+  through `fbtool build-art` (exit 1, no output written).
+- Manifest format v1 -> v2 is a hard break: nine-field manifests are rejected
+  with a field-count error rather than loaded without hashes. Manifests are
+  build output, not source, so nothing published needs migrating.
+- Also fixed: `kTilesetB` declared `tileset stability_a`; changing the tileset
+  name is accepted and does not renumber (now stated in D0014 rule 5).
 - Built artifacts verified through the M2/M4 stack: built ART parses via
   read_art, round-trips byte-identically, dump-art stats consistent.
 
