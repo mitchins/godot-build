@@ -47,8 +47,11 @@ def compute_manifest() -> list[str]:
     lines = []
     for group in sorted(ROOT.glob("tests/fuzz/*/")):
         for path in sorted(group.rglob("*")):
-            if (not path.is_file() or path.name == "MANIFEST"
-                    or path.name == ".gitkeep" or path.name.startswith("README")):
+            # Exact match only: a prefix rule (README*) would let files like
+            # README_evil.bin evade the integrity gate while still being
+            # loaded as seeds by the fuzz driver (slice-2 review finding 1).
+            excluded_names = {"MANIFEST", ".gitkeep", "README.md"}
+            if not path.is_file() or path.name in excluded_names:
                 continue
             rel = path.relative_to(ROOT).as_posix()
             data = path.read_bytes()

@@ -88,10 +88,19 @@ int dump_art(int argc, char** argv) {
     const auto& art = parsed.value();
 
     std::size_t max_w = 0, max_h = 0, zero_dim = 0, animated = 0, pixel_bytes = 0;
+    std::size_t largest_area = 0;
+    std::size_t largest_index = 0;
     unsigned anim_types[4] = {0, 0, 0, 0};
-    for (const auto& tile : art.tiles) {
+    for (std::size_t i = 0; i < art.tiles.size(); ++i) {
+        const auto& tile = art.tiles[i];
         max_w = std::max<std::size_t>(max_w, tile.width);
         max_h = std::max<std::size_t>(max_h, tile.height);
+        const std::size_t area =
+            static_cast<std::size_t>(tile.width) * static_cast<std::size_t>(tile.height);
+        if (area > largest_area) {
+            largest_area = area;
+            largest_index = i;
+        }
         if (tile.width == 0 || tile.height == 0) {
             ++zero_dim;
         }
@@ -106,10 +115,15 @@ int dump_art(int argc, char** argv) {
     std::printf("version: %d\n", art.version);
     std::printf("tile range: %d..%d (%zu tiles; numtiles field: %d, global)\n", art.localtilestart,
                 art.localtileend, art.tiles.size(), art.numtiles_field);
-    std::printf("dims: max %zux%zu; zero-dimension tiles: %zu\n", max_w, max_h, zero_dim);
+    std::printf("dims: max width %zu, max height %zu (independent maxima); largest tile "
+                "%dx%d at [%zu]; zero-dimension tiles: %zu\n",
+                max_w, max_h, art.tiles.empty() ? 0 : art.tiles[largest_index].width,
+                art.tiles.empty() ? 0 : art.tiles[largest_index].height, largest_index, zero_dim);
     std::printf("animated tiles: %zu (none=%u osc=%u fwd=%u back=%u)\n", animated, anim_types[0],
                 anim_types[1], anim_types[2], anim_types[3]);
-    std::printf("pixel bytes: %zu (stored verbatim, column-major file order)\n", pixel_bytes);
+    std::printf("pixel bytes: %zu (stored verbatim in file order; ordering per published\n"
+                "description, not independently verified)\n",
+                pixel_bytes);
     std::printf("source hash: %016llx\n", static_cast<unsigned long long>(art.source_hash));
 
     if (args.verbose) {
