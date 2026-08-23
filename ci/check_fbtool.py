@@ -213,4 +213,4 @@ if failures:
         print(f"  {f}")
     sys.exit(1)
 
-print("fbtool check: grp + map command contracts hold")
+print("fbtool check: grp + map + palette command contracts hold")

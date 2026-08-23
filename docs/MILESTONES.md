@@ -561,9 +561,12 @@ Delivery is sliced per the M4 task brief; each slice stops for review.
 - `fbtool dump-palette` / `dump-lookup` (incl. `--grp`, reading through the
   VFS mount — no extraction); contracts in ci/check_fbtool.py (happy,
   malformed exit 1, usage exit 2).
-- Tests: +10 cases (64 -> 74; real count from the run below); palette corpus
-  (6 seeds) committed; MANIFEST regenerated (20 entries); corpus regression
-  test extended to palette inputs.
+- Tests: +10 cases (64 -> 74); non-parametric assertions ~1,757 (+86 this
+  slice). The 69,348 headline from the raw run is 97.5% prefix-sweep
+  repetitions and is NOT a quality number (slice-1 review finding 2);
+  report cases + non-sweep counts from here on. Palette corpus (6 seeds)
+  committed; MANIFEST regenerated (20 entries); corpus regression test
+  extended to palette inputs.
 - Gates touched: "Palette test strip is correct" waits on the slice-3
   compiler; no gate is ticked by slice 1. Dev evidence on real content:
   dump-palette/dump-lookup through --grp parse clean (output in slice report;

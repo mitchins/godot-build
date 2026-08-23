@@ -226,7 +226,8 @@ is covered by a named test case in tests/unit/map_validate.test.cpp.
 
 ### D0013 — PALETTE.DAT table region beyond the declared count (M4)
 
-Status: proposed (implemented as preservation; awaiting human ratification)
+Status: accepted (human ratification 2026-08-23, slice-1 review: "ratify it
+as written"; refutation independently reproduced by the reviewer)
 Date: 2026-08-23
 Context: the published PALETTE.DAT description (ModdingWiki, PROVENANCE row 11)
 models the file as 768-byte palette + int16 numpalookups + numpalookups*256
@@ -253,4 +254,17 @@ Consequences: real PALETTE.DAT files load and rewrite byte-identically; other
 Build games' palettes that pack a different number of tables still parse under
 the same closure rule; the deviation from the published description is bounded
 and recorded here and in COMPATIBILITY_SCOPE row 0b.
+
+Additional consequence (slice-1 review finding 1), inherent to sizing the
+table region from the file: **truncation inside the extra region is
+undetectable**. Removing k*256 bytes (k <= 32 on real content) still closes
+arithmetically, and the translucency window slides by the removed bytes —
+wrong colour data with no error. This is a property of the format, not a
+parser choice: the declared count cannot size the region without rejecting
+real content. Mitigation, adopted as policy: content read through a GRP mount
+has an authoritative entry length (the container validates offset+size), so
+truncation is caught at the container layer; the exposure is loose files
+only. Tooling therefore defaults to mount-based reads (fbtool --grp), and the
+slice-1 record notes that plain-file palette loads of unknown provenance
+should not be trusted for rendering.
 

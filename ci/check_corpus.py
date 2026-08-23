@@ -47,7 +47,8 @@ def compute_manifest() -> list[str]:
     lines = []
     for group in sorted(ROOT.glob("tests/fuzz/*/")):
         for path in sorted(group.rglob("*")):
-            if not path.is_file() or path.name == "MANIFEST" or path.name == ".gitkeep":
+            if (not path.is_file() or path.name == "MANIFEST"
+                    or path.name == ".gitkeep" or path.name.startswith("README")):
                 continue
             rel = path.relative_to(ROOT).as_posix()
             data = path.read_bytes()
