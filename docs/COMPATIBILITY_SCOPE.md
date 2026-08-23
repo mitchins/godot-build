@@ -38,5 +38,5 @@ explicitly — what is rejected, why, and what would change it — before the M1
 
 | # | Item | Status | Bound |
 |---|---|---|---|
-| 0 | MAP v7 layout is int32 version==7 (no string signature), int16 sprite count, section sizes 40/32/44 bytes, no trailing data | Locked by black-box verification of untouched E1L1.MAP (2026-08-23); section arithmetic is exact | Verified in-repo; no external code consulted. Any future map that disagrees reopens this row. |
+| 0 | MAP v7 layout is int32 version==7 (no string signature), uint16 record counts, section sizes 40/32/44 bytes, no trailing data | Locked by black-box verification of six legally owned maps (2026-08-23); section arithmetic is exact on all six, and Mapster32 r9598 re-saved our fixture as v7 with no trailer | Verified in-repo; published format description recorded as PROVENANCE row 9; no engine or source-port code consulted. Any future map that disagrees reopens this row. |
 | 1 | GRP containers declaring more than 65,536 files are rejected | Accepted, bounded (D0011) | Parser resource limit `kMaxEntryCount` (D0011), not a format claim. Real archives hold low thousands of files. Raising it is a decision record. |
