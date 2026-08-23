@@ -286,8 +286,10 @@ E1L1: 317 sectors / 1937 walls / 639 sprites; 102,806 bytes; no trailing data.
 - [x] 3.3 Validation — broken loops, bad ranges, invalid point2/nextwall/
       nextsector, non-reciprocal portals, invalid sprite sectors, unowned and
       double-claimed walls all detected (dedicated cases). *(CI)*
-- [x] 3.4 Writer — parse→write→parse is byte-identical for every fixture and
-      **for untouched E1L1** (102,806 bytes identical); semantic diff empty. *(CI)*
+- [x] 3.4 Writer — parse→write→parse is byte-identical for every synthetic
+      fixture; semantic diff empty. *(CI)* Untouched E1L1 also rewrites
+      byte-identically (102,806 bytes) — proprietary-content evidence, not CI,
+      and covered by the 3.6 attestation rather than claimed here (D0009).
 - [ ] 3.5 Mapster — HUMAN-ATTESTED, PENDING. Candidate fixture:
       `fbtool gen-map --fixture two_sector_portal --out x.MAP`, open in
       Mapster32, save, then `fbtool diff-map x.MAP x-after-mapster.MAP`
@@ -302,7 +304,7 @@ E1L1: 317 sectors / 1937 walls / 639 sprites; 102,806 bytes; no trailing data.
       in range or sentinel. Attestation remains the human's per D0009.
 - [x] 3.7 Tooling — dump-map (incl. --verbose), validate-map, rewrite-map
       (with self-check), diff-map (field-level), gen-map --list. *(CI smoke)*
-- [x] 3.8 Quality — 64 cases / 1,494 assertions green in dev, release,
+- [x] 3.8 Quality — 65 cases / 1,502 assertions green in dev, release,
       ASan/UBSan; format-check 48/48; layering clean; corpus MANIFEST gate
       green; CI on feature/m3 @ 5f00ea6: Linux (dev+asan+fuzz), macOS, Format,
       Windows MSVC all green. ASan caught a real use-after-free in a test
@@ -313,7 +315,7 @@ E1L1: 317 sectors / 1937 walls / 639 sprites; 102,806 bytes; no trailing data.
 - ASan proved its place in the matrix: `vector::assign(n, v[0])` with v
   referencing the same vector compiled and passed in dev/release but is
   use-after-free — caught only by the sanitizer build.
-- Open contractual choices recorded as **D0012 (proposed)**: sprite sectnum
+- Contractual choices ratified as **D0012 (accepted)**: sprite sectnum
   sentinel −1; start sector −1 valid only for zero-sector maps; trailing data
   rejected (not warned); reciprocal portals + nextsector==owner(nextwall)
   enforced as errors; single severity class (Error) until a real map forces a
@@ -361,6 +363,64 @@ Review round 2 (2026-08-23) — two gates that could not fail, both closed:
   same `check` run — the layering held; the gate itself is what was wrong.)
 - Assertion count 1,493 → **1,494**: the round-1 fixes added one after the
   round-1 figure was taken.
+
+Review round 3 (2026-08-23) — CodeRabbit on PR #2, 9 findings:
+
+Accepted and fixed (8):
+
+- **Self-referential portal wall.** `nextwall == w` with `nextsector` equal to
+  the wall's own owner satisfies every reciprocity rule in D0012 rule 5, so a
+  sector could be its own neighbour through a single wall and validate 0/0
+  (reproduced on a real map). Now rejected as `InvalidNextWall`; all six
+  shipped maps still validate 0/0, so the rule adds no false positives. Read
+  as a clarification of D0012 rule 5, not a new decision: a portal connects
+  two walls.
+- **`fnv1a64` was not FNV-1a.** The offset basis was the real constant with two
+  digits dropped (1469598103934665603 vs 14695981039346656037). C++ and the
+  Python port agreed, so nothing was broken and no hash was weak — but the name
+  was false. Corrected on both sides, MANIFEST regenerated, and pinned by
+  known-answer tests against the published vectors in **both** implementations
+  so they cannot silently diverge again. `empty.bin` now hashes to
+  `cbf29ce484222325`, which is the basis itself.
+- **`--grp` accepted an option token as its value** (`--grp --bogus` opened a
+  file named `--bogus`, exit 1). Now a usage error — the same defect class as
+  round 1, one argument position deeper.
+- **Options are now per-command**: `--verbose` is rejected by validate-map,
+  rewrite-map and diff-map instead of being silently ignored.
+- **`gen-map --list` acted from inside the argument loop**, so `--list --wat`
+  printed and exited 0. All arguments are validated before `--list` runs.
+- **`check_fbtool.py` had no GRP-backed MAP coverage**; added (hit, case-folded
+  hit, miss) plus the four new usage cases. Each new case was negative-tested
+  against a deliberately regressed build.
+- **Gate 3.4 mislabelled E1L1 as CI evidence** (D0009): split into the CI claim
+  (synthetic fixtures) and proprietary-content evidence deferred to 3.6.
+- **D0012 was still called "proposed"** in this file after ratification; and
+  `<algorithm>` added to map_diff.cpp for `std::min`.
+
+Rejected (1):
+
+- **Set stat bit `0x0002` on the slope fixture.** Declined on clean-room
+  grounds. The meaning of that bit appears in no permitted source: not in the
+  task specification, not in our own black-box observations. The most likely
+  origin for an assistant asserting it is training on Build/EDuke32 source,
+  which AGENTS.md rules 1-2 forbid as an input regardless of whether the answer
+  is right. It is also out of scope — slope semantics are M6, and the M3
+  validator interprets no stat bits. The fixture is our own synthetic content;
+  nothing reads the bit.
+
+Also found in review (not CodeRabbit):
+
+- **`ci/__pycache__/check_corpus.cpython-314.pyc` was committed** in fc17733
+  (`gen_manifest.py` imports `check_corpus`), and `.gitignore` had no
+  `__pycache__` rule. Removed and ignored.
+
+Open provenance question for the human (not fixed, deliberately):
+
+- `dump-map` reports `masked-flag walls (cstat&2)` and sprite alignment via
+  `cstat&8`/`cstat&16`. Those bit meanings have the same provenance gap as the
+  rejected finding above: the plan describes masked and one-way walls but never
+  assigns bit values. Presentation-only today and harmless, but it should be
+  sourced or dropped before M6 gives stat bits behavioural weight.
 Do not implement rendering, collision, Duke tags, or game logic.
 
 ## M4 — ART, palette, lookup, and tile tooling — NOT_STARTED

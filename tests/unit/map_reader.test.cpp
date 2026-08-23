@@ -169,6 +169,17 @@ TEST_CASE("negative counts and trailing data are rejected") {
     CHECK(parsed.error().offset == trailing.size() - 1);
 }
 
+TEST_CASE("fnv1a64 matches the published FNV-1a 64-bit vectors") {
+    // Pins the offset basis and prime so the name stays true and so
+    // ci/check_corpus.py's Python port cannot silently diverge.
+    auto h = [](const char* text) {
+        return fauxbuild::fnv1a64(reinterpret_cast<const std::uint8_t*>(text), std::strlen(text));
+    };
+    CHECK(h("") == 0xcbf29ce484222325ull);
+    CHECK(h("a") == 0xaf63dc4c8601ec8cull);
+    CHECK(h("foobar") == 0x85944171f73967e8ull);
+}
+
 TEST_CASE("source hash distinguishes maps and survives canonical rewrite") {
     auto a = serialize_map_fixture("minimal");
     auto b = serialize_map_fixture("square_room");

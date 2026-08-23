@@ -177,7 +177,10 @@ Result<mapv7::Sprite> read_sprite(ByteReader& reader) {
 } // namespace
 
 std::uint64_t fnv1a64(const std::uint8_t* data, std::size_t size) {
-    std::uint64_t hash = 1469598103934665603ull;
+    // FNV-1a 64-bit offset basis (0xcbf29ce484222325). A previous value here was
+    // this constant with two digits dropped: self-consistent, so nothing broke,
+    // but not FNV-1a. Known-answer tests now pin it (map_reader.test.cpp).
+    std::uint64_t hash = 14695981039346656037ull;
     for (std::size_t i = 0; i < size; ++i) {
         hash ^= data[i];
         hash *= 1099511628211ull;

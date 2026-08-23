@@ -104,6 +104,33 @@ with tempfile.TemporaryDirectory() as tmp:
     run(["dump-map", str(pathlib.Path(tmp) / "missing.MAP")], 1, "dump-map missing",
         expect_err="io_error")
 
+    # The --grp path routes through GrpMount + the normalized VFS lookup, which
+    # nothing else in this gate exercises for the MAP commands.
+    map_bytes = pathlib.Path(fix).read_bytes()
+    name = b"TWOSECT.MAP"
+    grp_with_map = pathlib.Path(tmp) / "maps.grp"
+    grp_with_map.write_bytes(
+        b"KenSilverman"
+        + (1).to_bytes(4, "little")
+        + name.ljust(12, b"\x00")
+        + len(map_bytes).to_bytes(4, "little")
+        + map_bytes
+    )
+    run(["dump-map", "--grp", str(grp_with_map), "TWOSECT.MAP"], 0, "dump-map via grp",
+        expect_out="validation: OK")
+    run(["validate-map", "--grp", str(grp_with_map), "twosect.map"], 0,
+        "validate-map via grp, case-folded", expect_out="0 errors")
+    run(["dump-map", "--grp", str(grp_with_map), "NOSUCH.MAP"], 1, "map not in grp",
+        expect_err="not_found")
+
+    # Options are per-command and a value may not be an option token: both
+    # shapes previously became positional paths (exit 1) instead of usage errors.
+    run(["validate-map", "--verbose", fix], 2, "validate-map rejects --verbose")
+    run(["rewrite-map", "--verbose", fix, str(pathlib.Path(tmp) / "v.MAP")], 2,
+        "rewrite-map rejects --verbose")
+    run(["dump-map", "--grp", "--bogus", fix], 2, "--grp value may not be an option")
+    run(["gen-map", "--list", "--wat"], 2, "gen-map --list is standalone")
+
     run(["no-such-command"], 2, "unknown command", expect_err="unknown command")
 
 if failures:

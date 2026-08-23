@@ -158,6 +158,19 @@ TEST_CASE("portal validation") {
         world.walls[1].nextsector = 0; // wall 7 is owned by sector 1
         CHECK(has_error(validate_map(round_trip(world)), ErrorCode::InvalidNextSector));
     }
+    SUBCASE("wall is its own portal partner") {
+        // Degenerate but self-consistent: the wall mirrors itself and its
+        // nextsector matches its own owner, so every reciprocity rule passes.
+        // Caught in review as a validate-clean case (CodeRabbit, PR #2).
+        auto world = portal_world();
+        world.walls[1].nextwall = 1;
+        world.walls[1].nextsector = 0; // sector 0 owns wall 1
+        world.walls[7].nextwall = fauxbuild::mapv7::kNoIndex;
+        world.walls[7].nextsector = fauxbuild::mapv7::kNoIndex;
+        const auto report = validate_map(round_trip(world));
+        CHECK(has_error(report, ErrorCode::InvalidNextWall));
+        CHECK_FALSE(report.ok());
+    }
 }
 
 TEST_CASE("sprite validation") {

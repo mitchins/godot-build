@@ -24,3 +24,7 @@ godot/bin/fauxbuild.gdextension.uid
 
 # OS noise
 .DS_Store
+
+# Python bytecode (ci/ scripts are imported by tests/fuzz/gen_manifest.py)
+__pycache__/
+*.pyc

@@ -195,6 +195,16 @@ ValidationReport validate_map(const mapv7::MapData& map) {
                            std::to_string(wall_count) + ")");
             continue;
         }
+        // A wall cannot be its own portal partner. Every reciprocity rule below
+        // is trivially satisfied by nextwall == w (the wall mirrors itself, and
+        // nextsector matches its own owner), so a self-portal would validate
+        // clean and hand later traversal a sector that is its own neighbour.
+        if (nw == static_cast<std::int64_t>(w)) {
+            sink.error(ErrorCode::InvalidNextWall, record,
+                       "nextwall " + std::to_string(nw) +
+                           " refers to the wall itself; a portal must connect two walls");
+            continue;
+        }
         const auto& mirror = map.walls[static_cast<std::size_t>(nw)];
         if (static_cast<std::int64_t>(mirror.nextwall) != static_cast<std::int64_t>(w)) {
             sink.error(ErrorCode::InvalidNextWall, record,

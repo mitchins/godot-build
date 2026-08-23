@@ -76,8 +76,8 @@ void print_usage() {
                 "                         (re)generate the empty fixture set\n"
                 "  help                   show this message\n"
                 "\n"
-                "Additional subcommands (dump-map, validate-map, roundtrip-map, dump-art,\n"
-                "probe, ...) are added by later milestones.\n",
+                "Additional subcommands (dump-art, probe, ...) are added by later\n"
+                "milestones.\n",
                 fauxbuild::version_string());
 }
 

@@ -1,5 +1,7 @@
 #include "fauxbuild/map_diff.hpp"
 
+#include <algorithm>
+
 namespace fauxbuild {
 
 namespace {

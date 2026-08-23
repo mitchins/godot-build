@@ -23,21 +23,28 @@ struct MapArgs {
     std::vector<std::string> positional;
 };
 
-// Recognized options per command; anything else starting with '-' is a usage
-// error (exit 2), never a positional path or a silent content error.
-MapArgs parse_args(int argc, char** argv) {
+bool looks_like_option(const std::string& arg) {
+    return arg.size() > 1 && arg[0] == '-';
+}
+
+// Options are per-command: only commands that render output accept --verbose,
+// so `validate-map --verbose` is a usage error rather than a silently ignored
+// flag. Anything unrecognised, and any option-looking token where a value is
+// expected, is a usage error (exit 2) — never a positional path, which would
+// surface as an exit-1 content error against a file that does not exist.
+MapArgs parse_args(int argc, char** argv, bool allow_verbose) {
     MapArgs args;
     for (int i = 0; i < argc; ++i) {
         const std::string arg = argv[i];
-        if (arg == "--verbose" || arg == "-v") {
+        if (allow_verbose && (arg == "--verbose" || arg == "-v")) {
             args.verbose = true;
         } else if (arg == "--grp") {
-            if (i + 1 >= argc) {
+            if (i + 1 >= argc || looks_like_option(argv[i + 1])) {
                 args.usage_error = true;
                 break;
             }
             args.grp = argv[++i];
-        } else if (!arg.empty() && arg[0] == '-') {
+        } else if (looks_like_option(arg)) {
             args.usage_error = true;
             break;
         } else {
@@ -88,7 +95,7 @@ bool print_report(const ValidationReport& report) {
 } // namespace
 
 int dump_map(int argc, char** argv) {
-    const MapArgs args = parse_args(argc, argv);
+    const MapArgs args = parse_args(argc, argv, /*allow_verbose=*/true);
     if (args.usage_error || args.positional.size() != 1) {
         std::fprintf(stderr, "fbtool: dump-map [--grp FILE] <map-path-or-name> [--verbose]\n");
         return 2;
@@ -169,7 +176,7 @@ int dump_map(int argc, char** argv) {
 }
 
 int validate_map(int argc, char** argv) {
-    const MapArgs args = parse_args(argc, argv);
+    const MapArgs args = parse_args(argc, argv, /*allow_verbose=*/false);
     if (args.usage_error || args.positional.size() != 1) {
         std::fprintf(stderr, "fbtool: validate-map [--grp FILE] <map-path-or-name>\n");
         return 2;
@@ -183,7 +190,7 @@ int validate_map(int argc, char** argv) {
 }
 
 int rewrite_map(int argc, char** argv) {
-    const MapArgs args = parse_args(argc, argv);
+    const MapArgs args = parse_args(argc, argv, /*allow_verbose=*/false);
     if (args.usage_error || args.positional.size() != 2) {
         std::fprintf(stderr, "fbtool: rewrite-map [--grp FILE] <in> <out>\n");
         return 2;
@@ -217,7 +224,7 @@ int rewrite_map(int argc, char** argv) {
 }
 
 int diff_map(int argc, char** argv) {
-    const MapArgs args = parse_args(argc, argv);
+    const MapArgs args = parse_args(argc, argv, /*allow_verbose=*/false);
     if (args.usage_error || args.positional.size() != 2) {
         std::fprintf(stderr, "fbtool: diff-map [--grp FILE] <a> <b>\n");
         return 2;
@@ -252,6 +259,7 @@ int diff_map(int argc, char** argv) {
 int gen_map(int argc, char** argv) {
     std::string fixture;
     std::string out;
+    bool list = false;
     for (int i = 0; i < argc; ++i) {
         const std::string arg = argv[i];
         if (arg == "--fixture" && i + 1 < argc) {
@@ -259,14 +267,21 @@ int gen_map(int argc, char** argv) {
         } else if (arg == "--out" && i + 1 < argc) {
             out = argv[++i];
         } else if (arg == "--list") {
-            for (const auto& name : synth::map_fixture_names()) {
-                std::printf("%s\n", name.c_str());
-            }
-            return 0;
+            list = true;
         } else {
             std::fprintf(stderr, "fbtool: gen-map: unknown argument '%s'\n", arg.c_str());
             return 2;
         }
+    }
+    if (list) {
+        if (!fixture.empty() || !out.empty()) {
+            std::fprintf(stderr, "fbtool: gen-map --list takes no other arguments\n");
+            return 2;
+        }
+        for (const auto& name : synth::map_fixture_names()) {
+            std::printf("%s\n", name.c_str());
+        }
+        return 0;
     }
     if (fixture.empty() || out.empty()) {
         std::fprintf(stderr, "fbtool: gen-map --fixture <name> --out <file> | --list\n");

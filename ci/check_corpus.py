@@ -13,7 +13,7 @@ import pathlib
 import sys
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-FNV_OFFSET = 1469598103934665603
+FNV_OFFSET = 14695981039346656037  # 0xcbf29ce484222325
 FNV_PRIME = 1099511628211
 MASK = (1 << 64) - 1
 
@@ -23,6 +23,24 @@ def fnv1a64(data: bytes) -> int:
     for b in data:
         h = ((h ^ b) * FNV_PRIME) & MASK
     return h
+
+
+# Published FNV-1a 64-bit vectors. If this port and fauxbuild::fnv1a64 ever
+# diverge, one of the two known-answer checks fails instead of the manifest
+# quietly agreeing with itself.
+KNOWN_VECTORS = {
+    b"": 0xCBF29CE484222325,
+    b"a": 0xAF63DC4C8601EC8C,
+    b"foobar": 0x85944171F73967E8,
+}
+
+
+def check_known_vectors() -> list[str]:
+    return [
+        f"fnv1a64({data!r}) = {fnv1a64(data):#018x}, expected {want:#018x}"
+        for data, want in KNOWN_VECTORS.items()
+        if fnv1a64(data) != want
+    ]
 
 
 def compute_manifest() -> list[str]:
@@ -46,6 +64,9 @@ def main() -> int:
     actual_set = set(actual)
 
     problems = []
+    for bad in check_known_vectors():
+        problems.append(f"hash mismatch: {bad}")
+
     # An empty corpus matches an empty manifest, so the diff alone would
     # report green having verified nothing. The corpus is never empty.
     if not actual:
