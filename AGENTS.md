@@ -6,8 +6,22 @@ The full implementation contract is `docs/PROJECT_CONTRACT.md` and the source pl
 
 ## Active milestone
 
-**M5 — Static structural world viewer: IN_PROGRESS (slice 1 delivered at checkpoint;
-slices 2–3 pending).**
+**M5 — Static structural world viewer: IN_PROGRESS.**
+
+**Slice 1 ACCEPTED 2026-08-25** — pure-C++ structural derivation from
+authoritative MAP topology. D0016/D0017/D0018 accepted; E1L1 HUMAN-ATTESTED
+(1936 surfaces / 5134 triangles / 0 diagnostics). Triangulation is
+**exact validation -> earcut -> exact verification** (D0017): earcut is a
+mechanism with no authority, and its output is checked against the exact
+expected polygon area before any surface is emitted. Degenerate derived
+surfaces are nonfatal diagnostics (D0018).
+
+**Slice 2 (Godot structural viewer) is next and has not started.** Its input is
+`StructuralWorld` and nothing else: it does not re-derive geometry, re-read
+maps, or invent a transform. `to_render_space` is the single conversion. No
+textures, no UVs, no slopes, no sprites, no collision, no portal visibility —
+flat diagnostic materials only. No generated scene, mesh or cache may become
+world authority; rebuilding the shell from the map must always be possible.
 
 M4 (ART, palette, lookup, tile tooling and the indexed atlas) was **ACCEPTED
 2026-08-24**: all six gate items met, D0013/D0014/D0015 ratified, and two

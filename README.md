@@ -8,7 +8,7 @@ Godot handles presentation, input, audio, UI, and platform export through a GDEx
 
 ## Status
 
-Milestone **M4 — ART, palette, lookup, and tile tooling** accepted; **M5 — Static structural world viewer** is next (see `docs/MILESTONES.md`).
+Milestone **M5 — Static structural world viewer** in progress: slice 1 (pure-C++ structural derivation) accepted; slice 2 (Godot viewer) next (see `docs/MILESTONES.md`).
 
 ## Repository map
 
