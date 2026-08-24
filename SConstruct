@@ -106,6 +106,7 @@ core_sources = [
     f'{bdir}/core/src/tile_build.cpp',
     f'{bdir}/core/src/asset_set.cpp',
     f'{bdir}/core/src/atlas.cpp',
+    f'{bdir}/core/src/structural.cpp',
 ]
 core_objects = env.Object(core_sources)
 core = env.StaticLibrary(f'{bdir}/libfauxbuild_core', core_objects)
@@ -193,6 +194,7 @@ if host_build:
             f'{bdir}/tests/unit/art.test.cpp',
             f'{bdir}/tests/unit/tile_build.test.cpp',
             f'{bdir}/tests/unit/atlas.test.cpp',
+            f'{bdir}/tests/unit/structural.test.cpp',
             f'{bdir}/tests/unit/byte_reader.test.cpp',
         f'{bdir}/tests/unit/file_io.test.cpp',
             f'{bdir}/tests/unit/grp.test.cpp',

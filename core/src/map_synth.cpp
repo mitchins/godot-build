@@ -108,6 +108,42 @@ mapv7::MapData two_sector_portal_world() {
     return map;
 }
 
+mapv7::MapData two_room_shell(std::int32_t floor_b, std::int32_t ceiling_b) {
+    // Shared shape with two_sector_portal_world but with real-content Build
+    // vertical ordering (ceilingz < floorz numerically; Build Z grows down)
+    // and caller-chosen neighbour heights, so the portal span combinations
+    // are testable per case.
+    mapv7::MapData map;
+    const std::int32_t ax[] = {0, kUnit, kUnit, 0};
+    const std::int32_t ay[] = {0, 0, kUnit, kUnit};
+    add_loop(map, ax, ay, 4);
+    const std::int32_t bx[] = {kUnit, 2 * kUnit, 2 * kUnit, kUnit};
+    const std::int32_t by[] = {0, 0, kUnit, kUnit};
+    add_loop(map, bx, by, 4);
+    map.walls[1].nextwall = 7;
+    map.walls[1].nextsector = 1;
+    map.walls[7].nextwall = 1;
+    map.walls[7].nextsector = 0;
+    // A spans [0, 16384] in Build Z (ceiling 0, floor 16384).
+    map.sectors.push_back(make_sector(0, 4, 16384, 0));
+    map.sectors.push_back(make_sector(4, 4, floor_b, ceiling_b));
+    map.start = {kUnit / 2, kUnit / 2, 8192, 512, 0};
+    return map;
+}
+
+mapv7::MapData portal_heights_world() {
+    // B's window [4096, 8192] sits strictly inside A's [0, 16384]: from A the
+    // shared wall shows one upper span (0..4096) and one lower span
+    // (8192..16384); from B the shared wall shows neither.
+    return two_room_shell(8192, 4096);
+}
+
+mapv7::MapData portal_step_floor_world() {
+    // B has the same ceiling as A but a raised floor at 8192: exactly one
+    // lower span from A, nothing from B.
+    return two_room_shell(8192, 0);
+}
+
 mapv7::MapData non_convex_world() {
     mapv7::MapData map;
     // L-shape: (0,0)->(2u,0)->(2u,u)->(u,u)->(u,2u)->(0,2u)->close.
@@ -130,6 +166,24 @@ mapv7::MapData multi_loop_world() {
     const std::int32_t iy[] = {kUnit / 4, kUnit / 4, 3 * kUnit / 4, 3 * kUnit / 4};
     add_loop(map, ix, iy, 4);
     map.sectors.push_back(make_sector(0, 8));
+    map.start = {kUnit / 8, kUnit / 8, 4096, 512, 0};
+    return map;
+}
+
+mapv7::MapData double_hole_world() {
+    mapv7::MapData map;
+    // One sector, one outer loop, two disjoint holes: exercises multi-hole
+    // bridging (each hole is spliced separately into the merged ring).
+    const std::int32_t ox[] = {0, 2 * kUnit, 2 * kUnit, 0};
+    const std::int32_t oy[] = {0, 0, 2 * kUnit, 2 * kUnit};
+    add_loop(map, ox, oy, 4);
+    const std::int32_t h1x[] = {kUnit / 4, 3 * kUnit / 4, 3 * kUnit / 4, kUnit / 4};
+    const std::int32_t h1y[] = {kUnit / 4, kUnit / 4, 3 * kUnit / 4, 3 * kUnit / 4};
+    add_loop(map, h1x, h1y, 4);
+    const std::int32_t h2x[] = {5 * kUnit / 4, 7 * kUnit / 4, 7 * kUnit / 4, 5 * kUnit / 4};
+    const std::int32_t h2y[] = {5 * kUnit / 4, 5 * kUnit / 4, 7 * kUnit / 4, 7 * kUnit / 4};
+    add_loop(map, h2x, h2y, 4);
+    map.sectors.push_back(make_sector(0, 12, 16384, 0));
     map.start = {kUnit / 8, kUnit / 8, 4096, 512, 0};
     return map;
 }
@@ -206,9 +260,9 @@ mapv7::MapData max_reasonable_counts_world() {
 
 std::vector<std::string> map_fixture_names() {
     return {
-        "minimal",     "square_room",         "two_sector_portal",
-        "non_convex",  "multi_loop",          "slope_metadata",
-        "masked_wall", "sprite_orientations", "max_reasonable_counts",
+        "minimal",        "square_room", "two_sector_portal",   "non_convex",
+        "multi_loop",     "double_hole", "portal_heights",      "portal_step_floor",
+        "slope_metadata", "masked_wall", "sprite_orientations", "max_reasonable_counts",
     };
 }
 
@@ -224,6 +278,12 @@ Result<mapv7::MapData> map_fixture(const std::string& name) {
         map = non_convex_world();
     } else if (name == "multi_loop") {
         map = multi_loop_world();
+    } else if (name == "double_hole") {
+        map = double_hole_world();
+    } else if (name == "portal_heights") {
+        map = portal_heights_world();
+    } else if (name == "portal_step_floor") {
+        map = portal_step_floor_world();
     } else if (name == "slope_metadata") {
         map = slope_metadata_world();
     } else if (name == "masked_wall") {

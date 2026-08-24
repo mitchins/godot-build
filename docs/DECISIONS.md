@@ -400,3 +400,54 @@ ART file, or thirteen inside a GRP (`load_asset_set` + `tile_bytes`).
 Rejection classes: overlap, malformed range, count/range mismatch, payload
 vs dims, area cap, page-overflow — all InvalidRange/TooLarge ParseErrors,
 never partial atlases.
+
+### D0016 — Structural geometry derivation and render space (M5, proposed)
+
+Status: PROPOSED (slice 1) — ratification belongs to M5 review.
+
+Context: M5 derives a static structural shell from authoritative MapData.
+Two things needed pinning before any emitter code existed: the one
+Build-space -> render-space conversion, and the disposability contract for
+everything derived from a map.
+
+Decision:
+1. **One conversion, in `fauxbuild::to_render_space` (core), nothing else.**
+   render.x = build.x * scale, render.y = -build.z * scale, render.z =
+   build.y * scale (Build Z grows down; render Y up). The scale must be a
+   power of two (default 2^-11: one 65536 grid square -> 32 render units,
+   the M3 storey height 16384 -> 8) so every int32 Build coordinate maps to
+   an exactly representable double and back — vertex bytes are bit-identical
+   across platforms and rebuilds, and the reverse mapping is a multiply and
+   a truncation. Non-power-of-two scales are rejected with a structured
+   error (external contract), not FB_CHECK. No consumer may invent its own
+   transform; the M5 slice-2 adapter feeds these vertices to Godot verbatim.
+2. **Derived geometry is disposable.** StructuralWorld is a pure function of
+   (MapData, options): same map -> identical surfaces, vertices, indices,
+   notes (operator== tested). No generated scene, mesh, or cache may become
+   world authority; rebuilding the shell from the map is always possible
+   (RENDERING_CONTRACT).
+3. **Canonical surface order**: sector ascending; per sector floor, then
+   ceiling, then walls ascending by wall index; a portal wall emits
+   portal_upper before portal_lower. Sloped-flag sectors still emit their
+   flat planes (deferred to M6 by note), keeping order total.
+4. **Exact integer geometry.** Orientation/area predicates run on int64
+   coordinates with two-limb signed 128-bit accumulators (no floating point
+   in any predicate; NUMERICS "64-bit integers for products and cross
+   products" extended one limb, since Build coordinates are int32 and
+   products of differences overflow 64 bits). Doubles appear only in final
+   render-space vertex values, exact by the power-of-two scale.
+5. **Structural notes are separate from errors** (D0006 boundary): deferred
+   features (slopes, masked/one-way walls, uninterpreted cstat) and odd but
+   representable content (inverted ceiling/floor intervals) produce
+   StructuralNote records; only genuinely unrepresentable geometry produces
+   structured Result errors. No global Warning semantics were added.
+Rationale: the M5 brief forbids scattered sign swaps and any consumer-side
+transform invention; the power-of-two rule makes "deterministic vertex
+bytes" testable by equality rather than tolerance. Ear clipping with hole
+bridging is an original implementation of the standard published algorithm
+class (PROVENANCE row 12) with two exact area invariants verifying every
+sector's construction, so algorithm failure surfaces as a structured error
+instead of wrong geometry — no third-party triangulator is vendored.
+Consequences: M5 slice 2 builds the ArrayMesh viewer directly from these
+surfaces; M6 slopes will extend, not replace, this derivation (flat-Z
+output order stays stable for unsloped sectors).

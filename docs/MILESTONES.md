@@ -993,12 +993,65 @@ checklist above.
 **M4 ACCEPTED 2026-08-24.** All six gate items satisfied; see the gate
 checklist above for the evidence and class of each.
 
-## M5 — Static structural world viewer — NOT_STARTED
+## M5 — Static structural world viewer — IN_PROGRESS (slice 1 delivered at checkpoint)
 
 Gate summary: structural fixtures render with correct topology; holes/non-convex sectors render;
 no persistent Godot scene becomes authority; local E1L1 loads as recognizable 3D shell (HUMAN-ATTESTED);
 diagnostics instead of crashes. Allowed shortcuts: untextured diagnostic materials,
 render-all visibility.
+
+### Slice 1 — pure C++ structural geometry (delivered 2026-08-24, checkpoint)
+
+- `core/structural.{hpp,cpp}`: `build_structural_world(MapData, options) ->
+  StructuralWorld` — deterministic, disposable derived geometry; no Godot
+  types in core/ (layering guard).
+- Wall-loop extraction per sector via bounded point2 walks: multiple loops,
+  any winding, outer loop chosen by exact |shoelace| magnitude; holes and
+  non-convex boundaries handled without mutation or convex splitting.
+- Triangulation: original ear clipping with hole bridging (PROVENANCE row 12)
+  — all predicates exact (int64 + two-limb int128; no floating point); two
+  exact area invariants per sector verify bridge splice and clip coverage;
+  collinear vertices dropped (no zero-area triangles); ceilings emitted with
+  opposite winding to floors; holes with vertices touching the outer loop are
+  rejected structured (not silently filled).
+- Walls: solid spans for non-portal walls (own ceiling -> own floor); portal
+  walls emit only `portal_upper`/`portal_lower` outside the vertical opening
+  overlap — never a full quad across the opening. Interior-left orientation
+  per wall from loop winding (normalized CCW outer / CW holes), so spans face
+  into their sector; inverted ceiling/floor intervals normalize with a note.
+- D0016 (proposed): render space is right-handed Y-up via the single
+  `to_render_space` (x, -z, y with power-of-two scale 2^-11, exact and
+  reversible for int32); canonical surface order sector -> floor, ceiling,
+  walls ascending (upper before lower); StructuredNote vs structured-error
+  boundary for deferred features (slope flags, masked/one-way walls,
+  uninterpreted cstat) vs fatal geometry failures.
+- Fixtures added: `portal_heights` (window opening: 1 upper + 1 lower span
+  from one side, none from the other), `portal_step_floor` (single lower
+  span), `double_hole` (one sector, two holes — exercises multi-hole
+  bridging and pinch-degree management found by the double-bridge deadlock).
+- Tests (`tests/unit/structural.test.cpp`, 18 cases): coordinate conversion
+  exactness/reversibility/rejection; square room incl. inward-facing walls;
+  portal opening not closed (equal heights -> no portal spans); span
+  extents/counts for height-difference cases; non-convex no-concavity-fill
+  (area + coverage probes); multi_loop + double_hole hole-emptiness (area +
+  probes, hole walls facing material); determinism (two independent builds +
+  serialize/parse round trip equal); malformed/unrepresentable content
+  (validation surfacing, degenerate loop, self-intersecting bowtie, hole
+  outside outer); slope-marked and masked-wall fixtures diagnosed/deferred
+  with flat planes.
+- Sabotage evidence (each observed red, then reverted): triangle-fan
+  triangulation (holes filled + zero-area triangles), skipping hole bridging
+  (holes silently filled — notably the internal area invariant stays
+  self-consistent, the coverage probes catch it), full quad across portal
+  openings (solid count 8 != 6, spans missing), render-space sign flip
+  (conversion + reversibility), call-count-seeded surface reordering
+  (rebuild equality).
+- Deferred by design to later milestones (M6 unless noted): slopes (flat base
+  Z + note), masked/one-way wall semantics, wall cstat interpretation,
+  texture UVs/picnum behaviour (source picnum kept as inert metadata only),
+  portal-aware visibility (M10), sprites, collision, sector lookup.
+
+Next milestone work was not started.
 
 ## M6 — Slopes, indexed textures, flags, and sprites — NOT_STARTED
 
