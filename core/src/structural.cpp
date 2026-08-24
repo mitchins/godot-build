@@ -1,5 +1,10 @@
 #include "fauxbuild/structural.hpp"
 
+#include <array>
+
+#include "earcut.hpp"
+#include "earcut_adapt.hpp"
+
 #include <algorithm>
 #include <string>
 #include <vector>
@@ -161,6 +166,18 @@ PipClass classify_point(const Pt& p, const std::vector<Pt>& ring) {
         if (a.x == p.x && a.y == p.y) {
             return PipClass::Boundary;
         }
+        // Explicit on-segment test first, for every edge. The crossing test
+        // below skips edges lying entirely on one side of the ray height, and
+        // a horizontal edge AT p.y satisfies that (both endpoints compare
+        // equal), so a point resting on a horizontal edge was reported Outside
+        // unless it happened to coincide with a vertex. Real content relies on
+        // this: E1L1 sector 147 has a hole vertex sitting exactly on a
+        // horizontal stretch of its outer boundary, which is valid geometry
+        // that earcut triangulates correctly.
+        if (orient_sign(a, b, p) == 0 && std::min(a.x, b.x) <= p.x && p.x <= std::max(a.x, b.x) &&
+            std::min(a.y, b.y) <= p.y && p.y <= std::max(a.y, b.y)) {
+            return PipClass::Boundary;
+        }
         if ((a.y > p.y) == (b.y > p.y)) {
             continue; // edge entirely on one side of the ray height
         }
@@ -176,12 +193,6 @@ PipClass classify_point(const Pt& p, const std::vector<Pt>& ring) {
         }
     }
     return inside ? PipClass::Inside : PipClass::Outside;
-}
-
-// Strictly-inside test for a CCW triangle (a, b, c). Points on an edge are not
-// strictly inside (orientation zero), which is what ear clipping needs.
-bool strictly_inside_triangle(const Pt& a, const Pt& b, const Pt& c, const Pt& p) {
-    return orient_sign(a, b, p) > 0 && orient_sign(b, c, p) > 0 && orient_sign(c, a, p) > 0;
 }
 
 // ---------------------------------------------------------------------------
@@ -279,351 +290,251 @@ Result<SectorLoops> extract_loops(const mapv7::MapData& map, std::size_t s) {
 }
 
 // ---------------------------------------------------------------------------
-// Triangulation: ear clipping with hole bridging. Original implementation of
-// the standard published algorithm class (PROVENANCE row 12). Holes are spliced
-// into the outer ring through a bridge at the hole's rightmost vertex; the
-// merged ring is then ear-clipped with exact integer predicates. Two exact
-// area invariants verify the construction on every sector (bridging and
-// clipping both preserve signed area), so an algorithm failure on any content
-// surfaces as a structured error instead of wrong geometry.
+// Triangulation: FauxBuild exact validation -> earcut -> FauxBuild exact
+// verification (D0017).
+//
+// The bespoke ear clipper this replaces was correct where it succeeded but its
+// domain was narrower than Build content requires: 33 of 2450 sectors across
+// six legally owned maps failed, in five distinct classes, and E1L1 could not
+// be built at all. earcut (third_party/earcut, ISC, pinned v3.2.3) is robust on
+// that geometry but performs no validation whatsoever — it will happily
+// triangulate a self-intersecting bowtie and emit garbage. The old
+// implementation conflated validating topology with triangulating it; keeping
+// those separate gives both properties.
+//
+// earcut is a mechanism, never an authority: its output is checked against the
+// exact expected area before any surface is emitted.
 // ---------------------------------------------------------------------------
 
-// Bridge one hole into the merged ring. Obstacles are the merged ring's edges
-// plus the rings of holes not yet bridged (full-geometry visibility, so
-// processing order cannot let a bridge cross a future hole). Among visible
-// targets, vertices that are not already bridge pinches are preferred: a
-// fresh target keeps every pinch at degree two, which ear clipping handles;
-// stacking two bridges on one outer vertex creates a degree-three pinch the
-// conservative ear rules cannot resolve (found on the double_hole fixture).
-Result<void> bridge_hole(const std::string& source, std::int64_t sector, std::vector<Pt>& merged,
-                         std::vector<std::uint8_t>& is_pinch, const std::vector<Pt>& hole,
-                         const std::vector<std::vector<Pt>>& later_holes) {
-    // M: rightmost hole vertex; ties prefer the topmost.
-    std::size_t m = 0;
-    for (std::size_t i = 1; i < hole.size(); ++i) {
-        if (hole[i].x > hole[m].x || (hole[i].x == hole[m].x && hole[i].y > hole[m].y)) {
-            m = i;
-        }
-    }
-    const Pt mp = hole[m];
+// A ring as earcut consumes it. Disposable input representation only; MapData
+// is never mutated and these coordinates are exact int64 copies.
+using EcRing = std::vector<std::array<std::int64_t, 2>>;
 
-    // Does edge a->b block the candidate bridge M->V?
-    auto blocked_by_edge = [&](const Pt& v, const Pt& a, const Pt& b) {
-        const int o1 = orient_sign(mp, v, a);
-        const int o2 = orient_sign(mp, v, b);
-        const int o3 = orient_sign(a, b, mp);
-        const int o4 = orient_sign(a, b, v);
-        if (o1 * o2 < 0 && o3 * o4 < 0) {
-            return true; // proper crossing
-        }
-        if (o1 == 0 && o2 == 0) {
-            // Collinear with the bridge line: a positive-length interval
-            // overlap on the dominant axis blocks.
-            const bool use_x = std::abs(v.x - mp.x) >= std::abs(v.y - mp.y);
-            if (use_x) {
-                return std::max(mp.x, v.x) > std::min(a.x, b.x) &&
-                       std::max(a.x, b.x) > std::min(mp.x, v.x);
-            }
-            return std::max(mp.y, v.y) > std::min(a.y, b.y) &&
-                   std::max(a.y, b.y) > std::min(mp.y, v.y);
-        }
-        // A vertex strictly inside the bridge segment would pinch the boundary
-        // through a third point; such bridges are not simple.
-        auto strictly_between = [&](const Pt& q) {
-            return (q.x > std::min(mp.x, v.x) && q.x < std::max(mp.x, v.x)) ||
-                   (q.y > std::min(mp.y, v.y) && q.y < std::max(mp.y, v.y));
-        };
-        if (o1 == 0 && strictly_between(a)) {
-            return true;
-        }
-        if (o2 == 0 && strictly_between(b)) {
-            return true;
-        }
-        return false;
-    };
-
-    auto visible = [&](std::size_t i) {
-        const Pt& v = merged[i];
-        for (std::size_t j = 0; j < merged.size(); ++j) {
-            const Pt& a = merged[j];
-            const Pt& b = merged[(j + 1) % merged.size()];
-            const bool incident = (j == i) || ((j + 1) % merged.size() == i);
-            if (incident) {
-                continue; // edges sharing V may touch the bridge at V
-            }
-            if (blocked_by_edge(v, a, b)) {
-                return false;
-            }
-        }
-        for (const std::vector<Pt>& ring : later_holes) {
-            for (std::size_t j = 0; j < ring.size(); ++j) {
-                if (blocked_by_edge(v, ring[j], ring[(j + 1) % ring.size()])) {
-                    return false;
-                }
-            }
-        }
-        return true;
-    };
-
-    // R = visible merged vertex with x >= M.x at the minimum polar angle from
-    // +X (exact cross-product comparison; ties resolved by vertex order),
-    // preferring targets that are not already bridge pinches.
-    std::size_t best = merged.size();
-    for (const bool want_fresh : {true, false}) {
-        for (std::size_t i = 0; i < merged.size(); ++i) {
-            const Pt& v = merged[i];
-            if (v.x < mp.x || (v.x == mp.x && v.y == mp.y)) {
-                continue;
-            }
-            if (want_fresh && is_pinch[i] != 0) {
-                continue;
-            }
-            if (!visible(i)) {
-                continue;
-            }
-            if (best == merged.size()) {
-                best = i;
-                continue;
-            }
-            const Pt da{v.x - mp.x, v.y - mp.y};
-            const Pt db{merged[best].x - mp.x, merged[best].y - mp.y};
-            S128 cr;
-            cr.add_product(da.x, db.y);
-            cr.add_product(-db.x, da.y);
-            if (cr.sign() > 0 || (cr.sign() == 0 && da.y < db.y)) {
-                best = i; // best is strictly CCW of v: v has the smaller angle
-            }
-        }
-        if (best != merged.size()) {
-            break; // found a fresh target; pinch targets are the fallback
-        }
-    }
-    if (best == merged.size()) {
-        return Result<void>::err(sector_error(
-            source, sector, "triangulation failed: no visible bridge target for hole loop"));
-    }
-
-    // Splice the full hole cycle between R and a duplicate of R. The hole ring
-    // arrives CW (normalized): walking its successors from M keeps the sector
-    // material on the left, matching the CCW merged ring. Both M and R appear
-    // twice (the standard pinch construction).
-    const std::size_t r = best;
-    const std::size_t hole_n = hole.size();
-    std::vector<Pt> chain;
-    std::vector<std::uint8_t> chain_pinch;
-    chain.reserve(hole_n + 2);
-    chain_pinch.reserve(hole_n + 2);
-    chain.push_back(mp);
-    chain_pinch.push_back(1); // M duplicate arrives pinched
-    for (std::size_t step = 1; step < hole_n; ++step) {
-        chain.push_back(hole[(m + step) % hole_n]);
-        chain_pinch.push_back(0);
-    }
-    chain.push_back(mp);
-    chain_pinch.push_back(1);
-    chain.push_back(merged[r]);
-    chain_pinch.push_back(1); // the R duplicate is born pinched
-    is_pinch[r] = 1;
-    merged.insert(merged.begin() + static_cast<std::ptrdiff_t>(r) + 1, chain.begin(), chain.end());
-    is_pinch.insert(is_pinch.begin() + static_cast<std::ptrdiff_t>(r) + 1, chain_pinch.begin(),
-                    chain_pinch.end());
-    return Result<void>::ok();
+// Do segments ab and cd properly cross? Shared endpoints and collinear touching
+// are not crossings: real Build sectors legitimately touch their own hole
+// boundaries, and earcut handles those correctly. Only a true transversal
+// crossing is invalid.
+bool segments_properly_cross(const Pt& a, const Pt& b, const Pt& c, const Pt& d) {
+    const int d1 = orient_sign(a, b, c);
+    const int d2 = orient_sign(a, b, d);
+    const int d3 = orient_sign(c, d, a);
+    const int d4 = orient_sign(c, d, b);
+    return ((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) && ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0));
 }
 
-// Ear-clip a simple CCW ring. Collinear vertices are removed silently (no
-// zero-area output); reflex vertices are skipped; an ear is a convex vertex
-// with no other live vertex strictly inside its triangle. Fails closed with a
-// structured error when no progress is possible.
-Result<std::vector<std::uint32_t>> ear_clip(const std::string& source, std::int64_t sector,
-                                            const std::vector<Pt>& ring) {
+// Self-intersection over one ring, exact. O(n^2); sector wall counts are small
+// (largest observed sector is well under a thousand walls) and this runs once
+// per sector, so a sweep line is not justified without profiling evidence.
+bool ring_self_intersects(const std::vector<Pt>& ring) {
     const std::size_t n = ring.size();
-    std::vector<std::uint32_t> prev(n), next(n);
     for (std::size_t i = 0; i < n; ++i) {
-        prev[i] = static_cast<std::uint32_t>((i + n - 1) % n);
-        next[i] = static_cast<std::uint32_t>((i + 1) % n);
+        const Pt& a = ring[i];
+        const Pt& b = ring[(i + 1) % n];
+        for (std::size_t j = i + 1; j < n; ++j) {
+            if (j == i || (j + 1) % n == i || (i + 1) % n == j) {
+                continue; // adjacent edges share an endpoint by construction
+            }
+            if (segments_properly_cross(a, b, ring[j], ring[(j + 1) % n])) {
+                return true;
+            }
+        }
     }
-    std::size_t count = n;
-    std::vector<std::uint32_t> triangles;
-    triangles.reserve((n - 2) * 3);
+    return false;
+}
 
-    auto remove = [&](std::uint32_t v) {
-        next[prev[v]] = next[v];
-        prev[next[v]] = prev[v];
-        prev[v] = v;
-        next[v] = v;
-        --count;
-    };
-
-    while (count > 3) {
-        bool progressed = false;
-        for (std::uint32_t v = 0; v < n; ++v) {
-            if (prev[v] == v || next[v] == v) {
-                continue; // removed
+// Validation owns input validity; earcut never sees anything this rejects.
+// Deliberately NOT re-imposing "every hole vertex strictly inside the outer
+// loop": real Build geometry shares and touches boundary vertices, and the
+// reductions in tests/unit/structural.test.cpp pin that as valid.
+Result<void> validate_loops_for_triangulation(const std::string& source, std::int64_t sector,
+                                              const std::vector<Pt>& outer,
+                                              const std::vector<std::vector<Pt>>& holes) {
+    if (outer.size() < 3) {
+        return Result<void>::err(sector_error(
+            source, sector, "triangulation failed: outer loop has fewer than three vertices"));
+    }
+    if (ring_self_intersects(outer)) {
+        return Result<void>::err(
+            sector_error(source, sector, "triangulation failed: outer loop self-intersects"));
+    }
+    for (std::size_t h = 0; h < holes.size(); ++h) {
+        const auto& hole = holes[h];
+        if (hole.size() < 3) {
+            return Result<void>::err(sector_error(source, sector,
+                                                  "triangulation failed: hole loop " +
+                                                      std::to_string(h) +
+                                                      " has fewer than three "
+                                                      "vertices"));
+        }
+        if (ring_self_intersects(hole)) {
+            return Result<void>::err(sector_error(source, sector,
+                                                  "triangulation failed: hole loop " +
+                                                      std::to_string(h) + " self-intersects"));
+        }
+        // A hole may touch the outer boundary but may not leave it, and its
+        // edges may not cross outer edges transversally.
+        bool any_inside = false;
+        for (const Pt& p : hole) {
+            const PipClass cls = classify_point(p, outer);
+            if (cls == PipClass::Outside) {
+                return Result<void>::err(sector_error(source, sector,
+                                                      "triangulation failed: hole loop " +
+                                                          std::to_string(h) +
+                                                          " has a vertex outside the outer loop"));
             }
-            const std::uint32_t p = prev[v];
-            const std::uint32_t nx = next[v];
-            const int s = orient_sign(ring[p], ring[v], ring[nx]);
-            if (s < 0) {
-                continue; // reflex
+            if (cls == PipClass::Inside) {
+                any_inside = true;
             }
-            if (s == 0) {
-                remove(v); // collinear: drop without emitting a triangle
-                progressed = true;
-                break;
-            }
-            bool blocked = false;
-            for (std::uint32_t u = 0; u < n && !blocked; ++u) {
-                if (u == p || u == v || u == nx || prev[u] == u || next[u] == u) {
-                    continue;
+        }
+        if (!any_inside) {
+            return Result<void>::err(sector_error(source, sector,
+                                                  "triangulation failed: hole loop " +
+                                                      std::to_string(h) +
+                                                      " lies entirely on the outer boundary"));
+        }
+        for (std::size_t i = 0; i < hole.size(); ++i) {
+            const Pt& a = hole[i];
+            const Pt& b = hole[(i + 1) % hole.size()];
+            for (std::size_t j = 0; j < outer.size(); ++j) {
+                if (segments_properly_cross(a, b, outer[j], outer[(j + 1) % outer.size()])) {
+                    return Result<void>::err(sector_error(source, sector,
+                                                          "triangulation failed: hole loop " +
+                                                              std::to_string(h) +
+                                                              " crosses the outer boundary"));
                 }
-                if (strictly_inside_triangle(ring[p], ring[v], ring[nx], ring[u])) {
-                    blocked = true;
-                    break;
-                }
-                // A vertex exactly on the closing edge also invalidates the
-                // cut: the L-shape fixture (0,0)-(2u,0)-(2u,u)-(u,u)-(u,2u)-
-                // (0,2u) fails exactly here — its reflex corner (u,u) sits on
-                // the closing diagonal of the corner ear. Coincident pinch
-                // duplicates from hole bridging equal a corner, never a point
-                // strictly between, so they stay allowed.
-                if (orient_sign(ring[p], ring[nx], ring[u]) == 0) {
-                    const Pt& a = ring[p];
-                    const Pt& b = ring[nx];
-                    const Pt& q = ring[u];
-                    const bool between = (q.x > std::min(a.x, b.x) && q.x < std::max(a.x, b.x)) ||
-                                         (q.y > std::min(a.y, b.y) && q.y < std::max(a.y, b.y));
-                    if (between) {
-                        blocked = true;
+            }
+        }
+        for (std::size_t g = h + 1; g < holes.size(); ++g) {
+            for (std::size_t i = 0; i < hole.size(); ++i) {
+                for (std::size_t j = 0; j < holes[g].size(); ++j) {
+                    if (segments_properly_cross(hole[i], hole[(i + 1) % hole.size()], holes[g][j],
+                                                holes[g][(j + 1) % holes[g].size()])) {
+                        return Result<void>::err(sector_error(source, sector,
+                                                              "triangulation failed: hole loops " +
+                                                                  std::to_string(h) + " and " +
+                                                                  std::to_string(g) + " cross"));
                     }
                 }
             }
-            if (blocked) {
-                continue;
-            }
-            triangles.push_back(p);
-            triangles.push_back(v);
-            triangles.push_back(nx);
-            remove(v);
-            progressed = true;
-            break;
-        }
-        if (!progressed) {
-            return Result<std::vector<std::uint32_t>>::err(
-                sector_error(source, sector, "triangulation failed: no valid ear remains"));
         }
     }
-
-    // Final triangle of the live list (exactly three vertices remain).
-    std::size_t a = 0;
-    while (a < n && (prev[a] == a || next[a] == a)) {
-        ++a;
-    }
-    const auto av = static_cast<std::uint32_t>(a);
-    const std::uint32_t b = next[av];
-    const std::uint32_t c = next[b];
-    const int s = orient_sign(ring[av], ring[b], ring[c]);
-    if (s > 0) {
-        triangles.push_back(av);
-        triangles.push_back(b);
-        triangles.push_back(c);
-    } else if (s < 0) {
-        return Result<std::vector<std::uint32_t>>::err(
-            sector_error(source, sector, "triangulation failed: residual winding flipped"));
-    }
-    return Result<std::vector<std::uint32_t>>::ok(std::move(triangles));
+    return Result<void>::ok();
 }
 
 struct Triangulation {
-    std::vector<Pt> points; // merged ring, CCW (holes pinched in)
+    std::vector<Pt> points;
     std::vector<std::uint32_t> triangles;
+    bool degenerate = false; // exact zero area: emit no surface (D0018)
 };
 
 Result<Triangulation> triangulate_sector(const mapv7::MapData& map, std::size_t s,
                                          const SectorLoops& loops) {
     const auto sector_index = static_cast<std::int64_t>(s);
-    const WallLoop& outer = loops.loops[loops.outer];
 
-    std::vector<Pt> merged;
-    merged.reserve(outer.walls.size());
-    for (const std::size_t wall : outer.walls) {
-        merged.push_back(Pt{map.walls[wall].x, map.walls[wall].y});
-    }
-    if (!outer.ccw) {
-        std::reverse(merged.begin(), merged.end()); // normalize outer CCW
-    }
-    const std::vector<Pt> outer_ring = merged; // for hole containment tests
-    S128 expected = shoelace2(merged);
-    if (expected.sign() <= 0) {
-        return Result<Triangulation>::err(sector_error(
-            map.source, sector_index, "triangulation failed: degenerate outer loop (zero area)"));
-    }
+    auto ring_of = [&](const WallLoop& loop, bool want_ccw) {
+        std::vector<std::size_t> walls = loop.walls;
+        if (loop.ccw != want_ccw) {
+            std::reverse(walls.begin(), walls.end());
+        }
+        std::vector<Pt> ring;
+        ring.reserve(walls.size());
+        for (const std::size_t w : walls) {
+            ring.push_back(Pt{map.walls[w].x, map.walls[w].y});
+        }
+        return ring;
+    };
 
-    // Normalize every hole to CW first: bridging needs the full picture so a
-    // bridge can be tested against holes not yet spliced.
+    const std::vector<Pt> outer = ring_of(loops.loops[loops.outer], /*want_ccw=*/true);
     std::vector<std::vector<Pt>> holes;
-    for (std::size_t li = 0; li < loops.loops.size(); ++li) {
-        if (li == loops.outer) {
-            continue;
+    for (std::size_t i = 0; i < loops.loops.size(); ++i) {
+        if (i != loops.outer) {
+            holes.push_back(ring_of(loops.loops[i], /*want_ccw=*/false));
         }
-        const WallLoop& stored = loops.loops[li];
-        std::vector<Pt> hole;
-        hole.reserve(stored.walls.size());
-        for (const std::size_t wall : stored.walls) {
-            hole.push_back(Pt{map.walls[wall].x, map.walls[wall].y});
-        }
-        if (stored.ccw) {
-            std::reverse(hole.begin(), hole.end()); // normalize holes CW
-        }
+    }
+
+    // Validation runs BEFORE the degenerate check, not after: a self-intersecting
+    // bowtie has exactly zero net signed area, so testing for degeneracy first
+    // would classify malformed topology as a benign empty surface and return
+    // success. Order matters here.
+    auto valid = validate_loops_for_triangulation(map.source, sector_index, outer, holes);
+    if (!valid.is_ok()) {
+        return Result<Triangulation>::err(valid.error());
+    }
+
+    // D0018: an exactly zero-area outer loop that survived validation is a
+    // degenerate derived surface, not malformed topology — real shipped content
+    // contains collinear sectors, and one of them must not cost the whole world.
+    const S128 outer_area = shoelace2(outer);
+    if (outer_area.sign() == 0) {
+        Triangulation empty;
+        empty.degenerate = true;
+        return Result<Triangulation>::ok(std::move(empty));
+    }
+
+    // Exact expected area: outer minus holes.
+    S128 expected = outer_area;
+    for (const auto& hole : holes) {
+        S128 hole_area = shoelace2(hole); // holes are CW, so this is negative
+        expected.add(hole_area);
+    }
+    if (expected.sign() <= 0) {
+        return Result<Triangulation>::err(
+            sector_error(map.source, sector_index,
+                         "triangulation failed: holes consume the whole outer loop area"));
+    }
+
+    Triangulation out;
+    std::vector<EcRing> rings;
+    rings.reserve(1 + holes.size());
+    EcRing ec_outer;
+    for (const Pt& p : outer) {
+        ec_outer.push_back({p.x, p.y});
+        out.points.push_back(p);
+    }
+    rings.push_back(std::move(ec_outer));
+    for (const auto& hole : holes) {
+        EcRing ec_hole;
         for (const Pt& p : hole) {
-            if (classify_point(p, outer_ring) != PipClass::Inside) {
-                return Result<Triangulation>::err(
-                    sector_error(map.source, sector_index,
-                                 "triangulation failed: hole loop vertex not strictly inside the "
-                                 "outer loop (touching or outside boundaries are unsupported)"));
-            }
+            ec_hole.push_back({p.x, p.y});
+            out.points.push_back(p);
         }
-        holes.push_back(std::move(hole));
+        rings.push_back(std::move(ec_hole));
     }
 
-    std::vector<std::uint8_t> is_pinch(merged.size(), 0);
-    for (std::size_t h = 0; h < holes.size(); ++h) {
-        std::vector<std::vector<Pt>> later(holes.begin() + static_cast<std::ptrdiff_t>(h) + 1,
-                                           holes.end());
-        auto bridged = bridge_hole(map.source, sector_index, merged, is_pinch, holes[h], later);
-        if (!bridged.is_ok()) {
-            return Result<Triangulation>::err(bridged.error());
+    out.triangles = mapbox::earcut<std::uint32_t>(rings);
+
+    // ---- Post-verification. earcut is a mechanism, not an authority. ----
+    if (out.triangles.empty() || out.triangles.size() % 3 != 0) {
+        return Result<Triangulation>::err(sector_error(
+            map.source, sector_index,
+            "triangulation failed: triangle list is empty or not a multiple of three"));
+    }
+    for (const std::uint32_t index : out.triangles) {
+        if (static_cast<std::size_t>(index) >= out.points.size()) {
+            return Result<Triangulation>::err(sector_error(
+                map.source, sector_index, "triangulation failed: triangle index out of range"));
         }
-        expected.add(shoelace2(holes[h])); // CW: negative signed area
     }
-
-    // Exact invariant: the spliced ring encloses outer minus holes.
-    const S128 merged_area = shoelace2(merged);
-    if (!signed_equal(merged_area, expected)) {
-        return Result<Triangulation>::err(sector_error(map.source, sector_index,
-                                                       "triangulation failed: bridge construction "
-                                                       "rejected by the exact area invariant"));
-    }
-
-    auto clipped = ear_clip(map.source, sector_index, merged);
-    if (!clipped.is_ok()) {
-        return Result<Triangulation>::err(clipped.error());
-    }
-
-    // Exact invariant: the triangles tile the spliced ring.
     S128 triangle_sum;
-    for (std::size_t t = 0; t + 2 < clipped.value().size(); t += 3) {
-        triangle_sum.add(triangle_area2(merged[clipped.value()[t]], merged[clipped.value()[t + 1]],
-                                        merged[clipped.value()[t + 2]]));
+    for (std::size_t t = 0; t + 2 < out.triangles.size(); t += 3) {
+        const Pt& a = out.points[out.triangles[t]];
+        const Pt& b = out.points[out.triangles[t + 1]];
+        const Pt& c = out.points[out.triangles[t + 2]];
+        const S128 area = triangle_area2(a, b, c);
+        if (area.sign() == 0) {
+            return Result<Triangulation>::err(sector_error(
+                map.source, sector_index, "triangulation failed: zero-area triangle emitted"));
+        }
+        triangle_sum.add(area);
     }
-    if (!signed_equal(triangle_sum, merged_area)) {
+    // The exact oracle: emitted triangles must tile precisely the outer loop
+    // minus its holes. A filled hole, a dropped ear, or an overlap all fail
+    // here regardless of what earcut reported.
+    if (!signed_equal(triangle_sum, expected)) {
         return Result<Triangulation>::err(
             sector_error(map.source, sector_index,
                          "triangulation failed: triangles rejected by the exact area invariant"));
     }
-
-    Triangulation out;
-    out.points = std::move(merged);
-    out.triangles = clipped.take();
     return Result<Triangulation>::ok(std::move(out));
 }
 
@@ -756,35 +667,45 @@ Result<StructuralWorld> build_structural_world(const mapv7::MapData& map,
         }
         const bool floor_reversed = sector.floorz > sector.ceilingz;
 
-        StructuralSurface floor;
-        floor.kind = SurfaceKind::Floor;
-        floor.sector = static_cast<std::int16_t>(s);
-        floor.wall = -1;
-        floor.picnum = sector.floorpicnum;
-        floor.vertices.reserve(tri.value().points.size());
-        for (const Pt& p : tri.value().points) {
-            floor.vertices.push_back(to_render_space(static_cast<std::int32_t>(p.x),
-                                                     static_cast<std::int32_t>(p.y), sector.floorz,
-                                                     options));
-        }
-        floor.indices =
-            floor_reversed ? flipped_triangles(tri.value().triangles) : tri.value().triangles;
-        world.surfaces.push_back(std::move(floor));
+        // D0018: a degenerate (exactly zero-area) sector yields no floor or
+        // ceiling, but its wall spans are still geometrically well-defined and
+        // are emitted below. The world keeps building.
+        if (tri.value().degenerate) {
+            const std::string record = "sector[" + std::to_string(s) + "]";
+            world.diagnostics.push_back({record, "floor", "zero_area"});
+            world.diagnostics.push_back({record, "ceiling", "zero_area"});
+        } else {
 
-        StructuralSurface ceiling;
-        ceiling.kind = SurfaceKind::Ceiling;
-        ceiling.sector = static_cast<std::int16_t>(s);
-        ceiling.wall = -1;
-        ceiling.picnum = sector.ceilingpicnum;
-        ceiling.vertices.reserve(tri.value().points.size());
-        for (const Pt& p : tri.value().points) {
-            ceiling.vertices.push_back(to_render_space(static_cast<std::int32_t>(p.x),
-                                                       static_cast<std::int32_t>(p.y),
-                                                       sector.ceilingz, options));
-        }
-        ceiling.indices =
-            floor_reversed ? tri.value().triangles : flipped_triangles(tri.value().triangles);
-        world.surfaces.push_back(std::move(ceiling));
+            StructuralSurface floor;
+            floor.kind = SurfaceKind::Floor;
+            floor.sector = static_cast<std::int16_t>(s);
+            floor.wall = -1;
+            floor.picnum = sector.floorpicnum;
+            floor.vertices.reserve(tri.value().points.size());
+            for (const Pt& p : tri.value().points) {
+                floor.vertices.push_back(to_render_space(static_cast<std::int32_t>(p.x),
+                                                         static_cast<std::int32_t>(p.y),
+                                                         sector.floorz, options));
+            }
+            floor.indices =
+                floor_reversed ? flipped_triangles(tri.value().triangles) : tri.value().triangles;
+            world.surfaces.push_back(std::move(floor));
+
+            StructuralSurface ceiling;
+            ceiling.kind = SurfaceKind::Ceiling;
+            ceiling.sector = static_cast<std::int16_t>(s);
+            ceiling.wall = -1;
+            ceiling.picnum = sector.ceilingpicnum;
+            ceiling.vertices.reserve(tri.value().points.size());
+            for (const Pt& p : tri.value().points) {
+                ceiling.vertices.push_back(to_render_space(static_cast<std::int32_t>(p.x),
+                                                           static_cast<std::int32_t>(p.y),
+                                                           sector.ceilingz, options));
+            }
+            ceiling.indices =
+                floor_reversed ? tri.value().triangles : flipped_triangles(tri.value().triangles);
+            world.surfaces.push_back(std::move(ceiling));
+        } // end non-degenerate floor/ceiling emission
 
         // --- Wall spans ----------------------------------------------------
         // interior-left flag per wall: after orienting outer CCW / holes CW,

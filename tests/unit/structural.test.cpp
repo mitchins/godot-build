@@ -88,25 +88,28 @@ void check_triangles_wellformed(const StructuralWorld& world) {
 }
 
 // Exact double cross product in the render x-z plane (all fixture coordinates
+
 // are exact in double, so signs are exact too).
 double cross2(double ax, double az, double bx, double bz) {
     return ax * bz - az * bx;
 }
 
-bool point_in_triangle_xz(const StructuralSurface& surface, std::size_t tri, double px, double pz) {
-    const auto i0 = surface.indices[tri * 3 + 0];
-    const auto i1 = surface.indices[tri * 3 + 1];
-    const auto i2 = surface.indices[tri * 3 + 2];
-    const double d1 = cross2(surface.vertices[i1].x - surface.vertices[i0].x,
-                             surface.vertices[i1].z - surface.vertices[i0].z,
-                             px - surface.vertices[i0].x, pz - surface.vertices[i0].z);
-    const double d2 = cross2(surface.vertices[i2].x - surface.vertices[i1].x,
-                             surface.vertices[i2].z - surface.vertices[i1].z,
-                             px - surface.vertices[i1].x, pz - surface.vertices[i1].z);
-    const double d3 = cross2(surface.vertices[i0].x - surface.vertices[i2].x,
-                             surface.vertices[i0].z - surface.vertices[i2].z,
-                             px - surface.vertices[i2].x, pz - surface.vertices[i2].z);
-    return (d1 > 0 && d2 > 0 && d3 > 0) || (d1 < 0 && d2 < 0 && d3 < 0);
+// Inclusive variant: a point exactly on a triangle edge counts as covered.
+// Any valid triangulation of the same region must agree on this, whereas the
+// strict test above depends on which diagonals the implementation happens to
+// choose. Coverage assertions use this one so a different-but-equally-valid
+// triangulation cannot fail them (M5 slice-1 amendment, item F).
+bool point_in_triangle_xz_inclusive(const StructuralSurface& surface, std::size_t tri, double px,
+                                    double pz) {
+    const auto& a = surface.vertices[surface.indices[tri * 3]];
+    const auto& b = surface.vertices[surface.indices[tri * 3 + 1]];
+    const auto& c = surface.vertices[surface.indices[tri * 3 + 2]];
+    const double d1 = cross2(px - a.x, pz - a.z, b.x - a.x, b.z - a.z);
+    const double d2 = cross2(px - b.x, pz - b.z, c.x - b.x, c.z - b.z);
+    const double d3 = cross2(px - c.x, pz - c.z, a.x - c.x, a.z - c.z);
+    const bool neg = d1 < 0 || d2 < 0 || d3 < 0;
+    const bool pos = d1 > 0 || d2 > 0 || d3 > 0;
+    return !(neg && pos);
 }
 
 bool covered_by_floor(const StructuralWorld& world, std::int16_t sector, double px, double pz) {
@@ -115,7 +118,7 @@ bool covered_by_floor(const StructuralWorld& world, std::int16_t sector, double 
             continue;
         }
         for (std::size_t t = 0; t < surface.indices.size() / 3; ++t) {
-            if (point_in_triangle_xz(surface, t, px, pz)) {
+            if (point_in_triangle_xz_inclusive(surface, t, px, pz)) {
                 return true;
             }
         }
@@ -333,7 +336,7 @@ TEST_CASE("non_convex: triangulated without filling the concavity") {
     CHECK(area == doctest::Approx(expected).epsilon(1e-12));
 
     // The notch (missing top-right quadrant) stays empty; the bottom arm is
-    // covered (probe off the internal diagonals).
+    // covered. Edge-inclusive, so diagonal choice cannot decide it.
     CHECK_FALSE(covered_by_floor(world, 0, 1.5 * unit, 1.5 * unit));
     CHECK(covered_by_floor(world, 0, 0.5 * unit, 0.125 * unit));
 }
@@ -365,7 +368,8 @@ TEST_CASE("multi_loop: the hole stays empty and walls bound it") {
     }
     CHECK(area == doctest::Approx(expected).epsilon(1e-12));
 
-    // Hole interior uncovered; material covered (probe off the diagonals).
+    // Hole interior uncovered; material covered. Coverage is edge-inclusive, so
+    // this holds for any valid triangulation rather than one diagonal choice.
     const double c = 0.5 * unit;
     CHECK_FALSE(covered_by_floor(world, 0, c, c));
     CHECK(covered_by_floor(world, 0, 0.125 * unit, 0.375 * unit));
@@ -514,7 +518,11 @@ TEST_CASE("a hole loop outside the outer loop fails closed") {
     auto world = build_structural_world(map);
     REQUIRE_FALSE(world.is_ok());
     CHECK(world.error().record == std::string("sector[0]"));
-    CHECK(world.error().detail.find("hole loop vertex not strictly inside") != std::string::npos);
+    // The rule is "outside the outer loop", not "not strictly inside": real
+    // Build sectors legitimately share and touch their own hole boundaries,
+    // and pinning the old message would re-impose the over-strict rule the
+    // amendment removed (D0017).
+    CHECK(world.error().detail.find("outside the outer loop") != std::string::npos);
 }
 
 // ---------------------------------------------------------------------------
@@ -565,4 +573,191 @@ TEST_CASE("masked walls are noted as deferred, spans stay plain") {
     // all beyond the notes.
     CHECK(count_kind(world, SurfaceKind::PortalUpper) == 0);
     CHECK(count_kind(world, SurfaceKind::PortalLower) == 0);
+}
+
+// ---------------------------------------------------------------------------
+// Synthetic reductions of the failure classes the bespoke ear clipper produced
+// on legally owned content (M5 slice-1 amendment, item E). These are ORIGINAL
+// geometry: each reproduces the *shape* of a real failure without copying any
+// proprietary coordinate. They are the CI proof — the local six-map scan is
+// supporting evidence only, and no map name, sector number or count appears in
+// engine code or here.
+// ---------------------------------------------------------------------------
+namespace {
+
+// Build a sector from explicit loops. Each loop is a closed ring; the first is
+// the outer boundary, the rest are holes.
+fauxbuild::mapv7::MapData
+sector_from_loops(const std::vector<std::vector<std::pair<std::int32_t, std::int32_t>>>& loops) {
+    fauxbuild::mapv7::MapData map;
+    using fauxbuild::synth::make_sector;
+    using fauxbuild::synth::make_wall;
+    std::int16_t base = 0;
+    for (const auto& loop : loops) {
+        const auto n = static_cast<std::int16_t>(loop.size());
+        for (std::int16_t i = 0; i < n; ++i) {
+            map.walls.push_back(make_wall(loop[static_cast<std::size_t>(i)].first,
+                                          loop[static_cast<std::size_t>(i)].second,
+                                          static_cast<std::int16_t>(base + (i + 1) % n)));
+        }
+        base = static_cast<std::int16_t>(base + n);
+    }
+    map.sectors.push_back(make_sector(0, static_cast<std::int16_t>(map.walls.size())));
+    map.start = {0, 0, 4096, 512, 0};
+    return map;
+}
+
+double total_floor_area(const StructuralWorld& world) {
+    double area = 0.0;
+    for (const auto& surface : world.surfaces) {
+        if (surface.kind != SurfaceKind::Floor) {
+            continue;
+        }
+        for (std::size_t t = 0; t + 2 < surface.indices.size(); t += 3) {
+            const auto& a = surface.vertices[surface.indices[t]];
+            const auto& b = surface.vertices[surface.indices[t + 1]];
+            const auto& c = surface.vertices[surface.indices[t + 2]];
+            area += std::abs(cross2(b.x - a.x, b.z - a.z, c.x - a.x, c.z - a.z)) / 2.0;
+        }
+    }
+    return area;
+}
+
+} // namespace
+
+TEST_CASE("deep concave comb boundary triangulates") {
+    // Coverage for heavily concave boundaries. NOTE: verified against the
+    // former bespoke clipper and it handled this shape, so this is not a
+    // reduction of the "no valid ear remains" class -- see the spiral case
+    // below for a shape that does reproduce it.
+    const std::int32_t u = kUnit;
+    std::vector<std::pair<std::int32_t, std::int32_t>> outer;
+    outer.push_back({0, 0});
+    for (int i = 0; i < 6; ++i) { // teeth along the top edge
+        const std::int32_t x = u + static_cast<std::int32_t>(i) * 2 * u;
+        outer.push_back({x, 0});
+        outer.push_back({x + u / 2, 3 * u});
+        outer.push_back({x + u, 0});
+    }
+    outer.push_back({13 * u, 0});
+    outer.push_back({13 * u, 4 * u});
+    outer.push_back({0, 4 * u});
+    auto world = build_structural_world(sector_from_loops({outer}));
+    REQUIRE(world.is_ok());
+    CHECK(count_kind(world.value(), SurfaceKind::Floor) == 1);
+    CHECK(world.value().diagnostics.empty());
+    CHECK(total_floor_area(world.value()) > 0.0);
+}
+
+TEST_CASE("a hole authored in the same winding as the outer loop is normalised") {
+    // Winding normalisation is by role, never by trusting source order. NOTE:
+    // the former clipper also handled this, so it does not reduce the real
+    // "residual winding flipped" class; that class is covered by the local
+    // six-map scan as supporting evidence only.
+    const std::int32_t u = kUnit;
+    const std::vector<std::pair<std::int32_t, std::int32_t>> outer = {
+        {0, 0}, {4 * u, 0}, {4 * u, 4 * u}, {0, 4 * u}};
+    const std::vector<std::pair<std::int32_t, std::int32_t>> hole_ccw = {
+        {u, u}, {2 * u, u}, {2 * u, 2 * u}, {u, 2 * u}};
+    auto world = build_structural_world(sector_from_loops({outer, hole_ccw}));
+    REQUIRE(world.is_ok());
+    // 16 square units of outer minus 1 of hole, in render units (u -> 32).
+    CHECK(total_floor_area(world.value()) == doctest::Approx(15.0 * 32.0 * 32.0));
+    CHECK_FALSE(covered_by_floor(world.value(), 0, 1.5 * 32.0, 1.5 * 32.0));
+}
+
+TEST_CASE("REDUCTION: hole vertex resting on a horizontal outer edge is valid") {
+    // The configuration real content actually uses, and the one the old rule
+    // wrongly rejected as "not strictly inside". A point-in-polygon test that
+    // skips horizontal edges at the probe height reports it Outside unless it
+    // coincides with a vertex — which is why this reduction exists.
+    const std::int32_t u = kUnit;
+    const std::vector<std::pair<std::int32_t, std::int32_t>> outer = {
+        {0, 0}, {4 * u, 0}, {4 * u, 4 * u}, {0, 4 * u}};
+    const std::vector<std::pair<std::int32_t, std::int32_t>> hole = {
+        {u, 4 * u}, {u, 3 * u}, {3 * u, 3 * u}, {3 * u, 4 * u}}; // touches the top edge
+    auto world = build_structural_world(sector_from_loops({outer, hole}));
+    REQUIRE(world.is_ok());
+    CHECK(world.value().diagnostics.empty());
+    CHECK(total_floor_area(world.value()) == doctest::Approx(14.0 * 32.0 * 32.0));
+    CHECK_FALSE(covered_by_floor(world.value(), 0, 2.0 * 32.0, 3.5 * 32.0));
+}
+
+TEST_CASE("two holes side by side triangulate") {
+    // Multi-hole coverage. NOTE: the former clipper handled this too, so it is
+    // not a reduction of the real "no visible bridge target" class -- bridging
+    // no longer exists at all, which is why that class cannot recur.
+    const std::int32_t u = kUnit;
+    const std::vector<std::pair<std::int32_t, std::int32_t>> outer = {
+        {0, 0}, {6 * u, 0}, {6 * u, 3 * u}, {0, 3 * u}};
+    const std::vector<std::pair<std::int32_t, std::int32_t>> a = {
+        {u, u}, {2 * u, u}, {2 * u, 2 * u}, {u, 2 * u}};
+    const std::vector<std::pair<std::int32_t, std::int32_t>> b = {
+        {3 * u, u}, {4 * u, u}, {4 * u, 2 * u}, {3 * u, 2 * u}};
+    auto world = build_structural_world(sector_from_loops({outer, a, b}));
+    REQUIRE(world.is_ok());
+    CHECK(total_floor_area(world.value()) == doctest::Approx(16.0 * 32.0 * 32.0));
+    CHECK_FALSE(covered_by_floor(world.value(), 0, 1.5 * 32.0, 1.5 * 32.0));
+    CHECK_FALSE(covered_by_floor(world.value(), 0, 3.5 * 32.0, 1.5 * 32.0));
+}
+
+TEST_CASE("REDUCTION: a fully collinear sector is a diagnostic, not a failure") {
+    // D0018. Real shipped content contains a sector whose walls are collinear,
+    // enclosing exactly zero area. It must not cost the rest of the world.
+    const std::int32_t u = kUnit;
+    auto map = sector_from_loops({{{0, u}, {2 * u, u}, {u, u}}});
+    auto world = build_structural_world(map);
+    REQUIRE(world.is_ok()); // the world still builds
+    CHECK(count_kind(world.value(), SurfaceKind::Floor) == 0);
+    CHECK(count_kind(world.value(), SurfaceKind::Ceiling) == 0);
+    REQUIRE(world.value().diagnostics.size() == 2);
+    CHECK(world.value().diagnostics[0].reason == std::string("zero_area"));
+    CHECK(world.value().diagnostics[1].reason == std::string("zero_area"));
+    CHECK(world.value().diagnostics[0].record == std::string("sector[0]"));
+    // Wall spans are geometrically well defined and must still be emitted.
+    CHECK(count_kind(world.value(), SurfaceKind::SolidWall) > 0);
+}
+
+TEST_CASE("REDUCTION: a self-intersecting hole fails closed before earcut") {
+    const std::int32_t u = kUnit;
+    const std::vector<std::pair<std::int32_t, std::int32_t>> outer = {
+        {0, 0}, {4 * u, 0}, {4 * u, 4 * u}, {0, 4 * u}};
+    const std::vector<std::pair<std::int32_t, std::int32_t>> bowtie_hole = {
+        {u, u}, {2 * u, 2 * u}, {2 * u, u}, {u, 2 * u}};
+    auto world = build_structural_world(sector_from_loops({outer, bowtie_hole}));
+    REQUIRE_FALSE(world.is_ok());
+    CHECK(world.error().detail.find("self-intersect") != std::string::npos);
+}
+
+TEST_CASE("REDUCTION: a hole meeting the outer boundary at two separate vertices") {
+    // Stronger form of the touching case: the hole shares two vertices with the
+    // outer boundary, splitting the remaining material. The former clipper
+    // rejected this outright ("hole loop vertex not strictly inside").
+    const std::int32_t u = kUnit;
+    const std::vector<std::pair<std::int32_t, std::int32_t>> outer = {
+        {0, 0}, {4 * u, 0}, {4 * u, 4 * u}, {0, 4 * u}};
+    const std::vector<std::pair<std::int32_t, std::int32_t>> hole = {
+        {0, u}, {2 * u, 2 * u}, {0, 3 * u}};
+    auto world = build_structural_world(sector_from_loops({outer, hole}));
+    REQUIRE(world.is_ok());
+    CHECK(world.value().diagnostics.empty());
+    CHECK(total_floor_area(world.value()) > 0.0);
+}
+
+TEST_CASE("post-verification rejects a triangulation that does not tile the polygon") {
+    // The exact-area oracle is load-bearing, and this is not a simulated
+    // failure: earcut genuinely mis-triangulates this valid simple polygon (a
+    // tightly wound spiral -- independently checked for self-intersection: zero
+    // proper crossings, non-zero area). Without post-verification the world
+    // would be built from wrong geometry and nothing would say so. With it, the
+    // failure is structured and fatal.
+    const std::int32_t u = kUnit;
+    const std::vector<std::pair<std::int32_t, std::int32_t>> spiral = {
+        {0, 0},         {8 * u, 0},     {8 * u, 8 * u}, {0, 8 * u},     {0, 7 * u},
+        {7 * u, 7 * u}, {7 * u, u},     {u, u},         {u, 6 * u},     {6 * u, 6 * u},
+        {6 * u, 2 * u}, {2 * u, 2 * u}, {2 * u, 5 * u}, {5 * u, 5 * u}, {5 * u, 3 * u},
+        {3 * u, 3 * u}, {3 * u, 4 * u}, {4 * u, 4 * u}};
+    auto world = build_structural_world(sector_from_loops({spiral}));
+    REQUIRE_FALSE(world.is_ok());
+    CHECK(world.error().detail.find("exact area invariant") != std::string::npos);
 }

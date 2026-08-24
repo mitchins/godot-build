@@ -1053,6 +1053,87 @@ render-all visibility.
 
 Next milestone work was not started.
 
+
+#### Slice-1 amendment (2026-08-24) — triangulation replaced
+
+Review found the bespoke ear clipper's *domain of successful input* narrower
+than Build content requires. It was correct where it succeeded — independently
+verified: exact fixture areas, holes genuinely unfilled, portal openings not
+closed, transform exact over 66,669 random int32 triples plus both extremes —
+but it could not build a real map.
+
+Measured over six legally owned maps, per sector:
+
+| | bespoke | after amendment |
+|---|---|---|
+| sectors failing | **33 / 2450** | **0 / 2450** |
+| E1L1 whole-map | **fails** | 1936 surfaces, 5134 triangles |
+| distinct failure classes | 5 | none |
+
+The five classes were: no valid ear remains (18), residual winding flipped (8),
+hole vertex not strictly inside the outer loop (3), no visible bridge target
+(3), degenerate zero-area loop (1).
+
+**Pipeline (D0017, proposed):** FauxBuild exact validation -> earcut (pinned
+v3.2.3, ISC) -> FauxBuild exact verification. Validation owns input validity so
+earcut never sees a bowtie; earcut owns robustness; the exact-area oracle owns
+correctness of the result. The bespoke clipper and hole bridging are deleted —
+no fallback, no second algorithm.
+
+**Two root causes were found, both worth recording:**
+
+- *The "strictly inside" rule was wrong, and so was the point classifier it
+  rested on.* `classify_point` skipped edges lying entirely on one side of the
+  ray height — which includes a horizontal edge **at** the probe height — so a
+  point resting on a horizontal boundary edge was reported Outside unless it
+  happened to coincide with a vertex. Real content relies on holes touching
+  their outer boundary. Fixed with an explicit exact on-segment test per edge.
+- *Validation must precede the degeneracy check.* A self-intersecting bowtie
+  has exactly zero net signed area, so testing degeneracy first classified
+  malformed topology as a benign empty surface and returned success. Caught
+  because the existing bowtie regression went green when it should not have.
+
+**Degenerate surfaces are nonfatal (D0018, proposed).** A zero-area sector
+emits `zero_area` diagnostics, no floor or ceiling, and keeps its wall spans;
+the world still builds. Verified on the real sector that previously made an
+entire map unbuildable.
+
+**earcut is not infallible, and the oracle proves it.** It mis-triangulates a
+tightly wound spiral that is a valid simple polygon (independently checked:
+zero proper self-crossings, non-zero area). Post-verification turns that from
+silent wrong geometry into a structured fatal error. This is a real case, not a
+simulated one, and it is pinned by a regression.
+
+**Synthetic reductions — honest accounting.** Three failure classes were
+reduced to original synthetic geometry that fails against the old
+implementation and passes against the new: hole vertex on a horizontal outer
+edge; hole meeting the outer boundary at two vertices; fully collinear
+zero-area sector. A fourth reduction (self-intersecting hole) is *stricter*
+than the old code, which accepted it. **Three classes were not successfully
+reduced** — "no valid ear remains", "residual winding flipped" and "no visible
+bridge target": every synthetic shape tried for them was also handled by the
+bespoke clipper, so the tests written for them are ordinary coverage and are
+labelled as such rather than claimed as reductions. Those classes cannot recur
+by construction (bridging no longer exists), and the six-map scan is their only
+evidence — supporting, proprietary, not CI proof.
+
+**Sabotage evidence** (each on a verified-clean build; two first attempts were
+rejected by `-Werror` and re-run rather than interpreted):
+
+| sabotage | result |
+|---|---|
+| bypass pre-validation | 4 cases fail; bowtie reaches earcut |
+| neuter the exact-area oracle | 1 case fails — the spiral regression |
+| restore the bespoke clipper | 3 of 6 reductions fail |
+| make zero-area fatal | 1 case fails — degenerate world regression |
+| drop hole rings before earcut | 7 cases fail |
+
+Non-sweep assertions: **3,068** (the original slice-1 report said "≈1,400";
+the raw total is sweep-dominated and not a useful figure).
+
+**Not accepted.** D0017 and D0018 are proposed, not self-ratified. The E1L1
+whole-map result is local development evidence; the HUMAN-ATTESTED checkbox is
+the reviewer's. Slice 2 was not started.
 ## M6 — Slopes, indexed textures, flags, and sprites — NOT_STARTED
 
 Gate summary: slope query and render share one function; UV/sprite-flag/palette-shade matrix

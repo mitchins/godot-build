@@ -36,3 +36,17 @@ milestone through M15; if it becomes required, it needs a decision record.
 |---|---|
 | Any Build-engine source port code | Clean-room prohibition (`PROVENANCE.md`) |
 | Catch2 / GoogleTest | Heavier than needed for the current suite; revisit with a decision record if needed |
+
+## earcut.hpp
+
+- **Version**: v3.2.3, commit `c68c8835ccff2b7532d31d8fa8dfcf398f629498`
+- **Licence**: ISC (vendored verbatim at `third_party/earcut/LICENSE`)
+- **Vendored**: `third_party/earcut/earcut.hpp`
+  (SHA-256 `cc0913ab9e3a0903a1e826cd8f0a6445705dc5471c78e4dec6934f6f647a8a54`)
+- **Used for**: polygon triangulation of derived structural floor/ceiling loops
+  only (D0017). Not linked into any parser, not used for MAP/ART/GRP/palette
+  handling, and no earcut type appears in a FauxBuild header or public API.
+- **Authority**: none. `MapData` remains canonical; earcut output is verified
+  against the exact expected polygon area before any surface is emitted.
+- **Provenance**: general-purpose computational-geometry library with no
+  relationship to Build, any source port, or any game. See PROVENANCE row 13.

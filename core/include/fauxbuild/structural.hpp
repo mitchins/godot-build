@@ -59,12 +59,27 @@ struct StructuralNote {
     bool operator==(const StructuralNote&) const = default;
 };
 
+// A derived surface that could not be produced from otherwise-valid topology
+// (D0018). Distinct from StructuralNote (deferred features) and from Result
+// errors (unsafe or inconsistent topology): the map is fine, this particular
+// derived surface is degenerate. The world is still built; the surface is
+// omitted. Real shipped content contains zero-area sectors, and one of them
+// must not cost the other 99.9% of the shell.
+struct StructuralDiagnostic {
+    std::string record;  // e.g. "sector[262]"
+    std::string surface; // e.g. "floor", "ceiling"
+    std::string reason;  // stable machine-comparable token, e.g. "zero_area"
+
+    bool operator==(const StructuralDiagnostic&) const = default;
+};
+
 struct StructuralWorld {
     // Canonical order (tested): sector ascending; per sector floor, ceiling,
     // then walls ascending by wall index; a portal wall contributes
     // portal_upper before portal_lower. Nothing else may reorder surfaces.
     std::vector<StructuralSurface> surfaces;
     std::vector<StructuralNote> notes;
+    std::vector<StructuralDiagnostic> diagnostics;
 
     bool operator==(const StructuralWorld&) const = default;
 };

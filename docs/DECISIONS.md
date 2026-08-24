@@ -401,9 +401,13 @@ Rejection classes: overlap, malformed range, count/range mismatch, payload
 vs dims, area cap, page-overflow — all InvalidRange/TooLarge ParseErrors,
 never partial atlases.
 
-### D0016 — Structural geometry derivation and render space (M5, proposed)
+### D0016 — Structural geometry derivation and render space (M5)
 
-Status: PROPOSED (slice 1) — ratification belongs to M5 review.
+Status: **accepted — human ratification 2026-08-24**, for the
+algorithm-independent rules only. Triangulation implementation and
+degenerate-surface policy were split out to D0017 and D0018 rather than
+accepting half of a mixed decision; this record was not broadened while
+being edited.
 
 Context: M5 derives a static structural shell from authoritative MapData.
 Two things needed pinning before any emitter code existed: the one
@@ -443,11 +447,95 @@ Decision:
    structured Result errors. No global Warning semantics were added.
 Rationale: the M5 brief forbids scattered sign swaps and any consumer-side
 transform invention; the power-of-two rule makes "deterministic vertex
-bytes" testable by equality rather than tolerance. Ear clipping with hole
-bridging is an original implementation of the standard published algorithm
-class (PROVENANCE row 12) with two exact area invariants verifying every
-sector's construction, so algorithm failure surfaces as a structured error
-instead of wrong geometry — no third-party triangulator is vendored.
+bytes" testable by equality rather than tolerance. The choice of
+triangulation algorithm is deliberately *not* part of this decision — see
+D0017. Rules 1-5 hold whatever triangulates the loops.
 Consequences: M5 slice 2 builds the ArrayMesh viewer directly from these
 surfaces; M6 slopes will extend, not replace, this derivation (flat-Z
 output order stays stable for unsloped sectors).
+
+
+### D0017 — Structural polygon triangulation pipeline (M5, proposed)
+
+Status: PROPOSED — ratification belongs to M5 review. Not self-ratified.
+Date: 2026-08-24
+
+Context: the slice-1 bespoke ear clipper with hole bridging was correct where
+it succeeded but its domain of successful input was narrower than Build content
+requires. Measured over six legally owned maps: **33 of 2450 sectors failed**,
+in five distinct classes, and E1L1 could not be built at all. A bounded A/B
+spike against Mapbox earcut reduced that to 1 (a genuinely degenerate sector,
+now D0018), but earcut performs no validation and accepted a self-intersecting
+bowtie that the bespoke code correctly rejected. The old implementation had
+conflated validating topology with triangulating it.
+
+Decision:
+1. **Three stages, in this order: FauxBuild exact validation -> earcut ->
+   FauxBuild exact verification.** Each owns exactly one responsibility.
+2. **Validation owns input validity; earcut never sees anything it rejects.**
+   Rejected: outer or hole loops with fewer than three vertices or that
+   self-intersect; holes with a vertex outside the outer loop; holes lying
+   entirely on the outer boundary; hole edges crossing outer edges or each
+   other transversally; holes consuming the entire outer area. All predicates
+   are exact integer arithmetic on int64 coordinates — no epsilons.
+3. **Touching is not crossing.** A hole may share vertices and edges with the
+   outer boundary. Real content relies on this, and the earlier "every hole
+   vertex strictly inside" rule was wrong; it is not reintroduced. Only a
+   proper transversal crossing is invalid. Pinned by synthetic reductions.
+4. **earcut is a mechanism, never an authority.** Its output is checked before
+   any surface is emitted: indices in range, triangle count a multiple of
+   three, no zero-area triangle, and — the load-bearing check — the summed
+   exact triangle area must equal the outer loop's area minus its holes. This
+   is not decorative: earcut mis-triangulates a tightly wound spiral that is a
+   valid simple polygon (independently verified: zero proper self-crossings,
+   non-zero area), and the oracle turns that from silent wrong geometry into a
+   structured fatal error. A regression case pins it.
+5. **No fallback and no second triangulator.** The bespoke ear clipper and
+   hole bridging are deleted, not retained behind a flag. Maintaining two
+   algorithms would mean two failure domains to reason about.
+6. **earcut is an isolated implementation detail.** Pinned v3.2.3 (ISC),
+   vendored under third_party/earcut with its licence. No earcut type appears
+   in any FauxBuild header or public API; the point-accessor specialisations
+   live in third_party/earcut/earcut_adapt.hpp. MapData is never mutated —
+   loop orientation is normalised only in a disposable input copy.
+
+Consequences: all 2450 sectors across the six locally owned maps now
+triangulate, each verified by the exact-area oracle. Every failure class that
+could be reduced to original synthetic geometry has been; classes that could
+not be reproduced synthetically are recorded as such rather than claimed.
+
+### D0018 — Nonfatal derived-surface diagnostics (M5, proposed)
+
+Status: PROPOSED — ratification belongs to M5 review. Not self-ratified.
+Date: 2026-08-24
+
+Context: real shipped content contains a sector whose walls are collinear,
+enclosing exactly zero area. Under the slice-1 implementation that single
+cosmetic sector made an entire map unbuildable, which contradicts M5's stated
+contract of "diagnostics rather than crashes".
+
+Decision:
+1. **Two distinct failure severities**, without inventing a global warning
+   system:
+   - **fatal** (`Result` error): the authoritative topology is inconsistent or
+     unsafe to continue from;
+   - **structural diagnostic**: the topology is valid, but this particular
+     *derived* surface is degenerate.
+2. A loop whose exact polygon area is zero produces **no floor or ceiling
+   triangles**, appends a `StructuralDiagnostic{record, surface, reason}` with
+   a stable machine-comparable reason token (`zero_area`), and the world
+   continues building.
+3. **Wall spans are not discarded** merely because floor/ceiling triangulation
+   is empty. They remain geometrically well defined and are emitted.
+4. `StructuralDiagnostic` is distinct from `StructuralNote` (deferred features
+   such as slopes) and from `Result` errors. A successfully built
+   `StructuralWorld` carries its diagnostics alongside its surfaces.
+5. This is **not** permission to swallow malformed topology. Validation runs
+   before the degeneracy check, deliberately: a self-intersecting bowtie has
+   exactly zero net signed area, so testing degeneracy first would report
+   malformed geometry as a benign empty surface. That ordering is pinned by a
+   regression case.
+
+Consequences: one degenerate sector costs its own two surfaces rather than the
+other 99.9% of the shell. Verified on real content: the affected sector emits
+two `zero_area` diagnostics, no floor or ceiling, and its wall spans survive.

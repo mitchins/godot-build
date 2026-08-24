@@ -24,7 +24,7 @@ else:
     env['CXX'] = os.environ.get('CXX', 'clang++')
     env.Append(CXXFLAGS=['-std=c++20', '-Wall', '-Wextra', '-Werror'])
 
-env.Append(CPPPATH=['#core/include'])
+env.Append(CPPPATH=['#core/include', '#third_party/earcut'])
 
 cfg = env['config']
 if cfg == 'dev':
