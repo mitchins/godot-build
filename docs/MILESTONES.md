@@ -701,6 +701,11 @@ Slice-3 residual round 2 (2026-08-24) — D0014 ratified as amended; eight items
   proven mount rather than being its first caller.
 - `.c` added to the formatter suffixes; slice status corrected here and in
   AGENTS.md; D0014 recorded accepted.
+- The first version of that filter gate wrote its probe into the real corpus
+  tree; SCons runs the four instances in parallel, so they raced and Linux CI
+  went red. Caught by CI, not locally, because a single-threaded local run
+  never overlapped. `compute_manifest` now takes a root and the probe builds a
+  scratch tree — a gate must never mutate the repository it is checking.
 - Built artifacts verified through the M2/M4 stack: built ART parses via
   read_art, round-trips byte-identically, dump-art stats consistent.
 

@@ -61,18 +61,23 @@ with tempfile.TemporaryDirectory() as tmp:
         failures.append("README_evil.bin was not loaded as a seed despite being .bin")
 
 # The manifest side must use an exact-name rule. A prefix rule (README*) would
-# leave a README_*.bin loadable as a seed but invisible to the integrity gate,
-# so probe it directly rather than relying on such a file happening to exist.
-probe = root / "tests/fuzz/corpus/palette/README_probe.bin"
-try:
-    probe.write_bytes(b"\x00\x00\x00\x00")
-    probe_rel = probe.relative_to(root).as_posix()
-    if probe_rel not in {line.split()[-1] for line in compute_manifest()}:
-        failures.append(
-            f"{probe_rel}: a .bin seed escaped the manifest — the exclusion rule is a "
-            "prefix match, not an exact one")
-finally:
-    probe.unlink(missing_ok=True)
+# leave a README_*.bin loadable as a seed but invisible to the integrity gate.
+# Probe it in a scratch tree: these gates run in parallel, so writing into the
+# real corpus would race with the other instances (CI-confirmed).
+with tempfile.TemporaryDirectory() as tmp:
+    scratch = pathlib.Path(tmp) / "tests" / "fuzz" / "corpus"
+    scratch.mkdir(parents=True)
+    (scratch / "README.md").write_text("documentation\n")
+    (scratch / "README_evil.bin").write_bytes(b"\x00\x00\x00\x00")
+    (scratch / "plain.bin").write_bytes(b"\x01\x01")
+    listed_scratch = {line.split()[-1] for line in compute_manifest(pathlib.Path(tmp))}
+    if "tests/fuzz/corpus/README_evil.bin" not in listed_scratch:
+        failures.append("README_evil.bin escaped the manifest: the exclusion rule is a "
+                        "prefix match, not an exact one")
+    if "tests/fuzz/corpus/README.md" in listed_scratch:
+        failures.append("README.md was manifest-covered; documentation is not a seed")
+    if "tests/fuzz/corpus/plain.bin" not in listed_scratch:
+        failures.append("an ordinary .bin was not manifest-covered")
 
 # The manifest side of the same contract, over the real corpus tree.
 listed = {line.split()[-1] for line in compute_manifest()}
