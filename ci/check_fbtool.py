@@ -390,10 +390,84 @@ with tempfile.TemporaryDirectory() as tmp:
 
     run(["no-such-command"], 2, "unknown command", expect_err="unknown command")
 
+    # ---------------- atlas inspection (M4 slice 4) ----------------
+    # The committed synthetic fixture exercises the loose-directory route...
+    proc = run(["inspect-atlas", "--dir", "fixtures/atlas"], 0, "inspect-atlas dir",
+               expect_out="validation: OK")
+    for expected in ["global range: 0..10 (11 picnums)", "populated tiles: 5",
+                     "empty tiles: 6 (4 gap, 2 zero-dimension)", "atlas pages: 1",
+                     "indexed bytes: 4194304", "palette: loaded through VFS",
+                     "lookup: loaded through VFS", "ART sources: 2"]:
+        if expected not in proc.stdout:
+            failures.append(f"inspect-atlas dir: stdout missing {expected!r}")
+    # Gate-A summary lines: counts and dimensions only, never pixels or hashes.
+    for expected in ("largest populated tile: 8x8 at picnum 1", "non-zero pivots: 3",
+                     "animated metadata entries: 1", "raw picanm entries preserved: 7 (3 non-zero)"):
+        if expected not in proc.stdout:
+            failures.append(f"inspect-atlas: report missing {expected!r}")
+
+    # ...and a python-packed synthetic GRP exercises the production mount
+    # (no extraction anywhere). Packing in python is deliberate: it proves
+    # our writer-agnostic parser reads a container built by foreign code.
+    import struct as _struct
+    grp_path = pathlib.Path(tmp) / "synthetic.grp"
+    entries = []
+    for name in ["TILES000.ART", "TILES001.ART", "PALETTE.DAT", "LOOKUP.DAT"]:
+        entries.append((name, (root / "fixtures/atlas" / name).read_bytes()))
+    blob = bytearray(b"KenSilverman")
+    blob += _struct.pack("<I", len(entries))
+    for name, data in entries:
+        field = name.encode("ascii")[:12]
+        blob += field + b"\x00" * (12 - len(field))
+        blob += _struct.pack("<I", len(data))
+    for _, data in entries:
+        blob += data
+    grp_path.write_bytes(bytes(blob))
+    proc = run(["inspect-atlas", "--grp", str(grp_path)], 0, "inspect-atlas grp",
+               expect_out="validation: OK")
+    if "global range: 0..10 (11 picnums)" not in proc.stdout:
+        failures.append("inspect-atlas grp: composed range wrong through GRP mount")
+    if "grp:" not in proc.stdout:
+        failures.append("inspect-atlas grp: source line should describe the grp mount")
+
+    # Deterministic placement: two runs, identical summary (and the byte
+    # identity itself is unit-tested in atlas.test.cpp).
+    second = run(["inspect-atlas", "--grp", str(grp_path)], 0, "inspect-atlas grp rerun",
+                 expect_out="validation: OK")
+    if second.stdout != proc.stdout:
+        failures.append("inspect-atlas: two runs of the same GRP disagree")
+
+    # Usage and failure contracts.
+    run(["inspect-atlas"], 2, "inspect-atlas usage (no source)", expect_err="usage")
+    run(["inspect-atlas", "--grp", str(grp_path), "--dir", "fixtures/atlas"], 2,
+        "inspect-atlas usage (both sources)", expect_err="usage")
+    # Discovery fails closed with a precise message when no ART exists.
+    empty_dir = pathlib.Path(tmp) / "empty-dir"
+    empty_dir.mkdir()
+    run(["inspect-atlas", "--dir", str(empty_dir)], 1,
+        "inspect-atlas empty dir", expect_err="no TILES*.ART")
+
+    # Overlapping ART ranges inside a GRP must be rejected end to end:
+    # duplicate TILES000.ART under a second name claiming the same range.
+    overlap = bytearray()
+    overlap += b"KenSilverman" + _struct.pack("<I", 5)
+    overlap_entries = [(name, data) for name, data in entries]
+    overlap_entries.append(("TILES999.ART", entries[0][1]))
+    for name, data in overlap_entries:
+        field = name.encode("ascii")[:12]
+        overlap += field + b"\x00" * (12 - len(field))
+        overlap += _struct.pack("<I", len(data))
+    for _, data in overlap_entries:
+        overlap += data
+    overlap_path = pathlib.Path(tmp) / "overlap.grp"
+    overlap_path.write_bytes(bytes(overlap))
+    run(["inspect-atlas", "--grp", str(overlap_path)], 1, "inspect-atlas overlap",
+        expect_err="atlas.range_overlap")
+
 if failures:
     print("fbtool check FAILED:")
     for f in failures:
         print(f"  {f}")
     sys.exit(1)
 
-print("fbtool check: grp + map + palette + art + build command contracts hold")
+print("fbtool check: grp + map + palette + art + build + atlas contracts hold")

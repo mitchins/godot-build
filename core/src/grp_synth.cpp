@@ -1,8 +1,13 @@
 #include "fauxbuild/grp_synth.hpp"
 
+#include <array>
 #include <cstdio>
 #include <cstring>
+#include <limits>
 #include <string>
+
+#include "fauxbuild/check.hpp"
+#include "fauxbuild/grp.hpp"
 
 namespace fauxbuild::synth {
 
@@ -81,6 +86,49 @@ std::vector<std::uint8_t> generate_grp(const GrpSpec& spec) {
         }
     }
 
+    return out;
+}
+
+std::vector<std::uint8_t> build_grp(const std::vector<GrpFileSpec>& files) {
+    std::vector<std::uint8_t> out;
+    std::uint64_t payload = 0;
+    for (const auto& file : files) {
+        // Content-safety contract (our own tooling input): names must fit
+        // the 12-byte directory field and contain no separators or NULs.
+        FB_CHECK(file.name.size() <= 12);
+        FB_CHECK(file.name.find('/') == std::string::npos);
+        FB_CHECK(file.name.find('\\') == std::string::npos);
+        FB_CHECK(file.name.find('\0') == std::string::npos);
+        FB_CHECK(!file.name.empty());
+        payload += file.bytes.size();
+    }
+    // Round-trip contract: build_grp is the canonical synthetic generator and
+    // its output must parse back through grp::parse. That constrains both the
+    // entry count (D0011 limit) and each payload, since the directory records
+    // size in a uint32 -- a larger payload would narrow silently and produce a
+    // container our own parser reads wrongly (CodeRabbit, PR#4).
+    FB_CHECK(files.size() <= grp::kMaxEntryCount);
+    for (const auto& file : files) {
+        FB_CHECK(file.bytes.size() <= std::numeric_limits<std::uint32_t>::max());
+    }
+    out.reserve(static_cast<std::size_t>(16 + 16ull * files.size() + payload));
+
+    out.insert(out.end(), {'K', 'e', 'n', 'S', 'i', 'l', 'v', 'e', 'r', 'm', 'a', 'n'});
+    put_u32_le(out, static_cast<std::uint32_t>(files.size()));
+    for (const auto& file : files) {
+        std::string upper;
+        upper.reserve(file.name.size());
+        for (const char c : file.name) {
+            upper.push_back(c >= 'a' && c <= 'z' ? static_cast<char>(c - 'a' + 'A') : c);
+        }
+        std::array<std::uint8_t, 12> name{};
+        std::memcpy(name.data(), upper.data(), upper.size()); // NUL-padded
+        out.insert(out.end(), name.begin(), name.end());
+        put_u32_le(out, static_cast<std::uint32_t>(file.bytes.size()));
+    }
+    for (const auto& file : files) {
+        out.insert(out.end(), file.bytes.begin(), file.bytes.end());
+    }
     return out;
 }
 

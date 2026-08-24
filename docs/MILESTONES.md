@@ -542,9 +542,11 @@ Do not implement rendering, collision, Duke tags, or game logic.
 
 ## M4 — ART, palette, lookup, and tile tooling
 
-Status: **IN_PROGRESS** — slices 1-3 of 4 delivered and reviewed; slice 4
-(atlas builder + indexed preview) not started. D0013 accepted; D0014 accepted
-as amended 2026-08-24.
+Status: **ACCEPTED** 2026-08-24 by mitchellcurrie — all six gate items
+satisfied. HUMAN-ATTESTED evidence: real-GRP atlas inspection and preview
+(gates A1/A2) and FauxBuild-generated ART consumed by Mapster32 (gate B).
+D0013, D0014 (as amended) and D0015 (as amended) all ratified. No proprietary
+content entered the repository or CI.
 Started: 2026-08-23
 
 Delivery is sliced per the M4 task brief; each slice stops for review.
@@ -760,6 +762,236 @@ receives it, not as the builder assembled it.
 Gate summary: fixture tiles decode exactly; palette test strip correct; pivot/animation
 round-trip; local Duke tile atlas inspectable without extraction; no RGBA-only assumption;
 original fixture ART works in Mapster.
+
+### Gate (plan wording, verbatim)
+
+- [x] Every fixture tile decodes exactly. *(CI)* Unit round-trips, the fbtool
+      contract gate, and the Godot consumer boundary all compare bytes, and the
+      fixture's asymmetric index formulas make a transposition loud.
+- [x] Palette test strip is correct. *(CI)* The 16x16 `pattern=indexed` strip
+      carries every palette index exactly once and the atlas places index i at
+      row-major position i. Added during the pre-acceptance audit: the strip
+      existed as a fixture tile but nothing asserted it decoded correctly.
+      Negative-tested — inverting the atlas transpose fails this case on its own.
+- [x] Pivot and animation metadata round-trip where supported. *(CI)* picanm
+      raw agrees with the decoded fields and survives a file round-trip;
+      pivots/anim/speed are preserved through manifest and atlas; `speed` and
+      `frames` are validated against their serialized widths, not uint8.
+- [x] A local Duke tile atlas can be inspected without extraction as a required
+      user step. **HUMAN-ATTESTED 2026-08-24** — gates A1 (inspect-atlas over
+      the untouched GRP) and A2 (multi-page preview, page selection round-trip).
+      Everything reads through the VFS mount; no extraction at any point.
+- [x] No RGBA-only assumption enters the world asset model. *(CI)* Authoritative
+      storage is `std::vector<uint8_t>` (one index per texel), pinned by the
+      layering guard and by byte-count tripwires at unit, fbtool and Godot
+      levels; RGBA exists only as a per-call derived preview product.
+- [x] Original fixture ART works in Mapster. **HUMAN-ATTESTED 2026-08-24** by
+      mitchellcurrie. Mapster32 r9598 (native macOS, used as a black box) loaded
+      FauxBuild-generated `TILES000.ART` directly alongside the normal game GRP
+      with **no conversion step**. Diagnostic tiles 0-12 rendered recognisably;
+      checker, grid, ramp and palette-strip structure intact. Selected picnum 12
+      reported **64x16, pivot 0,-8**.
+
+      That last figure is the load-bearing part. Three independent readings
+      agree: the authored source (`tile wall_uv_b 64 16` + `pivot wall_uv_b
+      0 -8`), our manifest (`12  wall_uv_b  64 16  0 -8`), and a third-party
+      editor's decode of our binary. The pivot travelled source -> build ->
+      picanm dword -> Mapster's parser and survived. It is also a *signed*
+      value packed into picanm bits 15-8: a wrong sign convention would have
+      shown 248 rather than -8, so this is third-party confirmation of a
+      bit-level encoding decision that no amount of our own round-tripping
+      could establish — our reader and writer would agree on the wrong answer.
+
+### Slice 4 — indexed atlas, consumer boundary, real-asset ingestion (delivered 2026-08-24)
+
+Abstraction delivered: M5 can ask for picnum N and receive stable metadata
+plus indexed texels without knowing whether the assets came from loose
+files, one ART file, or thirteen inside a GRP (`core/asset_set` +
+`core/atlas`; D0015 proposed).
+
+- `load_asset_set` discovers TILES*.ART / PALETTE.DAT / LOOKUP.DAT through
+  one VFS (directory or mounted GRP); ordering authority is the declared
+  ranges, never filenames. GRP is a first-class production path — real
+  DUKE3D.GRP requires no extraction (dev-verified below; human gate A
+  pending).
+- `build_indexed_atlas` composes the global picnum namespace (overlap,
+  malformed-range, count/range, payload/dims, area-cap, page-overflow
+  rejections; gaps and zero-dim tiles become explicit empty entries) and
+  shelf-packs deterministic indexed pages. The column-major file-order
+  claim is acted on exactly here — one transpose, at the boundary.
+- `fbtool inspect-atlas --grp|--dir` (human gate A command; generic stats
+  only). `synth::build_grp` writes canonical GRPs from arbitrary payloads
+  for the synthetic-GRP route; `fixtures/atlas/` holds the committed
+  original fixture set (generate.py is the spec).
+- Extension: `FauxAssetSet` (load_dir/load_grp, bytes + rect/meta/stats
+  accessors, derived-only RGBA helpers) and `FauxAtlasPreview` (R8 index +
+  palette + shade + remap shader, nearest sampling via texelFetch,
+  selectable picnum/shade/palette/remap — deliberately boring).
+- Tests: 114 cases (was 103 after the slice-3 residual rounds). The
+  load-bearing consumer-boundary test runs in Godot itself
+  (godot/scripts/atlas_preview_test.gd, wired into check_scene.py):
+  expected index bytes and rect metadata re-derived from the fixture spec
+  and asserted against what Godot actually receives, byte-for-byte,
+  including the R8 image representation. Byte-count tripwire
+  (w*h*pages, never x4) at unit and scene level.
+- Negative tests (each observed red, then green after restore): the
+  layering pin (sabotaged `std::vector<uint32_t> rgba` declaration ->
+  gate red), the transpose (sabotaged copy order -> unit case red AND the
+  Godot scene red with "tile 2 byte at (2,0): got 138 want 134"), the
+  fbtool contract (three probes observed failing during development;
+  the overlapping-ranges GRP probe is a standing red case), and the
+  real-GRP falsification of the numtiles<end+1 check (row 0e).
+- Dev evidence (generic stats only, nothing extracted): inspect-atlas over
+  the owned GRP — 13 ART files, ranges 0..3327 chained contiguously, 1605
+  populated / 1723 zero-dim / 0 gap, 3 pages of 2048x2048, palette and
+  lookup through the same mount. Human gates pending: real-GRP atlas
+  inspection + preview (gate A), synthetic ART in Mapster32 (gate B —
+  build-art output, unchanged this slice).
+
+Slice-4 review (2026-08-24) — two blocking rulings, both reproduced first:
+
+**1. The `numtiles` "namespace floor" was an invented semantic.** The published
+description calls the field unused; real content shows only that it is not an
+*upper* bound (2816 declared in all 13 shipped files while ranges reach 3327).
+Nothing observed makes it a lower bound. The first real-GRP run had rejected on
+a `numtiles < end+1` check, and the fix over-corrected from "don't trust it as a
+ceiling" to "trust it as a floor".
+
+Measured cost of that invention, with the cap disabled:
+
+| policy | resident | wall | input |
+|---|---|---|---|
+| numtiles floor | **12.8 GiB** | 234 s | one 24-byte ART |
+| numtiles ignored | 6.6 MiB | 0.4 s | same file |
+
+The floor never once changed the answer on real content (2816 < 3328) — it only
+widened the attack surface. `numtiles` is now preserved raw and consulted by
+nothing (D0015 rule 2, amended; COMPATIBILITY 0e rewritten).
+
+**The cap stays, for a different and legitimate reason.** With `numtiles`
+ignored, two individually valid 24-byte ART files declaring ranges 0..0 and
+2000000000..2000000000 still size a 2e9-entry namespace — measured at 16 GiB.
+That is a real sparse-namespace surface with no misinterpretation anywhere, so
+`max_tile_count` now guards an unavoidable allocation rather than concealing a
+wrong reading (D0015 rule 3, the D0011 precedent).
+
+**2. The multi-page preview had no boundary coverage.** Page rebinding was
+fixed in 4b47187, but the CI fixture is one page and the scene test *asserts*
+`page_count == 1`, so a regression would only surface when a human ran gate A.
+Reproduced by disabling rebinding: the suite stayed green.
+
+The first fix was insufficient in an instructive way: a multi-page case built
+on `FauxAssetSet` still passed with rebinding removed, because it inspects the
+data *behind* the preview rather than the preview. `FauxAtlasPreview` now
+exposes `get_bound_page()`, `select_picnum()` and `bound_texel_at()`, and the
+test reads back through the bound page. With rebinding disabled it now reports:
+
+```text
+consumer-boundary FAILED: preview bound page 0 for a tile on page 1
+consumer-boundary FAILED: preview shows 12 wrong texels for picnum 8 on page 1
+```
+
+Page size became a load-time parameter (a real deployment tunable — GPU limits
+differ) so 12x12 pages force ordinary fixture tiles onto page 1 with no
+proprietary content.
+
+**Gate-A reporting completed.** "picanm entries preserved" only meant a picnum
+had an ART owner. `inspect-atlas` now also reports the largest populated tile,
+non-zero pivots, animated metadata entries, and non-zero raw picanm entries —
+counts and dimensions only, no pixels or hashes. On the shipped GRP: largest
+320x200 at picnum 2445, 805 non-zero pivots, 34 animated, 838 non-zero picanm.
+
+**Verified unchanged by the amendment:** the real GRP still composes to 3328
+picnums, 1605 populated, 0 gaps, 3 pages.
+
+Slice-4 review round 2 (2026-08-24) — **D0015 ratified**; the boundary test
+was still one layer short:
+
+- **`bound_texel_at` reconstructed what *ought* to be bound.** It called
+  `make_index_image(bound_page_)` rather than reading the texture the shader
+  actually holds, so this regression passed: `bound_page_ = 1` (correct),
+  reconstructed image page 1 (correct), shader `index_atlas` still page 0
+  (wrong), test green. Requirement 3 named as load-bearing, then implemented
+  one abstraction layer above the boundary — the same trap in a new place.
+  It now reads `material_->get_shader_parameter("index_atlas")` →
+  `Texture2D::get_image()`. Negative-tested against the *specific* shape:
+  sabotaging only the shader rebind while still advancing `bound_page_` gives
+  `preview shows 12 wrong texels for picnum 8 on page 1`, and the coarser
+  page-0-only regression is still caught too.
+- **Empty picnums fed a null image to `ImageTexture`.** A gap or
+  zero-dimension tile reports `page = -1`, so `make_index_image(-1)` returned
+  null *before* the populated check ran. The unpopulated path is now handled
+  first with an explicit empty presentation — it is a normal state (1723 of
+  3328 in the shipped GRP), not an error. Both shapes are in the boundary
+  test, which required exposing `claimed` on tile metadata: gaps and
+  zero-dimension tiles both report `page = -1` and were otherwise
+  indistinguishable at the boundary. M5 needs that distinction anyway ("no
+  such picnum" vs "picnum exists but is empty").
+- **`build_grp` narrowed payload sizes into a uint32 directory field.** The
+  entry count was bounded but individual payloads were not, so the canonical
+  synthetic generator could emit a container its own parser reads wrongly.
+  Precondition added.
+- Housekeeping: the gate asserts the full `raw picanm entries preserved: 7
+  (3 non-zero)` string; the stale "numtiles is a global game tile count"
+  claim is gone from both `art.hpp` and COMPATIBILITY 0d (it has no
+  established meaning); a mangled comment in `atlas.hpp` and an untagged
+  markdown fence fixed.
+
+Gate A1 — **HUMAN-ATTESTED PASS 2026-08-24** by mitchellcurrie:
+`fbtool inspect-atlas --grp local_reference/duke/DUKE3D.GRP` over the untouched
+archive. 13 ART sources, ranges chaining 0..255 through 3072..3327, global
+range 0..3327 (3328 picnums), 1605 populated, 0 gaps, 3 pages of 2048x2048,
+largest populated tile 320x200 at picnum 2445, 805 non-zero pivots, 34 animated
+metadata entries, 3328 raw picanm entries preserved (838 non-zero), palette and
+lookup both through the same VFS mount, validation OK. No extraction step; no
+proprietary bytes left the mount.
+
+Gate A2 — **not run.** The first attempt exposed a harness defect, not an atlas
+defect: `atlas_preview.tscn` is wired to `atlas_preview_test.gd`, whose
+`_ready()` asserts synthetic-fixture constants unconditionally (11 picnums, one
+page, specific 8x8 tiles, synthetic palette formulas). Pointed at the real
+archive it emitted 124 errors, every one an expected mismatch between real
+content and synthetic test constants. The real load itself succeeded — the
+preview reported 3328 picnums, 1605 populated, 3 indexed pages.
+
+Fixed by separating the two rather than making the load-bearing test
+conditional (which would be bypassable by accident):
+
+- `godot/scenes/atlas_preview_human.tscn` + `scripts/atlas_preview_human.gd`:
+  takes `--grp`/`--dir`, checks only content-independent invariants (loaded,
+  positive counts, one indexed byte per texel, every populated tile inside its
+  own page, every unpopulated one claiming no page, walked count equals the
+  reported populated count), prints a per-page tile spread and concrete
+  starting picnums, then stays open. No fixture constants anywhere.
+- `atlas_preview_test.gd` now **refuses** `--grp` with a pointer to the human
+  scene, so the trap cannot be re-entered.
+- The scene gate runs the human harness against the synthetic fixture (so it
+  cannot rot between human runs) and asserts that the CI test rejects `--grp`.
+
+Verified against the real archive, headless, zero errors: 3328 picnums, 1605
+populated, pages carrying 409/641/555 tiles, 6 palette choices, 26 remap
+choices, 32 shade rows.
+
+Gate A2 — **HUMAN-ATTESTED PASS 2026-08-24** by mitchellcurrie. The real GRP
+was mounted into `atlas_preview_human.tscn` and tiles were selected across all
+three atlas pages, plus an empty picnum, with shade/palette/remap varied.
+Attested: page selection works and **round-trips** — moving between pages and
+back to a previously viewed page shows the correct tile each time.
+
+That round-trip is the part worth recording. A page rebind that only ever moves
+forward could pass a one-directional check while leaving a stale texture bound
+on return; observing correct texels after returning to a previously bound page
+exercises the rebinding path in both directions, over real 2048x2048 pages that
+CI's 12x12 synthetic fixture cannot represent. It is the human counterpart to
+the automated case that reads the shader's own `index_atlas` texture.
+
+No extraction step at any point; nothing was written outside the mount.
+
+Gate B — **HUMAN-ATTESTED PASS 2026-08-24**. Recorded in full in the gate
+checklist above.
+
+**M4 ACCEPTED 2026-08-24.** All six gate items satisfied; see the gate
+checklist above for the evidence and class of each.
 
 ## M5 — Static structural world viewer — NOT_STARTED
 

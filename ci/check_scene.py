@@ -44,7 +44,46 @@ def main() -> int:
         print(output[-3000:], file=sys.stderr)
         return 1
 
+    # M4 slice 4: the consumer-boundary scene. Runs the synthetic fixture
+    # assertions (index bytes/rect metadata as Godot actually receives them)
+    # and instantiates the indexed-atlas preview. It is fixture-only by
+    # construction and refuses --grp: the human gate uses a separate scene
+    # (atlas_preview_human.tscn), so this test never becomes conditional.
+    atlas_scene = run_godot(
+        godot, ["res://scenes/atlas_preview.tscn", "--quit-after", "3", "--"])
+    output = atlas_scene.stdout + atlas_scene.stderr
+    if atlas_scene.returncode != 0 or "M4 consumer boundary: OK" not in output \
+            or "M4 atlas preview: OK" not in output:
+        print(f"scene-check FAILED: atlas consumer boundary (exit "
+              f"{atlas_scene.returncode})", file=sys.stderr)
+        print(output[-3000:], file=sys.stderr)
+        return 1
+
+    # The human harness is exercised here too, against the same fixture, so it
+    # cannot rot between the human runs it exists for. It asserts only
+    # content-independent invariants, hence no fixture constants to keep in
+    # sync.
+    human = run_godot(
+        godot, ["res://scenes/atlas_preview_human.tscn", "--quit-after", "3", "--"])
+    human_output = human.stdout + human.stderr
+    if human.returncode != 0 or "atlas-preview: ready for inspection" not in human_output:
+        print(f"scene-check FAILED: human atlas harness (exit {human.returncode})",
+              file=sys.stderr)
+        print(human_output[-3000:], file=sys.stderr)
+        return 1
+
+    # ...and it must refuse to run the fixture-only test against real content.
+    guarded = run_godot(
+        godot, ["res://scenes/atlas_preview.tscn", "--quit-after", "3", "--",
+                "--grp", "/nonexistent.grp"])
+    if "only runs against the synthetic fixture" not in (guarded.stdout + guarded.stderr):
+        print("scene-check FAILED: the CI boundary test accepted --grp",
+              file=sys.stderr)
+        return 1
+
     print("scene-check: sample scene ran with the extension live")
+    print("scene-check: atlas consumer boundary + preview verified")
+    print("scene-check: human atlas harness runs and the CI test refuses real content")
     return 0
 
 

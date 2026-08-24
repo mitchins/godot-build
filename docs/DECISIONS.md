@@ -332,3 +332,71 @@ count error rather than silently loaded without content hashes. No such
 manifest has been published outside this branch: `fixtures/` carries source
 DSLs, and manifests are build output. Regenerate with `--init-manifest`.
 
+
+### D0015 — Indexed atlas: authoritative representation and namespace policy (M4)
+
+Status: accepted — human ratification 2026-08-24 (amended the same day: the
+numtiles "floor" was an invented semantic and is gone)
+Date: 2026-08-24
+Context: M4 slice 4 builds the atlas M5 will render from. Two policies had
+to be fixed before code: where RGBA may exist, and how multiple ART files
+form one picnum namespace.
+Decision:
+1. **The atlas is indexed, terminally.** Authoritative storage is
+   `std::vector<uint8_t> pixels` — one palette index per texel, row-major
+   pages. Every RGBA form anywhere is derived at a presentation boundary,
+   recomputed per call, never stored. `ci/check_layering.py` pins the
+   declaration; unit + scene tests pin the byte count at
+   page_width*page_height*page_count.
+2. **Namespace = union of declared ranges. `numtiles` controls nothing.**
+   Each ART file claims [localtilestart, localtileend]; overlapping claims are
+   rejected; gaps become explicit empty picnums (page = -1). The global
+   namespace size is `max(localtileend + 1)` over all files.
+
+   `numtiles` is preserved raw in `ArtData::numtiles_field` and consulted by
+   nothing. The published ART description (PROVENANCE row 10) states it is
+   unused and that the namespace comes from localtilestart/localtileend. Real
+   content shows only that it is **not an upper bound** — all 13 shipped files
+   declare 2816 while ranges reach 3327 — and nothing observed makes it a
+   lower bound. An earlier draft called it a "namespace floor", which was an
+   invented semantic: the first real-GRP run rejected on a `numtiles < end+1`
+   check, and the fix over-corrected from "do not trust it as a ceiling" to
+   "trust it as a floor". Since `max(end+1)` is 3328 and `numtiles` is 2816,
+   the floor never once changed the answer on real content. It only widened
+   the attack surface.
+
+   *Cost of the invented semantic, measured:* a 24-byte ART declaring range
+   0..0 with `numtiles = 2000000000` sized a two-billion-entry namespace —
+   **12.8 GiB resident, 234 s**. Ignoring `numtiles` removes that case
+   entirely with no cap involved: the same input completes in 0.4 s at 6.6
+   MiB.
+
+3. **The namespace cap protects a real allocation surface, not a wrong
+   reading.** The picnum namespace is legitimately sparse: two individually
+   valid 24-byte ART files declaring 0..0 and 2000000000..2000000000 size a
+   2e9-entry namespace with no misinterpretation anywhere (measured at 16 GiB
+   before the cap existed). `AtlasOptions::max_tile_count` bounds that, and
+   only that — the D0011 precedent, where a limit guards an unavoidable
+   allocation rather than concealing a semantic mistake.
+4. **Placement is deterministic and disposable.** Same assets -> same atlas
+   byte-for-byte (shelf packing in picnum order; pure function of dims and
+   options). Atlas coordinates are runtime products and may change when
+   packing changes; picnum identity is owned by the stable tile manifest
+   (D0014) and never by the atlas.
+5. **The column-major file-order claim is acted on exactly once**, at this
+   boundary: ART bytes are copied verbatim into the model (no
+   interpretation), and the atlas transpose (file column-major -> page
+   row-major) is the first and only place the published ordering claim
+   affects output. The synthetic fixture's asymmetric index formulas make a
+   transposition or off-by-one loud at the unit, fbtool, and Godot
+   consumer-boundary levels (each negative-tested by sabotage).
+6. **Consumer boundary is tested at the consumer.** The Godot scene reads
+   bytes/rects/metadata through the GDExtension API and re-derives expected
+   values from the fixture spec (never from the atlas itself). RGBA exists
+   only in `compute_tile_rgba` / preview images, recomputed each call.
+Consequences: M5 asks "give me picnum N" and receives stable metadata plus
+indexed texels without knowing whether assets came from loose files, one
+ART file, or thirteen inside a GRP (`load_asset_set` + `tile_bytes`).
+Rejection classes: overlap, malformed range, count/range mismatch, payload
+vs dims, area cap, page-overflow — all InvalidRange/TooLarge ParseErrors,
+never partial atlases.

@@ -31,6 +31,8 @@ enum class ErrorCode {
     InvalidNextSector,
     InvalidSpriteSector,
     InvalidTopology,
+    // ART composition / atlas (M4)
+    InvalidRange,
 };
 
 const char* error_code_name(ErrorCode code);

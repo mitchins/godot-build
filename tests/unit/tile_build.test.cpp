@@ -2,6 +2,7 @@
 #include <doctest/doctest.h>
 
 #include "fauxbuild/art.hpp"
+#include "fauxbuild/atlas.hpp"
 #include "fauxbuild/map_io.hpp"
 #include "fauxbuild/palette.hpp"
 #include "fauxbuild/tile_build.hpp"
@@ -465,6 +466,58 @@ pivot m 4 4
     const auto& frame0 = reread.value().tiles[2].pixels;
     const auto& frame1 = reread.value().tiles[3].pixels;
     CHECK(frame0 != frame1);
+}
+
+TEST_CASE("the palette test strip decodes to every index in order") {
+    // M4 gate item "palette test strip is correct". The strip existed as a
+    // fixture tile but nothing asserted it decoded correctly (found while
+    // auditing the gate before acceptance). Its contract: a 16x16 indexed tile
+    // whose pixel at row-major position i carries palette index i, so a human
+    // sees all 256 palette entries in order and a transposition or off-by-one
+    // is immediately visible.
+    auto ts = parse_tileset("tileset t\ntile strip 16 16 pattern=indexed\n", "strip");
+    REQUIRE(ts.is_ok());
+    TileManifest manifest;
+    auto built = build_art_from_tileset(ts.value(), manifest);
+    REQUIRE(built.is_ok());
+
+    SUBCASE("ART pixels carry each index exactly once") {
+        const auto& tile = built.value().art.tiles[0];
+        REQUIRE(tile.pixels.size() == 256);
+        std::vector<int> seen(256, 0);
+        for (const auto index : tile.pixels) {
+            ++seen[index];
+        }
+        for (std::size_t i = 0; i < seen.size(); ++i) {
+            CHECK(seen[i] == 1); // every palette index present, none twice
+        }
+    }
+
+    SUBCASE("the atlas places index i at row-major position i") {
+        // This is the load-bearing part: ART is column-major on disk and the
+        // atlas transposes to row-major. A wrong transpose still yields all
+        // 256 indices -- only their order exposes it.
+        auto atlas = fauxbuild::build_indexed_atlas({built.value().art}, fauxbuild::AtlasOptions{});
+        REQUIRE(atlas.is_ok());
+        const auto& entry = atlas.value().tiles[0];
+        REQUIRE(entry.populated);
+        REQUIRE(entry.width == 16);
+        REQUIRE(entry.height == 16);
+        int wrong = 0;
+        for (int y = 0; y < entry.height; ++y) {
+            for (int x = 0; x < entry.width; ++x) {
+                const std::size_t at =
+                    static_cast<std::size_t>(entry.page) * atlas.value().page_width *
+                        atlas.value().page_height +
+                    static_cast<std::size_t>(entry.y + y) * atlas.value().page_width +
+                    static_cast<std::size_t>(entry.x + x);
+                if (atlas.value().pixels[at] != static_cast<std::uint8_t>(y * 16 + x)) {
+                    ++wrong;
+                }
+            }
+        }
+        CHECK(wrong == 0);
+    }
 }
 
 TEST_CASE("palette build is deterministic, 6-bit, and shade-monotone") {

@@ -1,6 +1,8 @@
 #include <godot_cpp/core/class_db.hpp>
 #include <godot_cpp/godot.hpp>
 
+#include "fauxbuild_godot/faux_asset_set.hpp"
+#include "fauxbuild_godot/faux_atlas_preview.hpp"
 #include "fauxbuild_godot/fauxbuild_runtime.hpp"
 #include "fauxbuild_godot/fauxbuild_view.hpp"
 
@@ -12,6 +14,8 @@ void initialize_fauxbuild_extension(godot::ModuleInitializationLevel level) {
     }
     godot::ClassDB::register_class<fauxbuild_godot::FauxBuildRuntime>();
     godot::ClassDB::register_class<fauxbuild_godot::FauxBuildView>();
+    godot::ClassDB::register_class<fauxbuild_godot::FauxAssetSet>();
+    godot::ClassDB::register_class<fauxbuild_godot::FauxAtlasPreview>();
 }
 
 void uninitialize_fauxbuild_extension(godot::ModuleInitializationLevel level) {
