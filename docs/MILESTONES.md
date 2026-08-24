@@ -1149,7 +1149,17 @@ portal-span summary, the zero-area diagnostic path (exit 0, floors 0,
 miss, and three usage errors. Negative-tested — ignoring structural failures in
 the command turns the gate red (`exit -6, expected 1`).
 
-**Slice 1 is not accepted**; the HUMAN-ATTESTED checkbox is the reviewer's.
+**Slice 1 — HUMAN-ATTESTED PASS 2026-08-24** by mitchellcurrie. Untouched
+local `E1L1.MAP` loaded directly through `DUKE3D.GRP` with the shipped
+`fbtool inspect-structural`: 317 sectors / 1937 walls -> **1936 structural
+surfaces, 5134 triangles, 0 diagnostics, validation OK**. No extraction, no
+conversion, no generated authority, and no proprietary data entered the
+repository or CI.
+
+That attestation is what the amendment existed to make possible. Before it,
+the same map could not be built at all (sector 147 fatal), and the strongest
+evidence lived in an ad-hoc harness nobody else could run.
+
 Slice 2 was not started.
 ## M6 — Slopes, indexed textures, flags, and sprites — NOT_STARTED
 
