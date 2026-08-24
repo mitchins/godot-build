@@ -6,11 +6,14 @@ The full implementation contract is `docs/PROJECT_CONTRACT.md` and the source pl
 
 ## Active milestone
 
-**M4 — ART, palette, lookup, and tile tooling: NOT_STARTED.**
-
-M3 (MAP v7 parser, validator, canonical writer) was **ACCEPTED 2026-08-23**
-after six review rounds: all eight gates met, D0012 ratified, gates 3.5
-(Mapster32 round-trip) and 3.6 (real E1L1) HUMAN-ATTESTED per D0009.
+**M4 — ART, palette, lookup, and tile tooling: IN_PROGRESS.** Slices 1-3 of 4
+delivered and reviewed (palette/lookup, ART + picanm, fixture compilers +
+stable tile manifest). D0013 and D0014 both accepted; D0014 was amended after
+review — picnum assignment is immutable, artwork is not, and intentional
+updates go through `--accept-tile-update`. Remaining: slice 4 (atlas builder +
+indexed preview), whose two hard gates are that real assets reach the atlas
+through the GRP mount with **no extraction step**, and that **no RGBA
+representation becomes authoritative** — tiles stay palette indices.
 
 ## Repository boundary and evidence classes
 

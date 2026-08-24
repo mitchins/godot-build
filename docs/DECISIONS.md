@@ -224,3 +224,111 @@ Decision:
 Consequences: validators stay deterministic and fail-closed; every rule above
 is covered by a named test case in tests/unit/map_validate.test.cpp.
 
+### D0013 — PALETTE.DAT table region beyond the declared count (M4)
+
+Status: accepted (human ratification 2026-08-23, slice-1 review: "ratify it
+as written"; refutation independently reproduced by the reviewer)
+Date: 2026-08-23
+Context: the published PALETTE.DAT description (ModdingWiki, PROVENANCE row 11)
+models the file as 768-byte palette + int16 numpalookups + numpalookups*256
+shade tables + 65536 translucency. Corroborated against the legally owned
+DUKE3D.GRP: the declared count (32) is honored as the palette-0 shade ramp,
+but the file contains 64 tables' worth of bytes before the translucency
+region; the size equation closes only with 64 tables. The extra 32 tables are
+undeclared in-band. Property evidence: tables 0..31 form a monotone shade ramp
+(table 0 is 255/256 identity; distinct-value count collapses monotonically to
+18); table 32 breaks every property of that ramp (identity hits drop to 3,
+distinct values jump to 139) — the boundary is real, not an artifact.
+Decision:
+1. `read_palette_dat` accepts the file iff the total arithmetic closes exactly
+   (770 + 256*k + 65536 == size, k >= declared count). The bytes between the
+   declared tables and the translucency region are preserved verbatim as
+   `extra_tables` — parsed structure, no interpretation.
+2. Canonical write emits the region verbatim; round-trip is byte-identical
+   (unit-tested, fuzz-enforced).
+3. No attempt is made to name the extra tables (candidate hypotheses —
+   per-palette shade tables, etc. — are not encoded) until a genuine consumer
+   exists; guessing semantics ahead of need is the pre-building AGENTS.md
+   forbids.
+Consequences: real PALETTE.DAT files load and rewrite byte-identically; other
+Build games' palettes that pack a different number of tables still parse under
+the same closure rule; the deviation from the published description is bounded
+and recorded here and in COMPATIBILITY_SCOPE row 0b.
+
+Additional consequence (slice-1 review finding 1), inherent to sizing the
+table region from the file: **truncation inside the extra region is
+undetectable**. Removing k*256 bytes (k <= 32 on real content) still closes
+arithmetically, and the translucency window slides by the removed bytes —
+wrong colour data with no error. This is a property of the format, not a
+parser choice: the declared count cannot size the region without rejecting
+real content. Mitigation, adopted as policy: content read through a GRP mount
+has an authoritative entry length (the container validates offset+size), so
+truncation is caught at the container layer; the exposure is loose files
+only. Tooling therefore defaults to mount-based reads (fbtool --grp), and the
+slice-1 record notes that plain-file palette loads of unknown provenance
+should not be trusted for rendering.
+
+### D0014 — Tile manifest format and stability semantics (M4)
+
+Status: accepted — human ratification 2026-08-24 (amended from the content-immutable draft the same day)
+Date: 2026-08-23 (amended 2026-08-24)
+Context: plan §7.5 requires a stable tile manifest ("never casually renumber
+tiles after maps exist"). The M4 brief demands the stability property as a
+test, not a comment. This record proposes the format and the semantics the
+tests enforce.
+Decision:
+1. Format (v2): deterministic text, one entry per tile — `picnum name w h xc
+   yc anim frames speed content` with whole-line `#` comments (frame entries
+   legitimately contain `#` in names, so trailing comments are not supported).
+   `content` is fnv1a64 of the tile's pixel bytes, written as exactly 16
+   lowercase hex digits and parsed strictly. Canonical write is stable across
+   rewrites.
+2. The manifest is the picnum authority. Builds assign new tiles as max+1;
+   animation sets occupy `frames` consecutive entries named `name#k`, with
+   only the anchor (`#0`) recording frame count and animation type.
+3. **Picnum assignment is immutable; artwork is not.** Existing logical tiles
+   never move because source files were reordered or new tiles were inserted.
+   New logical tiles receive max(picnum)+1. The manifest is the picnum
+   authority; source order is never consulted. Tested.
+4. **The content hash is a change detector, not the tile's identity.** Name,
+   dims, pivot and animation together do not pin what a picnum draws — a tile
+   can keep all of them and change its pattern — so the hash exists to catch
+   that drift. It does *not* make artwork immutable. FNV-1a64 is adequate: this
+   is a drift detector, not an adversarial boundary.
+5. **Unacknowledged change fails closed.** If pixels, dims, pivot or animation
+   differ from the manifest, the ordinary build fails and names exactly what
+   changed and which picnum is affected.
+6. **Intentional updates have an explicit acceptance path that preserves the
+   picnum**: `fbtool build-art ... --accept-tile-update <name>` (core:
+   `TileUpdateAcceptance`). It refreshes the stored hash and metadata and
+   **never** the number. Acceptance is per-tile — accepting one tile does not
+   excuse drift in another — and `name` accepts a whole animation set while
+   `name#k` accepts a single frame. Redrawing an enemy twenty times while it
+   stays picnum 417 is ordinary authoring and must not require ceremony beyond
+   saying so.
+7. **Rename and removal are not automatic.** Removal is a hard error today;
+   picnums are never compacted or recycled. A future intentional rename or
+   retire must preserve or tombstone the number rather than freeing it for
+   reuse — the one thing that must never happen is a later tile inheriting a
+   retired picnum.
+Consequences: `fbtool build-art --init-manifest` bootstraps; later builds
+pass `--manifest`. The stable-rebuild contract (identical manifest text) and
+the add/remove/reshape unit properties live in
+tests/unit/tile_build.test.cpp; the removal check was negative-tested
+(sabotaged to tolerate removals -> suite red), as was the content check
+(removed -> suite red at the same-shape-different-pixels case; CI probe red
+with "wrote output despite failing the stability check").
+
+**Amendment history.** The first implementation made content *immutable*:
+any pixel change was a hard error with no way to say "yes, I meant that". The
+human reviewer rejected that contract — "changing the pixels of an existing
+tile is a completely normal part of making a game" — and it is now rules 3-6
+above. The correct invariant is **maps own numbers; artists may continue
+making art.** The drift detection was kept; only the refusal to accept an
+intentional change was wrong.
+
+Manifests written before v2 have nine fields and are rejected with a field
+count error rather than silently loaded without content hashes. No such
+manifest has been published outside this branch: `fixtures/` carries source
+DSLs, and manifests are build output. Regenerate with `--init-manifest`.
+

@@ -43,13 +43,22 @@ def check_known_vectors() -> list[str]:
     ]
 
 
-def compute_manifest() -> list[str]:
+# Exact match only: a prefix rule (README*) would let files like
+# README_evil.bin evade the integrity gate while still being loaded as seeds by
+# the fuzz driver (slice-2 review finding 1).
+EXCLUDED_NAMES = {"MANIFEST", ".gitkeep", "README.md"}
+
+
+def compute_manifest(root: pathlib.Path = ROOT) -> list[str]:
+    """Manifest lines for a corpus tree. `root` is a parameter so the filtering
+    contract can be probed against a scratch tree instead of mutating the real
+    one -- gates run in parallel and must never write into the repository."""
     lines = []
-    for group in sorted(ROOT.glob("tests/fuzz/*/")):
+    for group in sorted(root.glob("tests/fuzz/*/")):
         for path in sorted(group.rglob("*")):
-            if not path.is_file() or path.name == "MANIFEST" or path.name == ".gitkeep":
+            if not path.is_file() or path.name in EXCLUDED_NAMES:
                 continue
-            rel = path.relative_to(ROOT).as_posix()
+            rel = path.relative_to(root).as_posix()
             data = path.read_bytes()
             lines.append(f"{fnv1a64(data):016x} {len(data):>8} {rel}")
     return lines

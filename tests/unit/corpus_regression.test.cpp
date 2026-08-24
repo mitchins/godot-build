@@ -8,9 +8,11 @@
 
 #include <doctest/doctest.h>
 
+#include "fauxbuild/art.hpp"
 #include "fauxbuild/grp.hpp"
 #include "fauxbuild/map_io.hpp"
 #include "fauxbuild/map_validate.hpp"
+#include "fauxbuild/palette.hpp"
 
 namespace {
 
@@ -95,6 +97,69 @@ TEST_CASE("committed MAP corpus and regression inputs parse without crashing") {
     }
 
     CHECK(files >= 6);
+    CHECK(parsed_ok >= 3);
+    CHECK(parsed_err >= 2);
+}
+
+TEST_CASE("committed palette corpus and regression inputs parse without crashing") {
+    const std::filesystem::path tests_dir =
+        std::filesystem::path(__FILE__).parent_path().parent_path();
+    const std::filesystem::path fuzz_dir = tests_dir / "fuzz";
+
+    int parsed_ok = 0;
+    int parsed_err = 0;
+    int files = 0;
+    for (const char* group : {"corpus/palette", "regression/palette"}) {
+        for (const auto& path : collect(fuzz_dir / group)) {
+            ++files;
+            const auto bytes = read_bytes(path);
+            const std::string_view v(reinterpret_cast<const char*>(bytes.data()), bytes.size());
+            auto palette = fauxbuild::read_palette_dat(v, path.filename().string());
+            auto lookup = fauxbuild::read_lookup_dat(v, path.filename().string());
+            if (palette.is_ok()) {
+                ++parsed_ok;
+                auto written = fauxbuild::write_palette_dat(palette.value());
+                REQUIRE(written.is_ok());
+                CHECK(written.value() == bytes); // verbatim, not merely same length
+            } else if (lookup.is_ok()) {
+                ++parsed_ok;
+            } else {
+                ++parsed_err;
+            }
+        }
+    }
+
+    CHECK(files >= 6);
+    CHECK(parsed_ok >= 3);
+    CHECK(parsed_err >= 2);
+}
+
+TEST_CASE("committed ART corpus and regression inputs parse without crashing") {
+    const std::filesystem::path tests_dir =
+        std::filesystem::path(__FILE__).parent_path().parent_path();
+    const std::filesystem::path fuzz_dir = tests_dir / "fuzz";
+
+    int parsed_ok = 0;
+    int parsed_err = 0;
+    int files = 0;
+    for (const char* group : {"corpus/art", "regression/art"}) {
+        for (const auto& path : collect(fuzz_dir / group)) {
+            ++files;
+            const auto bytes = read_bytes(path);
+            const std::string_view v(reinterpret_cast<const char*>(bytes.data()), bytes.size());
+            auto art = fauxbuild::read_art(v, path.filename().string());
+            if (art.is_ok()) {
+                ++parsed_ok;
+                auto written = fauxbuild::write_art(art.value());
+                REQUIRE(written.is_ok());
+                CHECK(written.value() == bytes); // verbatim round-trip
+            } else {
+                ++parsed_err;
+            }
+        }
+    }
+
+    CHECK(files >= 7);
     CHECK(parsed_ok >= 3);
     CHECK(parsed_err >= 2);
 }

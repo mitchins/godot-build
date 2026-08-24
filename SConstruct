@@ -100,6 +100,10 @@ core_sources = [
     f'{bdir}/core/src/map_validate.cpp',
     f'{bdir}/core/src/map_diff.cpp',
     f'{bdir}/core/src/map_synth.cpp',
+    f'{bdir}/core/src/palette.cpp',
+    f'{bdir}/core/src/art.cpp',
+    f'{bdir}/core/src/tile_manifest.cpp',
+    f'{bdir}/core/src/tile_build.cpp',
 ]
 core_objects = env.Object(core_sources)
 core = env.StaticLibrary(f'{bdir}/libfauxbuild_core', core_objects)
@@ -113,6 +117,10 @@ if cfg == 'fuzz':
          ['tests/fuzz/corpus/grp', 'tests/fuzz/regression/grp']),
         ('map', 'fauxbuild_fuzz_map',
          ['tests/fuzz/corpus/map', 'tests/fuzz/regression/map']),
+        ('palette', 'fauxbuild_fuzz_palette',
+         ['tests/fuzz/corpus/palette', 'tests/fuzz/regression/palette']),
+        ('art', 'fauxbuild_fuzz_art',
+         ['tests/fuzz/corpus/art', 'tests/fuzz/regression/art']),
     ]:
         program = env.Program(f'{bdir}/{target}',
                               [f'{bdir}/tests/fuzz/{name}_fuzz.cpp',
@@ -132,6 +140,14 @@ if cfg == 'fuzz':
             ['python3 ci/check_fuzz_gate.py ${SOURCE.abspath}', Touch('$TARGET')])
         env.AlwaysBuild(gate)
         fuzz_runs.append(gate)
+        # The loader and the manifest gate must agree on exactly which files
+        # are seeds, or a file can influence fuzzing while evading the
+        # integrity check. Executable evidence, not just implementation.
+        filter_gate = env.Command(
+            f'{bdir}/corpus_filter_{name}.stamp', [program],
+            ['python3 ci/check_corpus_filter.py ${SOURCE.abspath}', Touch('$TARGET')])
+        env.AlwaysBuild(filter_gate)
+        fuzz_runs.append(filter_gate)
     Alias('all', fuzz_targets)
     Alias('fuzz', fuzz_runs)
     Default('all')
@@ -151,7 +167,8 @@ if host_build:
     fbtool_env.Append(CPPPATH=['#'])
     fbtool = fbtool_env.Program(
         f'{bdir}/fbtool',
-        [f'{bdir}/tools/fbtool/main.cpp', f'{bdir}/tools/fbtool/map_commands.cpp'],
+        [f'{bdir}/tools/fbtool/main.cpp', f'{bdir}/tools/fbtool/map_commands.cpp',
+         f'{bdir}/tools/fbtool/palette_commands.cpp', f'{bdir}/tools/fbtool/art_commands.cpp', f'{bdir}/tools/fbtool/build_commands.cpp'],
         LIBS=[core])
 
     tests_env = env.Clone()
@@ -169,6 +186,9 @@ if host_build:
             f'{bdir}/tests/unit/map_reader.test.cpp',
             f'{bdir}/tests/unit/map_validate.test.cpp',
             f'{bdir}/tests/unit/map_synth.test.cpp',
+            f'{bdir}/tests/unit/palette.test.cpp',
+            f'{bdir}/tests/unit/art.test.cpp',
+            f'{bdir}/tests/unit/tile_build.test.cpp',
             f'{bdir}/tests/unit/byte_reader.test.cpp',
         f'{bdir}/tests/unit/file_io.test.cpp',
             f'{bdir}/tests/unit/grp.test.cpp',

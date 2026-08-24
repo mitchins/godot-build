@@ -540,7 +540,222 @@ Deferred to M6 (not M3 debt):
   n=5,355 corroboration already settle it; ruled not worth the operating cost.
 Do not implement rendering, collision, Duke tags, or game logic.
 
-## M4 — ART, palette, lookup, and tile tooling — NOT_STARTED
+## M4 — ART, palette, lookup, and tile tooling
+
+Status: **IN_PROGRESS** — slices 1-3 of 4 delivered and reviewed; slice 4
+(atlas builder + indexed preview) not started. D0013 accepted; D0014 accepted
+as amended 2026-08-24.
+Started: 2026-08-23
+
+Delivery is sliced per the M4 task brief; each slice stops for review.
+
+### Slice 2 — ART container and tile metadata (delivered 2026-08-23)
+
+- Corroborated before encoding (method per brief): version==1; numtiles is a
+  GLOBAL count (2816 in every shipped file) vs per-file n=256 — the wiki's
+  "unused" is really "not per-file"; ranges chain 0..255/256..511/512..767;
+  16 + n*8 + sum(w*h) closes EXACTLY on all three files; picanm structurally
+  corroborated (anim types dominated by 0 with a small animated minority,
+  frames <= 15 < 64, speeds set ~only on animated tiles, centers small
+  signed). Pixel ordering is not size-distinguishable: stored VERBATIM, zero
+  conversion, interpretation deferred to the presentation boundary.
+  COMPATIBILITY_SCOPE 0d records all of it.
+- `read_art`/`write_art`: version/range validated before allocation; dims
+  region fit-checked before arrays; per-tile pixel reads bounds-checked;
+  exact closure (no trailing bytes); byte-identical round-trip
+  (fuzz-enforced). `PicanmBits` decodes named fields AND preserves the raw
+  dword.
+- `fbtool dump-art` (generic stats by default, --verbose first-8 detail,
+  --grp mount reads, no extraction); contracts in ci/check_fbtool.py.
+- Tests: +7 cases (74 -> 81); non-sweep assertion growth is the meaningful
+  number (per slice-1 review finding 2). ART corpus (7 seeds incl. bad
+  version/range/trailing/truncated); MANIFEST 27 entries; corpus regression
+  covers ART.
+- Dev evidence (generic metadata only): TILES000.ART via --grp parses clean,
+  output matches the corroboration numbers exactly (256 tiles, 4 animated,
+  max 142x400, 152 zero-dim). Nothing extracted; no real bytes or hashes
+  committed.
+
+### Slice 3 — fixture compilers and stable tile manifest (delivered 2026-08-23)
+
+- Slice-2 review findings 1-3 landed first (loader .bin-only + exact
+  README.md manifest exclusion — both probe-verified; dump-art independent
+  maxima + largest actual tile; corroboration wording corrected in
+  PROVENANCE 10 / COMPATIBILITY 0d).
+- `tile_manifest` (core): the picnum authority — append-only max+1,
+  immutable entries, whole-line comments (frame names contain '#').
+  D0014 records format + semantics (accepted as amended 2026-08-24;
+  see the residual review below — the first draft made artwork immutable).
+- `tile_build` (core): original text DSLs (tileset + palette spec, no image
+  dependencies — PNG import is game-repo pipeline work), deterministic
+  pattern generators, animation sets as consecutive frame tiles with
+  anchor-carried metadata; palette generation (luminance shade tables,
+  nearest-entry translucency and tint swaps) is fully original.
+- `fbtool build-art` / `build-palette` (plan §13 names); compiler sources
+  documented in tools/art_compiler + tools/palette_compiler READMEs (all
+  linked through the core; no duplicated parsers).
+- fixtures/source: diagnostics.tileset (13 tiles incl. 4-frame animation,
+  palette strip), diagnostic.palette (16 ramps, 4 swaps, 256/256 entries).
+- Tests: 81 -> 90 cases. STABILITY is a tested property (add -> prior
+  picnums byte-identical + new tile = max+1; remove/reshape -> hard error),
+  negative-tested by sabotaging the removal check (suite red, restored
+  green). fbtool contract includes the stable-rebuild identity (init ->
+  rebuild -> manifest text identical) and usage/malformed cases.
+
+Slice-3 review (2026-08-23) — one finding, fixed:
+
+- **The stability contract guarded shape but not content.** Name, dims, pivot
+  and animation together do not pin what a picnum draws. Reviewer probe:
+  rebuilding `tile alpha 8 8 pattern=solid color=1` as `color=9` was
+  **accepted** — picnum 0 kept its name and shape while its pixels became a
+  different picture, so every map referencing it would silently draw something
+  else. That is precisely what a stable manifest exists to prevent.
+  Fixed by adding an fnv1a64 content hash as a tenth manifest field (format
+  v2, D0014 updated) and comparing it in the build-time stability pass.
+  The same probe now reports:
+  `tile 'alpha' has the same shape but different pixels than the manifest
+  records; picnum content is immutable`.
+  The reviewer's other three probes — reorder tiles, insert a tile ahead of
+  existing ones, rename — already behaved correctly and are now pinned by
+  tests rather than left to chance.
+- Negative-tested both directions: removing the content comparison turns the
+  suite red at the new case, and the CI probe red with "wrote output despite
+  failing the stability check"; a tampered source is rejected end-to-end
+  through `fbtool build-art` (exit 1, no output written).
+- Manifest format v1 -> v2 is a hard break: nine-field manifests are rejected
+  with a field-count error rather than loaded without hashes. Manifests are
+  build output, not source, so nothing published needs migrating.
+- Also fixed: `kTilesetB` declared `tileset stability_a`; changing the tileset
+  name is accepted and does not renumber (now stated in D0014 rule 5).
+
+Slice-3 residual review (2026-08-24) — human ruling + CodeRabbit, blocked and fixed:
+
+**The contract was wrong, not just incomplete.** The reviewer rejected
+content-immutability outright: *"changing the pixels of an existing tile is a
+completely normal part of making a game... maps own numbers, artists may
+continue making art."* The drift detection was right; refusing to accept an
+intentional repaint was not. D0014 amended (rules 3-7): picnum assignment is
+immutable, the hash is a change detector, unacknowledged drift fails closed,
+and `--accept-tile-update <name>` refreshes the record while never moving the
+number. Acceptance is per-tile; the error message names the flag to use.
+
+Nine substantive defects, each reproduced before being fixed and each pinned by
+a regression test:
+
+| defect | evidence before fix |
+|---|---|
+| `square=0` / `major=0` divide by zero | UBSan halt at tile_build.cpp:80 |
+| unknown pattern name reaches generation | accepted, produced fallback pixels |
+| dead loop indexing `fields[3][2]` on a 1-char token | out of bounds, result discarded |
+| `picanm` raw not repacked after mutation | decoded frames=0, raw=1, **emitted ART=1** |
+| malformed `TileManifest` passed directly | public entry point trusted its input |
+| manifest integer narrowing | width 70000 became 4464, then validated |
+| LOOKUP writer count truncation | 256 swaps wrapped to 0 |
+| empty tileset | emitted ART range `0..-1` |
+| input/output path collisions | build could overwrite its own source |
+
+The `picanm` one is the milestone's most important find and vindicates the
+checkpoint strategy: the in-memory struct and the serialized artifact
+disagreed, so unit tests asserting on the decoded fields passed while the ART
+written to disk carried different animation metadata. That is the same failure
+class as M2's GRP header — our own writer and tests agreeing with each other's
+mistake — caught here one layer earlier.
+
+**`ci/check_fbtool.py`'s shebang had been rewritten to `#!/ usr / bin / env
+python3`** by clang-format being run over a Python file (entered at 1fccd7f).
+Restored, and `ci/check_format.py` now (a) formats only C/C++ suffixes via an
+explicit constant and (b) fails if any committed Python file carries a mangled
+shebang. Negative-tested: re-introducing the corruption turns the gate red.
+
+Also: explicit `entry` lines no longer silently lose to a covering `ramp`;
+the palette corpus regression compares bytes rather than length; D0013's body
+said "Decision (proposed)" under an accepted header; stale `dump-art` help text
+and a `tile_manifest.test.cpp` reference that never existed.
+
+Slice-3 residual round 2 (2026-08-24) — D0014 ratified as amended; eight items:
+
+- **`speed` was validated against uint8 while picanm serializes 4 bits.**
+  Reproduced: `speed=-1` reached the manifest as 255 and the wire as 15;
+  `speed=16` reached the manifest as 16 and the wire as 0 — the manifest and
+  the emitted ART disagreeing, the same class as the `meta.raw` bug.
+  Constrained to 0..15 at tileset parse time; the manifest parser likewise now
+  bounds `frames` to 6 bits and `speed` to 4 rather than to uint8. Standing
+  rule from this: **never validate against the convenience representation when
+  the wire representation is narrower.**
+- **The Python comment damage was wider than the shebang.** Seventeen
+  historical comments restored verbatim from 417396e (the last pre-corruption
+  revision) and the M4-era ones repaired by hand; the earlier claim that
+  comments were fixed covered a single string. Every committed `.py` is clean.
+- **The CRLF manifest test was fake-green**: it inserted one CR into a header
+  comment, and comment lines are skipped whole, so the entry line never saw a
+  CR. It now converts every line ending and asserts the trailing content hash
+  survives. Negative-tested: disabling CR stripping turns it red, which the
+  old version did not.
+- **Corpus filtering is now executable evidence** (`ci/check_corpus_filter.py`,
+  wired into `fuzz`): README.md is neither seed nor manifest entry, a non-.bin
+  is not a seed, a README_*.bin is both. Both regressions are detectable —
+  reverting the loader to accept any file, and widening the manifest exclusion
+  back to a prefix rule, each turn it red.
+- **GRP-backed positive traces for `dump-art`/`dump-palette`/`dump-lookup`**,
+  with case-folded hits, structured misses, and byte-identical agreement with
+  the loose-file path. Slice 4 consumes exactly this route, so it inherits a
+  proven mount rather than being its first caller.
+- `.c` added to the formatter suffixes; slice status corrected here and in
+  AGENTS.md; D0014 recorded accepted.
+- The first version of that filter gate wrote its probe into the real corpus
+  tree; SCons runs the four instances in parallel, so they raced and Linux CI
+  went red. Caught by CI, not locally, because a single-threaded local run
+  never overlapped. `compute_manifest` now takes a root and the probe builds a
+  scratch tree — a gate must never mutate the repository it is checking.
+
+Slice-3 residual round 3 (2026-08-24) — one doc fix, one finding rejected:
+
+- Fixed: an older slice summary still said "D0014 (proposed)" while the header
+  and review record said accepted.
+- **Rejected** (CodeRabbit, `check_fbtool.py`): the claim that `proc` is
+  overwritten between the GRP `dump-art` call and the final comparison, so the
+  comparison tests the wrong thing. Inapplicable to current code — only the
+  GRP `dump-art` call assigns `proc`; every intervening palette/lookup/miss
+  call is a bare `run(...)`. Verified by execution rather than by reading:
+  introducing a line that appears **only** on the GRP path produces
+  `dump-art: GRP-backed output differs from the loose-file output`, so the
+  comparison does bind, and against the operand the finding says it has lost.
+
+**Pattern worth naming.** M4 caught the same defect class three separate ways —
+a parser accepting values its serialized form cannot hold (`speed`), a manifest
+recording a value wider than the wire field (`frames`/`speed`), and a
+serializer emitting a stale packed field after the decoded view was mutated
+(`picanm.raw`). All three are one failure: **an internal representation and the
+bytes that actually cross a boundary disagreeing, with tests asserting on the
+internal one.** That is why slice 4 must test the atlas as the consumer
+receives it, not as the builder assembled it.
+- Built artifacts verified through the M2/M4 stack: built ART parses via
+  read_art, round-trips byte-identically, dump-art stats consistent.
+
+### Slice 1 — palette, lookup, shade tables (delivered 2026-08-23)
+
+- Format facts corroborated against the legally owned content BEFORE encoding
+  (method per brief): LOOKUP.DAT closes exactly (1 + 25*257 + 5*768; swap
+  indices are a permutation of 1..25; alt palettes are 6-bit). PALETTE.DAT
+  refuted the published size equation: declared count 32, actual table region
+  64 tables — deviance preserved and recorded as D0013 (accepted) +
+  COMPATIBILITY_SCOPE 0b/0c + PROVENANCE rows 10/11.
+- `read_palette_dat` / `read_lookup_dat` / canonical writers: bounded, counts
+  validated before allocation, fail-closed structured errors, byte-identical
+  round-trip for anything that parses (fuzz-enforced invariant).
+- `fbtool dump-palette` / `dump-lookup` (incl. `--grp`, reading through the
+  VFS mount — no extraction); contracts in ci/check_fbtool.py (happy,
+  malformed exit 1, usage exit 2).
+- Tests: +10 cases (64 -> 74); non-parametric assertions ~1,757 (+86 this
+  slice). The 69,348 headline from the raw run is 97.5% prefix-sweep
+  repetitions and is NOT a quality number (slice-1 review finding 2);
+  report cases + non-sweep counts from here on. Palette corpus (6 seeds)
+  committed; MANIFEST regenerated (20 entries); corpus regression test
+  extended to palette inputs.
+- Gates touched: "Palette test strip is correct" waits on the slice-3
+  compiler; no gate is ticked by slice 1. Dev evidence on real content:
+  dump-palette/dump-lookup through --grp parse clean (output in slice report;
+  no proprietary bytes committed).
 
 Gate summary: fixture tiles decode exactly; palette test strip correct; pivot/animation
 round-trip; local Duke tile atlas inspectable without extraction; no RGBA-only assumption;

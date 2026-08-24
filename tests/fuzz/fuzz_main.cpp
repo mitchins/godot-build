@@ -63,6 +63,12 @@ bool load_corpus(const Options& options, std::vector<std::vector<std::uint8_t>>&
             if (!it->is_regular_file(ec) || ec) {
                 continue;
             }
+            // Seeds are .bin files only: documentation and any future scratch
+            // formats must never run as inputs, and every input the loader
+            // accepts is covered by the MANIFEST integrity gate.
+            if (it->path().extension() != ".bin") {
+                continue;
+            }
             std::FILE* file = std::fopen(it->path().string().c_str(), "rb");
             if (!file) {
                 std::fprintf(stderr, "fuzz-driver: cannot read corpus file '%s'\n",

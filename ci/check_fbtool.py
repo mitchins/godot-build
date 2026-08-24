@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""fbtool command-contract gate: exercises dump-grp / gen-grp end to end.
+"""fbtool command-contract gate: exercises dump-grp/gen-grp end to end.
 
 Command behaviour is a contract like any other (AGENTS.md rule 6). These are
 process-level checks because exit codes and stdout are the contract, and the
@@ -171,6 +171,223 @@ with tempfile.TemporaryDirectory() as tmp:
     run(["gen-map", "--fixture", "--out", str(pathlib.Path(tmp) / "y.MAP")], 2,
         "gen-map --fixture needs a value")
 
+    # ---------------- palette/lookup commands (M4 slice 1) ----------------
+    import struct as _struct
+    pal = pathlib.Path(tmp) / "synth.dat"
+    pal_bytes = bytearray(i % 64 for i in range(768))
+    pal_bytes += _struct.pack("<H", 2)
+    pal_bytes += bytes(256 * 2) + bytes(256 * 3)  # 2 declared + 3 extra tables
+    pal_bytes += bytes(65536)
+    pal.write_bytes(pal_bytes)
+    run(["dump-palette", str(pal)], 0, "dump-palette", expect_out="shade tables: 2")
+    proc = run(["dump-palette", str(pal)], 0, "dump-palette again")
+    if "extra tables: 768 bytes (3 tables" not in proc.stdout:
+        failures.append("dump-palette: extra tables not reported")
+    if "6-bit VGA" not in proc.stdout:
+        failures.append("dump-palette: 6-bit detection missing")
+
+    lut = pathlib.Path(tmp) / "synth_lut.dat"
+    lut_bytes = bytearray([1, 4]) + bytes(256) + bytes(i % 64 for i in range(768))
+    lut.write_bytes(lut_bytes)
+    run(["dump-lookup", str(lut)], 0, "dump-lookup", expect_out="swaps: 1")
+    run(["dump-lookup", str(lut)], 0, "dump-lookup alts", expect_out="alt palettes: 1")
+
+    bad = pathlib.Path(tmp) / "bad.dat"
+    bad.write_bytes(b"\x00" * 40)
+    run(["dump-palette", str(bad)], 1, "dump-palette truncated", expect_err="truncated")
+    empty_lut = pathlib.Path(tmp) / "empty_lut.dat"
+    empty_lut.write_bytes(b"")
+    run(["dump-lookup", str(empty_lut)], 1, "dump-lookup truncated", expect_err="truncated")
+    ragged = pathlib.Path(tmp) / "ragged.dat"
+    ragged.write_bytes(bytes(768) + _struct.pack("<H", 0) + bytes(65536 + 7))
+    run(["dump-palette", str(ragged)], 1, "dump-palette ragged", expect_err="trailing_data")
+    run(["dump-palette", "--bogus", str(pal)], 2, "dump-palette unknown option")
+    run(["dump-palette", "--grp"], 2, "dump-palette dangling option")
+    run(["dump-lookup"], 2, "dump-lookup arity")
+
+#-- -- -- -- -- -- -- -- ART command(M4 slice 2) -- -- -- -- -- -- -- --
+    import struct as _s2
+    art = pathlib.Path(tmp) / "synth.art"
+    specs = [(0, 0, 0), (8, 8, 0x02000043), (3, 2, 0), (1, 1, 0)]  # frames=3 type=1 speed=2
+    art_bytes = bytearray(_s2.pack("<iiii", 1, 2816, 0, 3))
+    art_bytes += b"".join(_s2.pack("<h", w) for w, _, _ in specs)
+    art_bytes += b"".join(_s2.pack("<h", h) for _, h, _ in specs)
+    art_bytes += b"".join(_s2.pack("<i", m) for _, _, m in specs)
+    n = 0
+    for w, h, _ in specs:
+        for _ in range(w * h):
+            art_bytes.append(n & 0xFF)
+            n += 1
+    art.write_bytes(art_bytes)
+    run(["dump-art", str(art)], 0, "dump-art",
+        expect_out="tile range: 0..3 (4 tiles; numtiles field: 2816, global)")
+    proc = run(["dump-art", str(art)], 0, "dump-art stats")
+    for expected in ("animated tiles: 1", "version: 1"):
+        if expected not in proc.stdout:
+            failures.append(f"dump-art: stdout missing {expected!r}")
+    run(["dump-art", "--verbose", str(art)], 0, "dump-art verbose", expect_out="tile[1]:")
+
+    bad_art = pathlib.Path(tmp) / "bad.art"
+    bad_art.write_bytes(_s2.pack("<iiii", 2, 1, 0, 0) + b"\x00" * 8)
+    run(["dump-art", str(bad_art)], 1, "dump-art bad version",
+        expect_err="unsupported_version")
+    trailing_art = pathlib.Path(tmp) / "trailing.art"
+    trailing_art.write_bytes(bytes(art_bytes) + b"\xEE")
+    run(["dump-art", str(trailing_art)], 1, "dump-art trailing",
+        expect_err="trailing_data")
+    run(["dump-art", "--bogus", str(art)], 2, "dump-art unknown option")
+    run(["dump-art", "--grp"], 2, "dump-art dangling option")
+    run(["dump-art"], 2, "dump-art arity")
+
+    # ---------------- build-art / build-palette (M4 slice 3) ----------------
+    src_dir = root / "fixtures/source"
+    art_out = str(pathlib.Path(tmp) / "diag.art")
+    man_out = str(pathlib.Path(tmp) / "diag.manifest")
+    run(["build-art", "--source", str(src_dir / "tiles/diagnostics.tileset"),
+         "--out", art_out], 2, "build-art without manifest flag",
+        expect_err="stable build needs --manifest")
+    init_proc = run(["build-art", "--source", str(src_dir / "tiles/diagnostics.tileset"),
+                     "--out", art_out, "--init-manifest"], 0, "build-art init",
+                    expect_out="built")
+    # --init-manifest writes beside the ART output; adopt that as the stable
+    # manifest path for the rebuild probe.
+    stable_manifest = art_out + ".manifest"
+    manifest_path = pathlib.Path(stable_manifest)
+    if not manifest_path.exists():
+        failures.append(
+            f"build-art init: manifest not written to {stable_manifest!r}; "
+            f"rc={init_proc.returncode} stdout={init_proc.stdout!r} "
+            f"stderr={init_proc.stderr!r}")
+    first_manifest = manifest_path.read_text() if manifest_path.exists() else ""
+    run(["build-art", "--source", str(src_dir / "tiles/diagnostics.tileset"),
+         "--out", art_out, "--manifest", stable_manifest], 0, "build-art stable rebuild",
+        expect_out="built")
+    rebuilt = pathlib.Path(stable_manifest).read_text() if pathlib.Path(
+        stable_manifest).exists() else ""
+    if first_manifest and rebuilt != first_manifest:
+        failures.append("build-art: stable rebuild changed the manifest")
+
+    run(["dump-art", art_out], 0, "dump-art built", expect_out="tile range: 0..12")
+
+    pal_out = str(pathlib.Path(tmp) / "diag_palette.dat")
+    lut_out = str(pathlib.Path(tmp) / "diag_lookup.dat")
+    run(["build-palette", "--source", str(src_dir / "palettes/diagnostic.palette"),
+         "--palette-out", pal_out, "--lookup-out", lut_out], 0, "build-palette",
+        expect_out="PALETTE.DAT")
+    run(["dump-palette", pal_out], 0, "dump-palette built", expect_out="6-bit VGA")
+    run(["dump-lookup", lut_out], 0, "dump-lookup built", expect_out="swaps: 4")
+
+    # Content immutability, end to end: a tile that keeps its name, size, pivot
+    # and animation but changes its pixels must be rejected, and must publish
+    # nothing. Without this a picnum silently redefines what every map drawing
+    # it shows (review finding, slice 3).
+    tampered = pathlib.Path(tmp) / "tampered.tileset"
+    original = (src_dir / "tiles/diagnostics.tileset").read_text()
+    tampered_lines = []
+    for line in original.splitlines(keepends=True):
+        if line.startswith("tile solid_dark"):
+            line = line.replace("color=1", "color=63")
+        tampered_lines.append(line)
+    tampered.write_text("".join(tampered_lines))
+    if "".join(tampered_lines) == original:
+        failures.append("build-art: tamper probe did not modify the tileset (fixture changed?)")
+    tamper_out = str(pathlib.Path(tmp) / "tampered.art")
+    run(["build-art", "--source", str(tampered), "--out", tamper_out,
+         "--manifest", stable_manifest], 1, "build-art rejects changed pixels",
+        expect_err="different pixels")
+    if pathlib.Path(tamper_out).exists():
+        failures.append("build-art: wrote output despite failing the stability check")
+
+    # An accepted repaint must succeed and keep the picnum (D0014 rules 3-6):
+    # the manifest is a drift detector, not a freeze on artwork.
+    before_line = next(
+        (l for l in pathlib.Path(stable_manifest).read_text().splitlines()
+         if l.startswith("0 ")), "")
+    accepted_out = str(pathlib.Path(tmp) / "accepted.art")
+    run(["build-art", "--source", str(tampered), "--out", accepted_out,
+         "--manifest", stable_manifest, "--accept-tile-update", "solid_dark"], 0,
+        "build-art accepts an acknowledged repaint", expect_out="built")
+    after_line = next(
+        (l for l in pathlib.Path(stable_manifest).read_text().splitlines()
+         if l.startswith("0 ")), "")
+    if before_line and after_line:
+        if before_line.split()[:2] != after_line.split()[:2]:
+            failures.append("build-art: accepted update moved the picnum or renamed the tile")
+        if before_line == after_line:
+            failures.append("build-art: accepted update did not refresh the content hash")
+
+    # Options belong to one command; values may not be option tokens; stray
+    # positionals are usage errors, not silently ignored.
+    run(["build-art", "--source", str(src_dir / "tiles/diagnostics.tileset"),
+         "--out", art_out, "--palette-out", "/tmp/x.dat"], 2,
+        "build-art rejects a build-palette option")
+    run(["build-art", "--source", str(src_dir / "tiles/diagnostics.tileset"),
+         "--out", "--wat", "--init-manifest"], 2, "build-art --out needs a value")
+    run(["build-art", "--source", str(src_dir / "tiles/diagnostics.tileset"),
+         "--out", art_out, "stray"], 2, "build-art rejects positionals")
+    run(["build-palette", "--source", str(src_dir / "palettes/diagnostic.palette"),
+         "--palette-out", str(pathlib.Path(tmp) / "p.dat"), "--init-manifest"], 2,
+        "build-palette rejects a build-art option")
+
+    # Publishing over an input destroys the source; two outputs sharing a path
+    # means one silently wins.
+    run(["build-art", "--source", str(src_dir / "tiles/diagnostics.tileset"),
+         "--out", str(src_dir / "tiles/diagnostics.tileset"), "--init-manifest"], 2,
+        "build-art refuses to overwrite its source")
+    same = str(pathlib.Path(tmp) / "same.dat")
+    run(["build-palette", "--source", str(src_dir / "palettes/diagnostic.palette"),
+         "--palette-out", same, "--lookup-out", same], 2,
+        "build-palette refuses colliding outputs")
+
+    run(["build-art", "--source", "/nonexistent.tileset", "--out", art_out,
+         "--init-manifest"], 1, "build-art missing source", expect_err="io_error")
+    bad_ts = pathlib.Path(tmp) / "bad.tileset"
+    bad_ts.write_text("tileset t\ntile a 8 8\n")
+    run(["build-art", "--source", str(bad_ts), "--out", art_out, "--init-manifest"], 1,
+        "build-art bad tileset", expect_err="tileset")
+    run(["build-art", "--source", str(src_dir / "tiles/diagnostics.tileset")], 2,
+        "build-art missing --out")
+    run(["build-art", "--wat"], 2, "build-art unknown option")
+    run(["build-palette", "--source"], 2, "build-palette dangling option value")
+    run(["build-palette"], 2, "build-palette arity")
+
+    # GRP-backed positive paths for every M4 dump command. Slice 4 consumes
+    # exactly this route (GRP -> VFS -> ART/palette/lookup -> atlas), so it
+    # should inherit a proven mount path rather than being its first caller.
+    assets = pathlib.Path(tmp) / "assets.grp"
+    entries = [
+        ("TILES000.ART", pathlib.Path(art_out).read_bytes()),
+        ("PALETTE.DAT", pathlib.Path(pal).read_bytes()),
+        ("LOOKUP.DAT", pathlib.Path(lut).read_bytes()),
+    ]
+    header = b"KenSilverman" + len(entries).to_bytes(4, "little")
+    directory = b"".join(
+        name.encode("ascii").ljust(12, b"\x00") + len(data).to_bytes(4, "little")
+        for name, data in entries)
+    assets.write_bytes(header + directory + b"".join(data for _, data in entries))
+
+    proc = run(["dump-art", "--grp", str(assets), "TILES000.ART"], 0, "dump-art via grp",
+               expect_out="version: 1")
+    if "tile range:" not in proc.stdout:
+        failures.append("dump-art via grp: no tile range reported")
+    run(["dump-palette", "--grp", str(assets), "PALETTE.DAT"], 0, "dump-palette via grp",
+        expect_out="shade tables:")
+    run(["dump-lookup", "--grp", str(assets), "LOOKUP.DAT"], 0, "dump-lookup via grp",
+        expect_out="swaps:")
+    # Case-folding is part of the mount contract, and a miss must be structured.
+    run(["dump-art", "--grp", str(assets), "tiles000.art"], 0, "dump-art via grp, case-folded",
+        expect_out="version: 1")
+    run(["dump-art", "--grp", str(assets), "NOSUCH.ART"], 1, "dump-art grp miss",
+        expect_err="not_found")
+    run(["dump-palette", "--grp", str(assets), "NOSUCH.DAT"], 1, "dump-palette grp miss",
+        expect_err="not_found")
+    run(["dump-lookup", "--grp", str(assets), "NOSUCH.DAT"], 1, "dump-lookup grp miss",
+        expect_err="not_found")
+    # The mount must deliver identical bytes to the loose-file path.
+    direct = run(["dump-art", art_out], 0, "dump-art direct")
+    if direct.stdout.split("\n")[1:] != proc.stdout.split("\n")[1:]:
+        failures.append("dump-art: GRP-backed output differs from the loose-file output")
+
     run(["no-such-command"], 2, "unknown command", expect_err="unknown command")
 
 if failures:
@@ -179,4 +396,4 @@ if failures:
         print(f"  {f}")
     sys.exit(1)
 
-print("fbtool check: grp + map command contracts hold")
+print("fbtool check: grp + map + palette + art + build command contracts hold")
