@@ -55,12 +55,21 @@ func _ready() -> void:
 		else:
 			i += 1
 
-	var assets := FauxAssetSet.new()
-	var ok := false
+	# This scene asserts synthetic-fixture constants unconditionally: 11
+	# picnums, one page, specific 8x8 tiles, synthetic palette formulas. Aimed
+	# at a real archive it emits a wall of expected mismatches that say nothing
+	# about the atlas (observed at gate A2: 124 errors, all spurious). Refuse
+	# rather than mislead -- the human harness is a separate scene, so this
+	# test never becomes conditional and cannot be bypassed by accident.
 	if not grp.is_empty():
-		ok = assets.load_grp(grp)
-	else:
-		ok = assets.load_dir(dir)
+		push_error("atlas_preview_test.gd is the CI consumer-boundary test and "
+			+ "only runs against the synthetic fixture. For real content use "
+			+ "res://scenes/atlas_preview_human.tscn (--grp/--dir).")
+		get_tree().quit(2)
+		return
+
+	var assets := FauxAssetSet.new()
+	var ok := assets.load_dir(dir)
 	if not ok:
 		push_error("FauxAssetSet load failed: " + assets.get_last_error())
 		get_tree().quit(1)
@@ -69,8 +78,7 @@ func _ready() -> void:
 	_assert_atlas(assets)
 	_assert_images(assets)
 	_assert_preview_math(assets)
-	if grp.is_empty():
-		_assert_multipage(dir)
+	_assert_multipage(dir)
 
 	var preview := FauxAtlasPreview.new()
 	preview.asset = assets

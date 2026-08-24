@@ -896,8 +896,42 @@ was still one layer short:
   established meaning); a mangled comment in `atlas.hpp` and an untagged
   markdown fence fixed.
 
-**Human gates still open.** Gate A (real GRP inspect + multi-page preview) and
-gate B (fixture ART in Mapster32) have not been run.
+Gate A1 — **HUMAN-ATTESTED PASS 2026-08-24** by mitchellcurrie:
+`fbtool inspect-atlas --grp local_reference/duke/DUKE3D.GRP` over the untouched
+archive. 13 ART sources, ranges chaining 0..255 through 3072..3327, global
+range 0..3327 (3328 picnums), 1605 populated, 0 gaps, 3 pages of 2048x2048,
+largest populated tile 320x200 at picnum 2445, 805 non-zero pivots, 34 animated
+metadata entries, 3328 raw picanm entries preserved (838 non-zero), palette and
+lookup both through the same VFS mount, validation OK. No extraction step; no
+proprietary bytes left the mount.
+
+Gate A2 — **not run.** The first attempt exposed a harness defect, not an atlas
+defect: `atlas_preview.tscn` is wired to `atlas_preview_test.gd`, whose
+`_ready()` asserts synthetic-fixture constants unconditionally (11 picnums, one
+page, specific 8x8 tiles, synthetic palette formulas). Pointed at the real
+archive it emitted 124 errors, every one an expected mismatch between real
+content and synthetic test constants. The real load itself succeeded — the
+preview reported 3328 picnums, 1605 populated, 3 indexed pages.
+
+Fixed by separating the two rather than making the load-bearing test
+conditional (which would be bypassable by accident):
+
+- `godot/scenes/atlas_preview_human.tscn` + `scripts/atlas_preview_human.gd`:
+  takes `--grp`/`--dir`, checks only content-independent invariants (loaded,
+  positive counts, one indexed byte per texel, every populated tile inside its
+  own page, every unpopulated one claiming no page, walked count equals the
+  reported populated count), prints a per-page tile spread and concrete
+  starting picnums, then stays open. No fixture constants anywhere.
+- `atlas_preview_test.gd` now **refuses** `--grp` with a pointer to the human
+  scene, so the trap cannot be re-entered.
+- The scene gate runs the human harness against the synthetic fixture (so it
+  cannot rot between human runs) and asserts that the CI test rejects `--grp`.
+
+Verified against the real archive, headless, zero errors: 3328 picnums, 1605
+populated, pages carrying 409/641/555 tiles, 6 palette choices, 26 remap
+choices, 32 shade rows.
+
+**Gate A2 and gate B remain open.**
 
 ## M5 — Static structural world viewer — NOT_STARTED
 
