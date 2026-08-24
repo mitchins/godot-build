@@ -105,11 +105,13 @@ Result<IndexedAtlas> build_indexed_atlas(const std::vector<ArtData>& arts,
                                                   " tiles but data holds " +
                                                   std::to_string(art.tiles.size())});
         }
-        // numtiles is NOT validated against end+1: real shipped sets keep
-        // the same declared global count (2816) while later files claim
-        // picnums beyond it (max observed end 3327, black-box, GRP mount
-        // — the first real-GRP run of inspect-atlas rejected on exactly
-        // this). The field is a namespace floor, not a per-file bound.
+        // numtiles is not consulted at all. The published ART description says
+        // it is unused and that the tile namespace comes from localtilestart/
+        // localtileend; real content shows only that it is not an *upper*
+        // bound (2816 declared in all 13 shipped files while ranges reach
+        // 3327). Nothing observed makes it a lower bound either, so treating
+        // it as a floor was an invented semantic (review, PR #4). It stays
+        // preserved raw in ArtData::numtiles_field and controls nothing.
         claims.push_back(RangeClaim{art.localtilestart, art.localtileend, i});
     }
 
@@ -130,20 +132,23 @@ Result<IndexedAtlas> build_indexed_atlas(const std::vector<ArtData>& arts,
         }
     }
 
+    // The namespace is exactly what the declared ranges claim.
     std::int64_t namespace_size = 0;
     for (const auto& art : arts) {
         namespace_size =
-            std::max<std::int64_t>({namespace_size, static_cast<std::int64_t>(art.localtileend) + 1,
-                                    static_cast<std::int64_t>(art.numtiles_field)}); // floor only
+            std::max<std::int64_t>(namespace_size, static_cast<std::int64_t>(art.localtileend) + 1);
     }
     if (namespace_size > static_cast<std::int64_t>(0x7FFFFFFF)) {
         return Result<IndexedAtlas>::err(
             {"atlas", 0, "atlas.namespace", ErrorCode::TooLarge,
              "picnum namespace " + std::to_string(namespace_size) + " overflows int32"});
     }
-    // Allocation guard BEFORE the entry/side tables materialize: numtiles
-    // is untrusted data (a 24-byte ART may declare 2e9 tiles); the cap
-    // keeps the failure a ParseError instead of an OOM (CodeRabbit, PR#4).
+    // Allocation guard BEFORE the entry/side tables materialize. This is a
+    // resource limit over a *real* surface, not a mask for a wrong reading of
+    // the format (D0011 precedent): the picnum namespace is legitimately
+    // sparse, so two 24-byte ART files declaring ranges 0..0 and
+    // 2000000000..2000000000 are individually valid yet size a 2e9-entry
+    // namespace. Measured at 16 GiB resident before this cap existed.
     if (namespace_size > static_cast<std::int64_t>(options.max_tile_count)) {
         return Result<IndexedAtlas>::err(
             {"atlas", 0, "atlas.namespace", ErrorCode::TooLarge,

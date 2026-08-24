@@ -170,22 +170,49 @@ TEST_CASE("multi-ART composition with explicit gaps") {
     }
 }
 
-TEST_CASE("namespace takes max of end+1 and declared numtiles") {
-    ArtData big = art_a();
-    big.numtiles_field = 20; // claims a larger global namespace
-    auto atlas = build_indexed_atlas({big}, AtlasOptions{});
-    REQUIRE(atlas.is_ok());
-    CHECK(atlas.value().tile_count == 20);
-    CHECK(atlas.value().empty_gap_tiles == 16); // 4..19
-
-    // Real-content shape (observed on the shipped GRP): a file may claim
-    // picnums BEYOND the declared global numtiles. That is not malformed;
-    // the namespace grows to cover the claim.
-    ArtData beyond = art_b();  // range 8..10
-    beyond.numtiles_field = 9; // < end+1; floor only, never a rejection
-    auto grown = build_indexed_atlas({beyond}, AtlasOptions{});
-    REQUIRE(grown.is_ok());
-    CHECK(grown.value().tile_count == 11);
+TEST_CASE("the namespace comes from declared ranges; numtiles controls nothing") {
+    // D0015 rule 2, amended. The published description calls numtiles unused;
+    // real content shows only that it is not an upper bound (2816 declared in
+    // all 13 shipped files while ranges reach 3327). Nothing makes it a lower
+    // bound, so an earlier "floor" reading was invented -- and it turned a
+    // 24-byte file into a 12.8 GiB allocation.
+    SUBCASE("a larger numtiles does not grow the namespace") {
+        ArtData big = art_a(); // range 0..3
+        big.numtiles_field = 20;
+        auto atlas = build_indexed_atlas({big}, AtlasOptions{});
+        REQUIRE(atlas.is_ok());
+        CHECK(atlas.value().tile_count == 4); // end+1, not numtiles
+        CHECK(atlas.value().empty_gap_tiles == 0);
+    }
+    SUBCASE("a smaller numtiles does not shrink or reject it") {
+        ArtData beyond = art_b(); // range 8..10, the real-content shape
+        beyond.numtiles_field = 9;
+        auto grown = build_indexed_atlas({beyond}, AtlasOptions{});
+        REQUIRE(grown.is_ok());
+        CHECK(grown.value().tile_count == 11);
+    }
+    SUBCASE("numtiles is preserved verbatim even though it is ignored") {
+        ArtData art = art_a();
+        art.numtiles_field = 2816; // the real shipped value
+        auto atlas = build_indexed_atlas({art}, AtlasOptions{});
+        REQUIRE(atlas.is_ok());
+        CHECK(atlas.value().tile_count == 4);
+        CHECK(art.numtiles_field == 2816); // the field itself is untouched
+    }
+    SUBCASE("an absurd numtiles is simply irrelevant, not merely capped") {
+        // The exact 24-byte DoS shape. Under the floor reading this sized a
+        // 2e9-entry namespace; now it is one tile and no cap is involved.
+        ArtData huge;
+        huge.version = 1;
+        huge.numtiles_field = 2000000000;
+        huge.localtilestart = 0;
+        huge.localtileend = 0;
+        ArtTile zero;
+        huge.tiles.push_back(zero);
+        auto atlas = build_indexed_atlas({huge}, AtlasOptions{});
+        REQUIRE(atlas.is_ok());
+        CHECK(atlas.value().tile_count == 1);
+    }
 }
 
 TEST_CASE("overlapping claimed ranges are rejected") {
@@ -233,19 +260,22 @@ TEST_CASE("atlas placement overflow is rejected") {
 }
 
 TEST_CASE("namespace allocation is capped before any materialization") {
-    // The 24-byte DoS shape (CodeRabbit, PR#4): a minimal valid ART whose
-    // numtiles field declares two billion tiles. read_art is right to
-    // accept it; the atlas must fail closed instead of allocating.
-    ArtData huge;
-    huge.version = 1;
-    huge.numtiles_field = 2000000000;
-    huge.localtilestart = 0;
-    huge.localtileend = 0;
-    ArtTile zero;
-    zero.width = 0;
-    zero.height = 0;
-    huge.tiles.push_back(zero);
-    auto atlas = build_indexed_atlas({huge}, AtlasOptions{});
+    // D0015 rule 3: the cap guards a *real* surface. The picnum namespace is
+    // legitimately sparse, so two individually valid 24-byte ART files can
+    // declare ranges two billion apart with no misinterpretation anywhere.
+    // Measured at 16 GiB resident before this cap existed.
+    ArtData low;
+    low.version = 1;
+    low.localtilestart = 0;
+    low.localtileend = 0;
+    low.tiles.push_back(ArtTile{});
+    ArtData far;
+    far.version = 1;
+    far.localtilestart = 2000000000;
+    far.localtileend = 2000000000;
+    far.source = "mem:FAR.ART";
+    far.tiles.push_back(ArtTile{});
+    auto atlas = build_indexed_atlas({low, far}, AtlasOptions{});
     REQUIRE_FALSE(atlas.is_ok());
     CHECK(atlas.error().code == ErrorCode::TooLarge);
     CHECK(atlas.error().record == std::string("atlas.namespace"));

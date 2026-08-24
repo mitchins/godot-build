@@ -14,13 +14,27 @@ namespace {
 
 // Vfs is movable but holds unique_ptr mounts; build it in place.
 bool mount_and_load(fauxbuild::Vfs& vfs, fauxbuild::AssetSet& set_out,
-                    fauxbuild::IndexedAtlas& atlas_out, godot::String& error_out) {
+                    fauxbuild::IndexedAtlas& atlas_out, godot::String& error_out,
+                    std::int32_t page_width, std::int32_t page_height) {
     auto set = fauxbuild::load_asset_set(vfs);
     if (!set.is_ok()) {
         error_out = godot::String(set.error().to_string().c_str());
         return false;
     }
-    auto atlas = fauxbuild::build_indexed_atlas(set.value().arts, fauxbuild::AtlasOptions{});
+    // Page size is a deployment parameter (GPU limits differ), so it is
+    // settable rather than baked in. 0 keeps the default. It is also what
+    // makes the multi-page path reachable from the boundary test without
+    // proprietary content: small pages force ordinary fixture tiles onto
+    // page 1 (review, PR #4 — the one-page fixture left page rebinding
+    // covered only by a human running gate A).
+    fauxbuild::AtlasOptions options;
+    if (page_width > 0) {
+        options.page_width = page_width;
+    }
+    if (page_height > 0) {
+        options.page_height = page_height;
+    }
+    auto atlas = fauxbuild::build_indexed_atlas(set.value().arts, options);
     if (!atlas.is_ok()) {
         error_out = godot::String(atlas.error().to_string().c_str());
         return false;
@@ -32,7 +46,7 @@ bool mount_and_load(fauxbuild::Vfs& vfs, fauxbuild::AssetSet& set_out,
 
 } // namespace
 
-bool FauxAssetSet::load_dir(const godot::String& path) {
+bool FauxAssetSet::load_dir(const godot::String& path, int page_width, int page_height) {
     auto mount = fauxbuild::DirectoryMount::create(path.utf8().get_data());
     if (!mount.is_ok()) {
         last_error_ = godot::String(mount.error().to_string().c_str());
@@ -42,7 +56,7 @@ bool FauxAssetSet::load_dir(const godot::String& path) {
     vfs.add_mount(mount.take());
     set_ = std::make_shared<fauxbuild::AssetSet>();
     atlas_ = std::make_shared<fauxbuild::IndexedAtlas>();
-    if (!mount_and_load(vfs, *set_, *atlas_, last_error_)) {
+    if (!mount_and_load(vfs, *set_, *atlas_, last_error_, page_width, page_height)) {
         set_.reset();
         atlas_.reset();
         return false;
@@ -50,7 +64,7 @@ bool FauxAssetSet::load_dir(const godot::String& path) {
     return true;
 }
 
-bool FauxAssetSet::load_grp(const godot::String& path) {
+bool FauxAssetSet::load_grp(const godot::String& path, int page_width, int page_height) {
     auto mount = fauxbuild::GrpMount::create(path.utf8().get_data());
     if (!mount.is_ok()) {
         last_error_ = godot::String(mount.error().to_string().c_str());
@@ -60,7 +74,7 @@ bool FauxAssetSet::load_grp(const godot::String& path) {
     vfs.add_mount(mount.take());
     set_ = std::make_shared<fauxbuild::AssetSet>();
     atlas_ = std::make_shared<fauxbuild::IndexedAtlas>();
-    if (!mount_and_load(vfs, *set_, *atlas_, last_error_)) {
+    if (!mount_and_load(vfs, *set_, *atlas_, last_error_, page_width, page_height)) {
         set_.reset();
         atlas_.reset();
         return false;
@@ -304,8 +318,10 @@ godot::PackedByteArray FauxAssetSet::compute_tile_rgba(std::int32_t picnum, std:
 }
 
 void FauxAssetSet::_bind_methods() {
-    godot::ClassDB::bind_method(godot::D_METHOD("load_dir", "path"), &FauxAssetSet::load_dir);
-    godot::ClassDB::bind_method(godot::D_METHOD("load_grp", "path"), &FauxAssetSet::load_grp);
+    godot::ClassDB::bind_method(godot::D_METHOD("load_dir", "path", "page_width", "page_height"),
+                                &FauxAssetSet::load_dir, DEFVAL(0), DEFVAL(0));
+    godot::ClassDB::bind_method(godot::D_METHOD("load_grp", "path", "page_width", "page_height"),
+                                &FauxAssetSet::load_grp, DEFVAL(0), DEFVAL(0));
     godot::ClassDB::bind_method(godot::D_METHOD("is_loaded"), &FauxAssetSet::is_loaded);
     godot::ClassDB::bind_method(godot::D_METHOD("get_last_error"), &FauxAssetSet::get_last_error);
     godot::ClassDB::bind_method(godot::D_METHOD("get_tile_count"), &FauxAssetSet::get_tile_count);

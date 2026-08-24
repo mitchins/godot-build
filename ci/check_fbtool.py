@@ -400,6 +400,11 @@ with tempfile.TemporaryDirectory() as tmp:
                      "lookup: loaded through VFS", "ART sources: 2"]:
         if expected not in proc.stdout:
             failures.append(f"inspect-atlas dir: stdout missing {expected!r}")
+    # Gate-A summary lines: counts and dimensions only, never pixels or hashes.
+    for expected in ("largest populated tile: 8x8 at picnum 1", "non-zero pivots: 3",
+                     "animated metadata entries: 1", "raw picanm entries preserved: 7"):
+        if expected not in proc.stdout:
+            failures.append(f"inspect-atlas: report missing {expected!r}")
 
     # ...and a python-packed synthetic GRP exercises the production mount
     # (no extraction anywhere). Packing in python is deliberate: it proves

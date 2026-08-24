@@ -33,6 +33,13 @@ class FauxAtlasPreview : public godot::Control {
 
     void _ready() override;
     bool is_ready() const { return ready_; }
+    // Observable state for the consumer-boundary test: which page's texture is
+    // currently bound, and the texel the shader would fetch there. Without
+    // these the test can only inspect FauxAssetSet -- the data *behind* the
+    // preview -- and a page-0-only binding stays invisible (review, PR #4).
+    int get_bound_page() const { return bound_page_; }
+    void select_picnum(int picnum);
+    int bound_texel_at(int x, int y) const;
 
   private:
     void rebuild();

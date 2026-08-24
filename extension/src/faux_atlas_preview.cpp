@@ -187,11 +187,38 @@ void FauxAtlasPreview::refresh_palette(int64_t index) {
     refresh_tile(0);
 }
 
+void FauxAtlasPreview::select_picnum(int picnum) {
+    if (picnum_box_ != nullptr) {
+        picnum_box_->set_value(picnum);
+    }
+    refresh_tile(static_cast<double>(picnum));
+}
+
+// Reads back through the *bound* page, so it reflects what the shader would
+// sample rather than what the atlas happens to contain.
+int FauxAtlasPreview::bound_texel_at(int x, int y) const {
+    if (asset_ == nullptr || bound_page_ < 0) {
+        return -1;
+    }
+    const godot::Ref<godot::Image> image = asset_->make_index_image(bound_page_);
+    if (image.is_null() || x < 0 || y < 0 || x >= image->get_width() || y >= image->get_height()) {
+        return -1;
+    }
+    const godot::PackedByteArray data = image->get_data();
+    return data[y * image->get_width() + x];
+}
+
 void FauxAtlasPreview::_bind_methods() {
     godot::ClassDB::bind_method(godot::D_METHOD("set_asset", "asset"),
                                 &FauxAtlasPreview::set_asset);
     godot::ClassDB::bind_method(godot::D_METHOD("get_asset"), &FauxAtlasPreview::get_asset);
     godot::ClassDB::bind_method(godot::D_METHOD("is_ready"), &FauxAtlasPreview::is_ready);
+    godot::ClassDB::bind_method(godot::D_METHOD("get_bound_page"),
+                                &FauxAtlasPreview::get_bound_page);
+    godot::ClassDB::bind_method(godot::D_METHOD("select_picnum", "picnum"),
+                                &FauxAtlasPreview::select_picnum);
+    godot::ClassDB::bind_method(godot::D_METHOD("bound_texel_at", "x", "y"),
+                                &FauxAtlasPreview::bound_texel_at);
     ADD_PROPERTY(godot::PropertyInfo(godot::Variant::OBJECT, "asset",
                                      godot::PROPERTY_HINT_NODE_TYPE, "FauxAssetSet"),
                  "set_asset", "get_asset");

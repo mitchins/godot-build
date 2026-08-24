@@ -138,13 +138,47 @@ int inspect_atlas(int argc, char** argv) {
     std::printf("palette: loaded through VFS (%d shade tables declared, %zu alt palettes)\n",
                 set.value().palette.num_shades, set.value().lookup.alt_palettes.size());
     std::printf("lookup: loaded through VFS (%zu swaps)\n", set.value().lookup.swaps.size());
+    // Generic metadata summary for the human attestation (gate A). Counts and
+    // dimensions only: no pixel values, no hashes, nothing derived from
+    // proprietary content beyond shape. "picanm entries preserved" alone only
+    // said a picnum had an ART owner, which establishes nothing about whether
+    // the metadata survived -- these lines do.
     std::size_t picanm_entries = 0;
+    std::size_t nonzero_pivots = 0;
+    std::size_t animated = 0;
+    std::size_t nonzero_raw = 0;
+    const fauxbuild::AtlasTileEntry* largest = nullptr;
+    std::int64_t largest_area = -1;
     for (const auto& tile : a.tiles) {
-        if (!tile.source.empty()) {
-            ++picanm_entries;
+        if (tile.source.empty()) {
+            continue;
+        }
+        ++picanm_entries;
+        if (tile.x_center != 0 || tile.y_center != 0) {
+            ++nonzero_pivots;
+        }
+        if (tile.meta.anim_type != 0 || tile.meta.frames != 0) {
+            ++animated;
+        }
+        if (tile.meta.raw != 0) {
+            ++nonzero_raw;
+        }
+        const std::int64_t area =
+            static_cast<std::int64_t>(tile.width) * static_cast<std::int64_t>(tile.height);
+        if (tile.populated && area > largest_area) {
+            largest_area = area;
+            largest = &tile;
         }
     }
-    std::printf("picanm entries preserved: %zu\n", picanm_entries);
+    if (largest != nullptr) {
+        std::printf("largest populated tile: %dx%d at picnum %u\n", largest->width, largest->height,
+                    largest->picnum);
+    } else {
+        std::printf("largest populated tile: none (no populated tiles)\n");
+    }
+    std::printf("non-zero pivots: %zu\n", nonzero_pivots);
+    std::printf("animated metadata entries: %zu\n", animated);
+    std::printf("raw picanm entries preserved: %zu (%zu non-zero)\n", picanm_entries, nonzero_raw);
     std::printf("validation: OK\n");
     return 0;
 }

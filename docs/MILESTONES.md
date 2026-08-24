@@ -807,6 +807,65 @@ files, one ART file, or thirteen inside a GRP (`core/asset_set` +
   inspection + preview (gate A), synthetic ART in Mapster32 (gate B —
   build-art output, unchanged this slice).
 
+Slice-4 review (2026-08-24) — two blocking rulings, both reproduced first:
+
+**1. The `numtiles` "namespace floor" was an invented semantic.** The published
+description calls the field unused; real content shows only that it is not an
+*upper* bound (2816 declared in all 13 shipped files while ranges reach 3327).
+Nothing observed makes it a lower bound. The first real-GRP run had rejected on
+a `numtiles < end+1` check, and the fix over-corrected from "don't trust it as a
+ceiling" to "trust it as a floor".
+
+Measured cost of that invention, with the cap disabled:
+
+| policy | resident | wall | input |
+|---|---|---|---|
+| numtiles floor | **12.8 GiB** | 234 s | one 24-byte ART |
+| numtiles ignored | 6.6 MiB | 0.4 s | same file |
+
+The floor never once changed the answer on real content (2816 < 3328) — it only
+widened the attack surface. `numtiles` is now preserved raw and consulted by
+nothing (D0015 rule 2, amended; COMPATIBILITY 0e rewritten).
+
+**The cap stays, for a different and legitimate reason.** With `numtiles`
+ignored, two individually valid 24-byte ART files declaring ranges 0..0 and
+2000000000..2000000000 still size a 2e9-entry namespace — measured at 16 GiB.
+That is a real sparse-namespace surface with no misinterpretation anywhere, so
+`max_tile_count` now guards an unavoidable allocation rather than concealing a
+wrong reading (D0015 rule 3, the D0011 precedent).
+
+**2. The multi-page preview had no boundary coverage.** Page rebinding was
+fixed in 4b47187, but the CI fixture is one page and the scene test *asserts*
+`page_count == 1`, so a regression would only surface when a human ran gate A.
+Reproduced by disabling rebinding: the suite stayed green.
+
+The first fix was insufficient in an instructive way: a multi-page case built
+on `FauxAssetSet` still passed with rebinding removed, because it inspects the
+data *behind* the preview rather than the preview. `FauxAtlasPreview` now
+exposes `get_bound_page()`, `select_picnum()` and `bound_texel_at()`, and the
+test reads back through the bound page. With rebinding disabled it now reports:
+
+```
+consumer-boundary FAILED: preview bound page 0 for a tile on page 1
+consumer-boundary FAILED: preview shows 12 wrong texels for picnum 8 on page 1
+```
+
+Page size became a load-time parameter (a real deployment tunable — GPU limits
+differ) so 12x12 pages force ordinary fixture tiles onto page 1 with no
+proprietary content.
+
+**Gate-A reporting completed.** "picanm entries preserved" only meant a picnum
+had an ART owner. `inspect-atlas` now also reports the largest populated tile,
+non-zero pivots, animated metadata entries, and non-zero raw picanm entries —
+counts and dimensions only, no pixels or hashes. On the shipped GRP: largest
+320x200 at picnum 2445, 805 non-zero pivots, 34 animated, 838 non-zero picanm.
+
+**Verified unchanged by the amendment:** the real GRP still composes to 3328
+picnums, 1605 populated, 0 gaps, 3 pages.
+
+**Not accepted yet.** D0015 stays `proposed`. Human gates A (real GRP inspect +
+preview) and B (fixture ART in Mapster32) remain open.
+
 ## M5 — Static structural world viewer — NOT_STARTED
 
 Gate summary: structural fixtures render with correct topology; holes/non-convex sectors render;

@@ -29,8 +29,8 @@ class FauxAssetSet : public godot::RefCounted {
   public:
     // Loading (exactly one of these succeeds; both mount through the core
     // VFS — the GRP path is the production route, no extraction).
-    bool load_dir(const godot::String& path);
-    bool load_grp(const godot::String& path);
+    bool load_dir(const godot::String& path, int page_width = 0, int page_height = 0);
+    bool load_grp(const godot::String& path, int page_width = 0, int page_height = 0);
     bool is_loaded() const;
     godot::String get_last_error() const;
 
