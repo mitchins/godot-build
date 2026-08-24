@@ -832,3 +832,49 @@ Executes in the separate game repository. Gate summary per plan §15/M14.
 ## M15 — Apple/mobile hardening and production tooling — NOT_STARTED
 
 Gate summary per plan §15/M15.
+
+### Slice 4 — indexed atlas, consumer boundary, real-asset ingestion (delivered 2026-08-24)
+
+Abstraction delivered: M5 can ask for picnum N and receive stable metadata
+plus indexed texels without knowing whether the assets came from loose
+files, one ART file, or thirteen inside a GRP (`core/asset_set` +
+`core/atlas`; D0015 proposed).
+
+- `load_asset_set` discovers TILES*.ART / PALETTE.DAT / LOOKUP.DAT through
+  one VFS (directory or mounted GRP); ordering authority is the declared
+  ranges, never filenames. GRP is a first-class production path — real
+  DUKE3D.GRP requires no extraction (dev-verified below; human gate A
+  pending).
+- `build_indexed_atlas` composes the global picnum namespace (overlap,
+  malformed-range, count/range, payload/dims, area-cap, page-overflow
+  rejections; gaps and zero-dim tiles become explicit empty entries) and
+  shelf-packs deterministic indexed pages. The column-major file-order
+  claim is acted on exactly here — one transpose, at the boundary.
+- `fbtool inspect-atlas --grp|--dir` (human gate A command; generic stats
+  only). `synth::build_grp` writes canonical GRPs from arbitrary payloads
+  for the synthetic-GRP route; `fixtures/atlas/` holds the committed
+  original fixture set (generate.py is the spec).
+- Extension: `FauxAssetSet` (load_dir/load_grp, bytes + rect/meta/stats
+  accessors, derived-only RGBA helpers) and `FauxAtlasPreview` (R8 index +
+  palette + shade + remap shader, nearest sampling via texelFetch,
+  selectable picnum/shade/palette/remap — deliberately boring).
+- Tests: 114 cases (was 103 after the slice-3 residual rounds). The
+  load-bearing consumer-boundary test runs in Godot itself
+  (godot/scripts/atlas_preview_test.gd, wired into check_scene.py):
+  expected index bytes and rect metadata re-derived from the fixture spec
+  and asserted against what Godot actually receives, byte-for-byte,
+  including the R8 image representation. Byte-count tripwire
+  (w*h*pages, never x4) at unit and scene level.
+- Negative tests (each observed red, then green after restore): the
+  layering pin (sabotaged `std::vector<uint32_t> rgba` declaration ->
+  gate red), the transpose (sabotaged copy order -> unit case red AND the
+  Godot scene red with "tile 2 byte at (2,0): got 138 want 134"), the
+  fbtool contract (three probes observed failing during development;
+  the overlapping-ranges GRP probe is a standing red case), and the
+  real-GRP falsification of the numtiles<end+1 check (row 0e).
+- Dev evidence (generic stats only, nothing extracted): inspect-atlas over
+  the owned GRP — 13 ART files, ranges 0..3327 chained contiguously, 1605
+  populated / 1723 zero-dim / 0 gap, 3 pages of 2048x2048, palette and
+  lookup through the same mount. Human gates pending: real-GRP atlas
+  inspection + preview (gate A), synthetic ART in Mapster32 (gate B —
+  build-art output, unchanged this slice).

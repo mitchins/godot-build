@@ -6,14 +6,15 @@ The full implementation contract is `docs/PROJECT_CONTRACT.md` and the source pl
 
 ## Active milestone
 
-**M4 — ART, palette, lookup, and tile tooling: IN_PROGRESS.** Slices 1-3 of 4
-delivered and reviewed (palette/lookup, ART + picanm, fixture compilers +
-stable tile manifest). D0013 and D0014 both accepted; D0014 was amended after
-review — picnum assignment is immutable, artwork is not, and intentional
-updates go through `--accept-tile-update`. Remaining: slice 4 (atlas builder +
-indexed preview), whose two hard gates are that real assets reach the atlas
-through the GRP mount with **no extraction step**, and that **no RGBA
-representation becomes authoritative** — tiles stay palette indices.
+**M4 — ART, palette, lookup, and tile tooling: slice 4 of 4 delivered, at
+checkpoint review.** Slices 1-3 accepted (D0013, D0014 accepted as amended).
+Slice 4 added the indexed atlas + consumer boundary (D0015 proposed): real
+assets reach the atlas through the GRP mount with **no extraction step**
+(dev-verified on the owned GRP), and **no RGBA representation becomes
+authoritative** — indexed bytes are the atlas payload, RGBA is derived-only.
+Pending human gates: real-GRP atlas inspection/preview (gate A,
+`fbtool inspect-atlas --grp ...` + the preview scene with `--grp`), and
+synthetic ART in Mapster32 (gate B, `fbtool build-art` output).
 
 ## Repository boundary and evidence classes
 

@@ -46,6 +46,8 @@ const char* error_code_name(ErrorCode code) {
         return "invalid_sprite_sector";
     case ErrorCode::InvalidTopology:
         return "invalid_topology";
+    case ErrorCode::InvalidRange:
+        return "invalid_range";
     case ErrorCode::Unsupported:
         return "unsupported";
     }

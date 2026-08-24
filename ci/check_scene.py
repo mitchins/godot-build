@@ -44,7 +44,22 @@ def main() -> int:
         print(output[-3000:], file=sys.stderr)
         return 1
 
+    # M4 slice 4: the consumer-boundary scene. Runs the synthetic fixture
+    # assertions (index bytes/rect metadata as Godot actually receives them)
+    # and instantiates the indexed-atlas preview. Real-GRP runs of this
+    # scene are the human gate (--grp local_reference/...), not CI.
+    atlas_scene = run_godot(
+        godot, ["res://scenes/atlas_preview.tscn", "--quit-after", "3", "--"])
+    output = atlas_scene.stdout + atlas_scene.stderr
+    if atlas_scene.returncode != 0 or "M4 consumer boundary: OK" not in output \
+            or "M4 atlas preview: OK" not in output:
+        print(f"scene-check FAILED: atlas consumer boundary (exit "
+              f"{atlas_scene.returncode})", file=sys.stderr)
+        print(output[-3000:], file=sys.stderr)
+        return 1
+
     print("scene-check: sample scene ran with the extension live")
+    print("scene-check: atlas consumer boundary + preview verified")
     return 0
 
 

@@ -104,6 +104,8 @@ core_sources = [
     f'{bdir}/core/src/art.cpp',
     f'{bdir}/core/src/tile_manifest.cpp',
     f'{bdir}/core/src/tile_build.cpp',
+    f'{bdir}/core/src/asset_set.cpp',
+    f'{bdir}/core/src/atlas.cpp',
 ]
 core_objects = env.Object(core_sources)
 core = env.StaticLibrary(f'{bdir}/libfauxbuild_core', core_objects)
@@ -168,7 +170,8 @@ if host_build:
     fbtool = fbtool_env.Program(
         f'{bdir}/fbtool',
         [f'{bdir}/tools/fbtool/main.cpp', f'{bdir}/tools/fbtool/map_commands.cpp',
-         f'{bdir}/tools/fbtool/palette_commands.cpp', f'{bdir}/tools/fbtool/art_commands.cpp', f'{bdir}/tools/fbtool/build_commands.cpp'],
+         f'{bdir}/tools/fbtool/palette_commands.cpp', f'{bdir}/tools/fbtool/art_commands.cpp', f'{bdir}/tools/fbtool/build_commands.cpp',
+         f'{bdir}/tools/fbtool/atlas_commands.cpp'],
         LIBS=[core])
 
     tests_env = env.Clone()
@@ -189,6 +192,7 @@ if host_build:
             f'{bdir}/tests/unit/palette.test.cpp',
             f'{bdir}/tests/unit/art.test.cpp',
             f'{bdir}/tests/unit/tile_build.test.cpp',
+            f'{bdir}/tests/unit/atlas.test.cpp',
             f'{bdir}/tests/unit/byte_reader.test.cpp',
         f'{bdir}/tests/unit/file_io.test.cpp',
             f'{bdir}/tests/unit/grp.test.cpp',
@@ -276,6 +280,8 @@ if os.path.exists(godot_cpp_sconstruct):
     ext_sources = [
         f'{bdir}/extension/src/fauxbuild_runtime.cpp',
         f'{bdir}/extension/src/fauxbuild_view.cpp',
+        f'{bdir}/extension/src/faux_asset_set.cpp',
+        f'{bdir}/extension/src/faux_atlas_preview.cpp',
         f'{bdir}/extension/src/register_extension.cpp',
     ]
 

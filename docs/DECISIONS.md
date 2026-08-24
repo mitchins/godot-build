@@ -332,3 +332,48 @@ count error rather than silently loaded without content hashes. No such
 manifest has been published outside this branch: `fixtures/` carries source
 DSLs, and manifests are build output. Regenerate with `--init-manifest`.
 
+
+### D0015 — Indexed atlas: authoritative representation and namespace policy (M4)
+
+Status: proposed (implemented, awaiting human ratification)
+Date: 2026-08-24
+Context: M4 slice 4 builds the atlas M5 will render from. Two policies had
+to be fixed before code: where RGBA may exist, and how multiple ART files
+form one picnum namespace.
+Decision:
+1. **The atlas is indexed, terminally.** Authoritative storage is
+   `std::vector<uint8_t> pixels` — one palette index per texel, row-major
+   pages. Every RGBA form anywhere is derived at a presentation boundary,
+   recomputed per call, never stored. `ci/check_layering.py` pins the
+   declaration; unit + scene tests pin the byte count at
+   page_width*page_height*page_count.
+2. **Namespace = union of declared ranges + numtiles floor.** Each ART file
+   claims [localtilestart, localtileend]; overlapping claims are rejected;
+   gaps become explicit empty picnums (page = -1). The global namespace size
+   is max(end+1, numtiles) over all files. numtiles is a FLOOR, never a
+   per-file bound: the shipped GRP declares 2816 globally while its last
+   files claim picnums through 3327 (black-box observation; the first
+   real-GRP run of inspect-atlas rejected on a numtiles<end+1 check and was
+   wrong to — see COMPATIBILITY_SCOPE 0e).
+3. **Placement is deterministic and disposable.** Same assets -> same atlas
+   byte-for-byte (shelf packing in picnum order; pure function of dims and
+   options). Atlas coordinates are runtime products and may change when
+   packing changes; picnum identity is owned by the stable tile manifest
+   (D0014) and never by the atlas.
+4. **The column-major file-order claim is acted on exactly once**, at this
+   boundary: ART bytes are copied verbatim into the model (no
+   interpretation), and the atlas transpose (file column-major -> page
+   row-major) is the first and only place the published ordering claim
+   affects output. The synthetic fixture's asymmetric index formulas make a
+   transposition or off-by-one loud at the unit, fbtool, and Godot
+   consumer-boundary levels (each negative-tested by sabotage).
+5. **Consumer boundary is tested at the consumer.** The Godot scene reads
+   bytes/rects/metadata through the GDExtension API and re-derives expected
+   values from the fixture spec (never from the atlas itself). RGBA exists
+   only in `compute_tile_rgba` / preview images, recomputed each call.
+Consequences: M5 asks "give me picnum N" and receives stable metadata plus
+indexed texels without knowing whether assets came from loose files, one
+ART file, or thirteen inside a GRP (`load_asset_set` + `tile_bytes`).
+Rejection classes: overlap, malformed range, count/range mismatch, payload
+vs dims, area cap, page-overflow — all InvalidRange/TooLarge ParseErrors,
+never partial atlases.
