@@ -177,6 +177,14 @@ Result<std::vector<std::uint8_t>> write_palette_dat(const PaletteData& data) {
 }
 
 Result<std::vector<std::uint8_t>> write_lookup_dat(const LookupData& data) {
+    // The count is a single byte: 256 swaps would wrap to 0 and emit a file
+    // that reparses as empty while carrying 256 swap records as trailing data.
+    if (data.swaps.size() > 255) {
+        return Result<std::vector<std::uint8_t>>::err(
+            {"lookup", 0, "lookup.header", ErrorCode::TooLarge,
+             std::to_string(data.swaps.size()) +
+                 " swaps exceed the one-byte count field (max 255)"});
+    }
     std::vector<std::uint8_t> out;
     out.reserve(1 + data.swaps.size() * kLookupSwapBytes +
                 data.alt_palettes.size() * kPaletteBytes);

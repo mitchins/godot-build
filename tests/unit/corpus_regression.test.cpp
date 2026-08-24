@@ -120,7 +120,7 @@ TEST_CASE("committed palette corpus and regression inputs parse without crashing
                 ++parsed_ok;
                 auto written = fauxbuild::write_palette_dat(palette.value());
                 REQUIRE(written.is_ok());
-                CHECK(written.value().size() == bytes.size());
+                CHECK(written.value() == bytes); // verbatim, not merely same length
             } else if (lookup.is_ok()) {
                 ++parsed_ok;
             } else {

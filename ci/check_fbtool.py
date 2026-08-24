@@ -1,5 +1,5 @@
-#!/ usr / bin / env python3
-"""fbtool command-contract gate: exercises dump-grp / gen-grp end to end.
+#!/usr/bin/env python3
+"""fbtool command-contract gate: exercises dump-grp/gen-grp end to end.
 
 Command behaviour is a contract like any other (AGENTS.md rule 6). These are
 process-level checks because exit codes and stdout are the contract, and the
@@ -297,6 +297,47 @@ with tempfile.TemporaryDirectory() as tmp:
         expect_err="different pixels")
     if pathlib.Path(tamper_out).exists():
         failures.append("build-art: wrote output despite failing the stability check")
+
+    # An accepted repaint must succeed and keep the picnum (D0014 rules 3-6):
+    # the manifest is a drift detector, not a freeze on artwork.
+    before_line = next(
+        (l for l in pathlib.Path(stable_manifest).read_text().splitlines()
+         if l.startswith("0 ")), "")
+    accepted_out = str(pathlib.Path(tmp) / "accepted.art")
+    run(["build-art", "--source", str(tampered), "--out", accepted_out,
+         "--manifest", stable_manifest, "--accept-tile-update", "solid_dark"], 0,
+        "build-art accepts an acknowledged repaint", expect_out="built")
+    after_line = next(
+        (l for l in pathlib.Path(stable_manifest).read_text().splitlines()
+         if l.startswith("0 ")), "")
+    if before_line and after_line:
+        if before_line.split()[:2] != after_line.split()[:2]:
+            failures.append("build-art: accepted update moved the picnum or renamed the tile")
+        if before_line == after_line:
+            failures.append("build-art: accepted update did not refresh the content hash")
+
+    # Options belong to one command; values may not be option tokens; stray
+    # positionals are usage errors, not silently ignored.
+    run(["build-art", "--source", str(src_dir / "tiles/diagnostics.tileset"),
+         "--out", art_out, "--palette-out", "/tmp/x.dat"], 2,
+        "build-art rejects a build-palette option")
+    run(["build-art", "--source", str(src_dir / "tiles/diagnostics.tileset"),
+         "--out", "--wat", "--init-manifest"], 2, "build-art --out needs a value")
+    run(["build-art", "--source", str(src_dir / "tiles/diagnostics.tileset"),
+         "--out", art_out, "stray"], 2, "build-art rejects positionals")
+    run(["build-palette", "--source", str(src_dir / "palettes/diagnostic.palette"),
+         "--palette-out", str(pathlib.Path(tmp) / "p.dat"), "--init-manifest"], 2,
+        "build-palette rejects a build-art option")
+
+    # Publishing over an input destroys the source; two outputs sharing a path
+    # means one silently wins.
+    run(["build-art", "--source", str(src_dir / "tiles/diagnostics.tileset"),
+         "--out", str(src_dir / "tiles/diagnostics.tileset"), "--init-manifest"], 2,
+        "build-art refuses to overwrite its source")
+    same = str(pathlib.Path(tmp) / "same.dat")
+    run(["build-palette", "--source", str(src_dir / "palettes/diagnostic.palette"),
+         "--palette-out", same, "--lookup-out", same], 2,
+        "build-palette refuses colliding outputs")
 
     run(["build-art", "--source", "/nonexistent.tileset", "--out", art_out,
          "--init-manifest"], 1, "build-art missing source", expect_err="io_error")

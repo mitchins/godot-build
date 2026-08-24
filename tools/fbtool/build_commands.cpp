@@ -24,33 +24,78 @@ struct BuildArgs {
     std::string out;
     std::string palette_out;
     std::string lookup_out;
+    std::vector<std::string> accepted_updates;
 };
 
-BuildArgs parse_build_args(int argc, char** argv) {
+// Options are per-command and values may not be option tokens: `--out --wat`
+// wrote a file named "--wat" elsewhere in this tool, and an option belonging to
+// the other build command (or a stray positional) was silently ignored, so a
+// typo produced a successful build of the wrong thing.
+BuildArgs parse_build_args(int argc, char** argv, bool art_command) {
     BuildArgs args;
+    auto looks_like_option = [](const std::string& a) { return a.size() > 1 && a[0] == '-'; };
     for (int i = 0; i < argc; ++i) {
         const std::string arg = argv[i];
-        auto value = [&]() -> std::string {
-            return i + 1 < argc ? std::string(argv[++i]) : std::string();
+        auto value = [&](std::string& target) {
+            if (i + 1 >= argc || looks_like_option(argv[i + 1])) {
+                args.usage_error = true;
+                return;
+            }
+            target = argv[++i];
         };
         if (arg == "--source") {
-            args.source = value();
-        } else if (arg == "--manifest") {
-            args.manifest_path = value();
+            value(args.source);
         } else if (arg == "--out") {
-            args.out = value();
-        } else if (arg == "--palette-out") {
-            args.palette_out = value();
-        } else if (arg == "--lookup-out") {
-            args.lookup_out = value();
-        } else if (arg == "--init-manifest") {
+            value(args.out);
+        } else if (art_command && arg == "--manifest") {
+            value(args.manifest_path);
+        } else if (art_command && arg == "--init-manifest") {
             args.init_manifest = true;
-        } else if (!arg.empty() && arg[0] == '-') {
+        } else if (art_command && arg == "--accept-tile-update") {
+            std::string name;
+            value(name);
+            if (!name.empty()) {
+                args.accepted_updates.push_back(name);
+            }
+        } else if (!art_command && arg == "--palette-out") {
+            value(args.palette_out);
+        } else if (!art_command && arg == "--lookup-out") {
+            value(args.lookup_out);
+        } else {
+            // Unknown option, an option belonging to the other build command,
+            // or a positional argument: all usage errors.
             args.usage_error = true;
+        }
+        if (args.usage_error) {
             break;
         }
     }
     return args;
+}
+
+// Publishing over an input destroys the source the build was derived from, and
+// two outputs sharing a path means one silently wins.
+bool paths_collide(std::vector<std::pair<const char*, std::string>> paths) {
+    for (std::size_t i = 0; i < paths.size(); ++i) {
+        if (paths[i].second.empty()) {
+            continue;
+        }
+        for (std::size_t j = i + 1; j < paths.size(); ++j) {
+            if (paths[j].second.empty()) {
+                continue;
+            }
+            std::error_code ec;
+            const bool same = std::filesystem::equivalent(paths[i].second, paths[j].second, ec)
+                                  ? true
+                                  : paths[i].second == paths[j].second;
+            if (same) {
+                std::fprintf(stderr, "fbtool: %s and %s are the same path (%s)\n", paths[i].first,
+                             paths[j].first, paths[i].second.c_str());
+                return true;
+            }
+        }
+    }
+    return false;
 }
 
 bool read_text(const std::string& path, std::string& out, const char* what) {
@@ -66,10 +111,17 @@ bool read_text(const std::string& path, std::string& out, const char* what) {
 } // namespace
 
 int build_art(int argc, char** argv) {
-    const BuildArgs args = parse_build_args(argc, argv);
+    const BuildArgs args = parse_build_args(argc, argv, /*art_command=*/true);
     if (args.usage_error || args.source.empty() || args.out.empty()) {
         std::fprintf(stderr, "fbtool: build-art --source <tileset> --out <art> "
-                             "[--manifest <file> | --init-manifest]\n");
+                             "[--manifest <file> | --init-manifest] "
+                             "[--accept-tile-update <name>]...\n");
+        return 2;
+    }
+    const std::string manifest_target =
+        args.manifest_path.empty() ? args.out + ".manifest" : args.manifest_path;
+    if (paths_collide(
+            {{"--source", args.source}, {"--out", args.out}, {"the manifest", manifest_target}})) {
         return 2;
     }
 
@@ -107,7 +159,9 @@ int build_art(int argc, char** argv) {
         manifest = parsed.take();
     }
 
-    auto built = build_art_from_tileset(tileset.value(), manifest);
+    fauxbuild::TileUpdateAcceptance accepted;
+    accepted.accepted_names = args.accepted_updates;
+    auto built = build_art_from_tileset(tileset.value(), manifest, accepted);
     if (!built.is_ok()) {
         std::fprintf(stderr, "fbtool: %s\n", built.error().to_string().c_str());
         return 1;
@@ -129,8 +183,6 @@ int build_art(int argc, char** argv) {
         std::fprintf(stderr, "fbtool: %s\n", manifest_text.error().to_string().c_str());
         return 1;
     }
-    const std::string manifest_target =
-        args.manifest_path.empty() ? args.out + ".manifest" : args.manifest_path;
     auto saved = write_file_bytes(
         manifest_target, reinterpret_cast<const std::uint8_t*>(manifest_text.value().data()),
         manifest_text.value().size());
@@ -148,11 +200,16 @@ int build_art(int argc, char** argv) {
 }
 
 int build_palette(int argc, char** argv) {
-    const BuildArgs args = parse_build_args(argc, argv);
+    const BuildArgs args = parse_build_args(argc, argv, /*art_command=*/false);
     if (args.usage_error || args.source.empty() ||
         (args.palette_out.empty() && args.lookup_out.empty())) {
         std::fprintf(stderr, "fbtool: build-palette --source <spec> "
                              "[--palette-out <file>] [--lookup-out <file>]\n");
+        return 2;
+    }
+    if (paths_collide({{"--source", args.source},
+                       {"--palette-out", args.palette_out},
+                       {"--lookup-out", args.lookup_out}})) {
         return 2;
     }
 

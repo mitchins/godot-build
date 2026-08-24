@@ -146,21 +146,41 @@ Result<TileManifest> parse_tile_manifest(std::string_view text, std::string sour
             return Result<TileManifest>::err(picnum.error());
         entry.picnum = static_cast<std::int32_t>(picnum.value());
         entry.name = fields[1];
+        // Range-check before narrowing: width 70000 silently became 4464 as an
+        // int16 and then passed validate_tile_manifest, which only sees the
+        // narrowed value.
+        auto in_range = [](const Result<long>& v, long lo, long hi) -> bool {
+            return v.is_ok() && v.value() >= lo && v.value() <= hi;
+        };
+        auto range_error = [&](const char* what, long lo, long hi) {
+            return Result<TileManifest>::err(
+                {source, line_no, "manifest.line", ErrorCode::OutOfBounds,
+                 std::string(what) + " is out of range [" + std::to_string(lo) + ", " +
+                     std::to_string(hi) + "]"});
+        };
         auto w = parse_int(fields[2], source, line_no, "width");
         if (!w.is_ok())
             return Result<TileManifest>::err(w.error());
+        if (!in_range(w, 0, 32767))
+            return range_error("width", 0, 32767);
         entry.width = static_cast<std::int16_t>(w.value());
         auto h = parse_int(fields[3], source, line_no, "height");
         if (!h.is_ok())
             return Result<TileManifest>::err(h.error());
+        if (!in_range(h, 0, 32767))
+            return range_error("height", 0, 32767);
         entry.height = static_cast<std::int16_t>(h.value());
         auto xc = parse_int(fields[4], source, line_no, "x_center");
         if (!xc.is_ok())
             return Result<TileManifest>::err(xc.error());
+        if (!in_range(xc, -128, 127))
+            return range_error("x_center", -128, 127);
         entry.x_center = static_cast<std::int8_t>(xc.value());
         auto yc = parse_int(fields[5], source, line_no, "y_center");
         if (!yc.is_ok())
             return Result<TileManifest>::err(yc.error());
+        if (!in_range(yc, -128, 127))
+            return range_error("y_center", -128, 127);
         entry.y_center = static_cast<std::int8_t>(yc.value());
         const std::uint8_t anim = anim_code(fields[6]);
         if (anim == 255) {
@@ -172,10 +192,14 @@ Result<TileManifest> parse_tile_manifest(std::string_view text, std::string sour
         auto frames = parse_int(fields[7], source, line_no, "frames");
         if (!frames.is_ok())
             return Result<TileManifest>::err(frames.error());
+        if (!in_range(frames, 0, 255))
+            return range_error("frames", 0, 255);
         entry.frames = static_cast<std::uint8_t>(frames.value());
         auto speed = parse_int(fields[8], source, line_no, "speed");
         if (!speed.is_ok())
             return Result<TileManifest>::err(speed.error());
+        if (!in_range(speed, 0, 255))
+            return range_error("speed", 0, 255);
         entry.speed = static_cast<std::uint8_t>(speed.value());
         // Content hash: exactly 16 lowercase hex digits, no 0x, no sign. Strict
         // because this field is the immutability anchor.

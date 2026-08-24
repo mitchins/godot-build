@@ -13,7 +13,7 @@ namespace fauxbuild {
 // (plan §7.5, M4 slice 3). A picnum's meaning must never change when tiles
 // are added: entries are immutable once assigned, new tiles append as
 // max_picnum + 1, and removal/rename is an explicit error. Stability is a
-// tested property (tests/unit/tile_manifest.test.cpp), not a comment.
+// tested property (tests/unit/tile_build.test.cpp), not a comment.
 //
 // Text format (deterministic, diff-friendly):
 //   # fauxbuild tile manifest v2

@@ -172,6 +172,154 @@ TEST_CASE("STABILITY: same name and shape but different pixels is rejected") {
     CHECK(again.value().manifest.entries.size() == built.value().manifest.entries.size());
 }
 
+TEST_CASE("STABILITY: an accepted repaint keeps the picnum and refreshes the hash") {
+    // D0014 rule 4: maps own numbers, artists own art. Redrawing a tile while
+    // keeping its picnum is ordinary authoring; only *unacknowledged* drift is
+    // an error. The first contract shipped here forbade repaints outright,
+    // which no artist could work under (human ruling, slice-3 review).
+    const char* before = "tileset t\ntile alpha 8 8 pattern=solid color=1\n"
+                         "tile beta 16 8 pattern=checker a=1 b=2 square=4\n";
+    const char* repainted = "tileset t\ntile alpha 8 8 pattern=solid color=9\n"
+                            "tile beta 16 8 pattern=checker a=1 b=2 square=4\n";
+    auto a = parse_tileset(before, "before");
+    REQUIRE(a.is_ok());
+    TileManifest manifest;
+    auto built = build_art_from_tileset(a.value(), manifest);
+    REQUIRE(built.is_ok());
+    const auto* original = built.value().manifest.find("alpha");
+    REQUIRE(original != nullptr);
+    const std::int32_t picnum_before = original->picnum;
+    const std::uint64_t hash_before = original->content;
+
+    auto b = parse_tileset(repainted, "repainted");
+    REQUIRE(b.is_ok());
+
+    SUBCASE("unacknowledged is still a hard error naming the remedy") {
+        auto rebuilt = build_art_from_tileset(b.value(), built.value().manifest);
+        REQUIRE_FALSE(rebuilt.is_ok());
+        CHECK(rebuilt.error().detail.find("--accept-tile-update alpha") != std::string::npos);
+    }
+    SUBCASE("accepted keeps the number and updates the record") {
+        fauxbuild::TileUpdateAcceptance accepted;
+        accepted.accepted_names = {"alpha"};
+        auto rebuilt = build_art_from_tileset(b.value(), built.value().manifest, accepted);
+        REQUIRE(rebuilt.is_ok());
+        const auto* after = rebuilt.value().manifest.find("alpha");
+        REQUIRE(after != nullptr);
+        CHECK(after->picnum == picnum_before); // the number never moves
+        CHECK(after->content != hash_before);  // the record follows the art
+        // Untouched tiles keep their hashes; acceptance is per-tile, not global.
+        const auto* beta_before = built.value().manifest.find("beta");
+        const auto* beta_after = rebuilt.value().manifest.find("beta");
+        REQUIRE(beta_before != nullptr);
+        REQUIRE(beta_after != nullptr);
+        CHECK(beta_after->content == beta_before->content);
+        CHECK(beta_after->picnum == beta_before->picnum);
+    }
+    SUBCASE("accepting one tile does not excuse another") {
+        const char* both = "tileset t\ntile alpha 8 8 pattern=solid color=9\n"
+                           "tile beta 16 8 pattern=checker a=3 b=4 square=4\n";
+        auto c = parse_tileset(both, "both");
+        REQUIRE(c.is_ok());
+        fauxbuild::TileUpdateAcceptance accepted;
+        accepted.accepted_names = {"alpha"};
+        auto rebuilt = build_art_from_tileset(c.value(), built.value().manifest, accepted);
+        REQUIRE_FALSE(rebuilt.is_ok());
+        CHECK(rebuilt.error().detail.find("beta") != std::string::npos);
+    }
+}
+
+TEST_CASE("build rejects malformed input that would index out of range") {
+    auto ts = parse_tileset("tileset t\ntile a 8 8 pattern=solid color=1\n", "t");
+    REQUIRE(ts.is_ok());
+    SUBCASE("manifest starting at picnum 1") {
+        TileManifest bad;
+        bad.entries.push_back({1, "a", 8, 8, 0, 0, 0, 0, 0, 0});
+        auto built = build_art_from_tileset(ts.value(), bad);
+        CHECK_FALSE(built.is_ok());
+    }
+    SUBCASE("manifest with a gap") {
+        TileManifest bad;
+        bad.entries.push_back({0, "a", 8, 8, 0, 0, 0, 0, 0, 0});
+        bad.entries.push_back({2, "b", 8, 8, 0, 0, 0, 0, 0, 0});
+        auto built = build_art_from_tileset(ts.value(), bad);
+        CHECK_FALSE(built.is_ok());
+    }
+    SUBCASE("empty tileset does not emit a negative ART range") {
+        auto empty = parse_tileset("tileset empty\n", "empty");
+        REQUIRE(empty.is_ok());
+        TileManifest manifest;
+        auto built = build_art_from_tileset(empty.value(), manifest);
+        REQUIRE_FALSE(built.is_ok()); // previously emitted range 0..-1
+    }
+}
+
+TEST_CASE("pattern DSL rejects unknown names and zero divisors") {
+    // Both reached generation code: an unknown name fell through to a default
+    // pixel, and square=0 / major=0 divided by zero (UBSan-confirmed).
+    SUBCASE("unknown pattern") {
+        auto ts = parse_tileset("tileset t\ntile a 8 8 pattern=nonesuch\n", "u");
+        REQUIRE_FALSE(ts.is_ok());
+        CHECK(ts.error().detail.find("unknown pattern") != std::string::npos);
+    }
+    SUBCASE("checker square=0") {
+        auto ts = parse_tileset("tileset t\ntile a 8 8 pattern=checker a=1 b=2 square=0\n", "z");
+        REQUIRE_FALSE(ts.is_ok());
+    }
+    SUBCASE("checker square negative") {
+        auto ts = parse_tileset("tileset t\ntile a 8 8 pattern=checker a=1 b=2 square=-4\n", "n");
+        REQUIRE_FALSE(ts.is_ok());
+    }
+    SUBCASE("grid major=0") {
+        auto ts = parse_tileset("tileset t\ntile a 8 8 pattern=grid major=0 line=1 bg=2\n", "g");
+        REQUIRE_FALSE(ts.is_ok());
+    }
+}
+
+TEST_CASE("picanm raw stays in sync with the decoded fields") {
+    // write_art serializes meta.raw. Mutating the decoded frames/anim_type
+    // without repacking made the emitted ART disagree with the struct the unit
+    // tests assert on — the exact "tests pass, artifact is wrong" failure.
+    auto ts = parse_tileset(
+        "tileset t\nanim spin 8 8 frames=4 type=forward speed=3 pattern=solid color=2\n", "p");
+    REQUIRE(ts.is_ok());
+    TileManifest manifest;
+    auto built = build_art_from_tileset(ts.value(), manifest);
+    REQUIRE(built.is_ok());
+    for (const auto& tile : built.value().art.tiles) {
+        CHECK((tile.meta.raw & 0x3F) == tile.meta.frames);
+        CHECK(((tile.meta.raw >> 6) & 0x3) == tile.meta.anim_type);
+    }
+    // And the round-trip through the file agrees with the in-memory view.
+    auto bytes = fauxbuild::write_art(built.value().art);
+    REQUIRE(bytes.is_ok());
+    auto reparsed = fauxbuild::read_art(
+        std::string_view(reinterpret_cast<const char*>(bytes.value().data()), bytes.value().size()),
+        "p");
+    REQUIRE(reparsed.is_ok());
+    REQUIRE(reparsed.value().tiles.size() == built.value().art.tiles.size());
+    for (std::size_t i = 0; i < reparsed.value().tiles.size(); ++i) {
+        CHECK(reparsed.value().tiles[i].meta.frames == built.value().art.tiles[i].meta.frames);
+        CHECK(reparsed.value().tiles[i].meta.anim_type ==
+              built.value().art.tiles[i].meta.anim_type);
+    }
+}
+
+TEST_CASE("manifest parser range-checks before narrowing") {
+    // width 70000 narrowed to 4464 as an int16 and then passed validation.
+    auto parsed = parse_tile_manifest(
+        "# fauxbuild tile manifest v2\n# h\n0 a 70000 1 0 0 none 0 0 0000000000000000\n", "w");
+    REQUIRE_FALSE(parsed.is_ok());
+    CHECK(parsed.error().detail.find("out of range") != std::string::npos);
+}
+
+TEST_CASE("lookup writer rejects more swaps than the count field can hold") {
+    fauxbuild::LookupData data;
+    data.swaps.resize(256); // one byte can only carry 255
+    auto written = fauxbuild::write_lookup_dat(data);
+    REQUIRE_FALSE(written.is_ok());
+}
+
 TEST_CASE("STABILITY: reordering the source does not renumber picnums") {
     // Picnums follow the manifest, not source order.
     const char* one = "tileset t\ntile alpha 8 8 pattern=solid color=1\n"

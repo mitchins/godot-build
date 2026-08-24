@@ -239,7 +239,7 @@ undeclared in-band. Property evidence: tables 0..31 form a monotone shade ramp
 (table 0 is 255/256 identity; distinct-value count collapses monotonically to
 18); table 32 breaks every property of that ramp (identity hits drop to 3,
 distinct values jump to 139) — the boundary is real, not an artifact.
-Decision (proposed):
+Decision:
 1. `read_palette_dat` accepts the file iff the total arithmetic closes exactly
    (770 + 256*k + 65536 == size, k >= declared count). The bytes between the
    declared tables and the translucency region are preserved verbatim as
@@ -270,8 +270,8 @@ should not be trusted for rendering.
 
 ### D0014 — Tile manifest format and stability semantics (M4)
 
-Status: proposed (implemented, awaiting human ratification)
-Date: 2026-08-23
+Status: proposed — amendments applied 2026-08-24, awaiting ratification
+Date: 2026-08-23 (amended 2026-08-24)
 Context: plan §7.5 requires a stable tile manifest ("never casually renumber
 tiles after maps exist"). The M4 brief demands the stability property as a
 test, not a comment. This record proposes the format and the semantics the
@@ -286,19 +286,31 @@ Decision:
 2. The manifest is the picnum authority. Builds assign new tiles as max+1;
    animation sets occupy `frames` consecutive entries named `name#k`, with
    only the anchor (`#0`) recording frame count and animation type.
-3. Stability is enforced at build time: a manifest tile missing from the
-   tileset, or any change to dims/pivot/animation **or pixel content** of an
-   assigned tile, is a hard error. Removal requires deleting the manifest
-   explicitly (a conscious act, never a silent renumber).
-4. Content is part of a picnum's identity, not only its shape. Name, dims,
-   pivot and animation together do not pin what a picnum draws: a tile can
-   keep all of them and change its pattern, and every map referencing that
-   picnum would silently draw something else. Found in review by rebuilding
-   `pattern=solid color=1` as `color=9` — accepted, no error, pixels changed
-   under a fixed picnum. The hash makes the immutability check total.
-5. Source *order* is not part of identity: reordering tiles in the tileset, or
-   inserting a tile ahead of existing ones, must not renumber anything.
-   Picnums follow the manifest, never file position. Tested.
+3. **Picnum assignment is immutable; artwork is not.** Existing logical tiles
+   never move because source files were reordered or new tiles were inserted.
+   New logical tiles receive max(picnum)+1. The manifest is the picnum
+   authority; source order is never consulted. Tested.
+4. **The content hash is a change detector, not the tile's identity.** Name,
+   dims, pivot and animation together do not pin what a picnum draws — a tile
+   can keep all of them and change its pattern — so the hash exists to catch
+   that drift. It does *not* make artwork immutable. FNV-1a64 is adequate: this
+   is a drift detector, not an adversarial boundary.
+5. **Unacknowledged change fails closed.** If pixels, dims, pivot or animation
+   differ from the manifest, the ordinary build fails and names exactly what
+   changed and which picnum is affected.
+6. **Intentional updates have an explicit acceptance path that preserves the
+   picnum**: `fbtool build-art ... --accept-tile-update <name>` (core:
+   `TileUpdateAcceptance`). It refreshes the stored hash and metadata and
+   **never** the number. Acceptance is per-tile — accepting one tile does not
+   excuse drift in another — and `name` accepts a whole animation set while
+   `name#k` accepts a single frame. Redrawing an enemy twenty times while it
+   stays picnum 417 is ordinary authoring and must not require ceremony beyond
+   saying so.
+7. **Rename and removal are not automatic.** Removal is a hard error today;
+   picnums are never compacted or recycled. A future intentional rename or
+   retire must preserve or tombstone the number rather than freeing it for
+   reuse — the one thing that must never happen is a later tile inheriting a
+   retired picnum.
 Consequences: `fbtool build-art --init-manifest` bootstraps; later builds
 pass `--manifest`. The stable-rebuild contract (identical manifest text) and
 the add/remove/reshape unit properties live in
@@ -306,6 +318,14 @@ tests/unit/tile_build.test.cpp; the removal check was negative-tested
 (sabotaged to tolerate removals -> suite red), as was the content check
 (removed -> suite red at the same-shape-different-pixels case; CI probe red
 with "wrote output despite failing the stability check").
+
+**Amendment history.** The first implementation made content *immutable*:
+any pixel change was a hard error with no way to say "yes, I meant that". The
+human reviewer rejected that contract — "changing the pixels of an existing
+tile is a completely normal part of making a game" — and it is now rules 3-6
+above. The correct invariant is **maps own numbers; artists may continue
+making art.** The drift detection was kept; only the refusal to accept an
+intentional change was wrong.
 
 Manifests written before v2 have nine fields and are rejected with a field
 count error rather than silently loaded without content hashes. No such

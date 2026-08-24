@@ -624,6 +624,50 @@ Slice-3 review (2026-08-23) — one finding, fixed:
   build output, not source, so nothing published needs migrating.
 - Also fixed: `kTilesetB` declared `tileset stability_a`; changing the tileset
   name is accepted and does not renumber (now stated in D0014 rule 5).
+
+Slice-3 residual review (2026-08-24) — human ruling + CodeRabbit, blocked and fixed:
+
+**The contract was wrong, not just incomplete.** The reviewer rejected
+content-immutability outright: *"changing the pixels of an existing tile is a
+completely normal part of making a game... maps own numbers, artists may
+continue making art."* The drift detection was right; refusing to accept an
+intentional repaint was not. D0014 amended (rules 3-7): picnum assignment is
+immutable, the hash is a change detector, unacknowledged drift fails closed,
+and `--accept-tile-update <name>` refreshes the record while never moving the
+number. Acceptance is per-tile; the error message names the flag to use.
+
+Nine substantive defects, each reproduced before being fixed and each pinned by
+a regression test:
+
+| defect | evidence before fix |
+|---|---|
+| `square=0` / `major=0` divide by zero | UBSan halt at tile_build.cpp:80 |
+| unknown pattern name reaches generation | accepted, produced fallback pixels |
+| dead loop indexing `fields[3][2]` on a 1-char token | out of bounds, result discarded |
+| `picanm` raw not repacked after mutation | decoded frames=0, raw=1, **emitted ART=1** |
+| malformed `TileManifest` passed directly | public entry point trusted its input |
+| manifest integer narrowing | width 70000 became 4464, then validated |
+| LOOKUP writer count truncation | 256 swaps wrapped to 0 |
+| empty tileset | emitted ART range `0..-1` |
+| input/output path collisions | build could overwrite its own source |
+
+The `picanm` one is the milestone's most important find and vindicates the
+checkpoint strategy: the in-memory struct and the serialized artifact
+disagreed, so unit tests asserting on the decoded fields passed while the ART
+written to disk carried different animation metadata. That is the same failure
+class as M2's GRP header — our own writer and tests agreeing with each other's
+mistake — caught here one layer earlier.
+
+**`ci/check_fbtool.py`'s shebang had been rewritten to `#!/ usr / bin / env
+python3`** by clang-format being run over a Python file (entered at 1fccd7f).
+Restored, and `ci/check_format.py` now (a) formats only C/C++ suffixes via an
+explicit constant and (b) fails if any committed Python file carries a mangled
+shebang. Negative-tested: re-introducing the corruption turns the gate red.
+
+Also: explicit `entry` lines no longer silently lose to a covering `ramp`;
+the palette corpus regression compares bytes rather than length; D0013's body
+said "Decision (proposed)" under an accepted header; stale `dump-art` help text
+and a `tile_manifest.test.cpp` reference that never existed.
 - Built artifacts verified through the M2/M4 stack: built ART parses via
   read_art, round-trips byte-identically, dump-art stats consistent.
 
@@ -633,7 +677,7 @@ Slice-3 review (2026-08-23) — one finding, fixed:
   (method per brief): LOOKUP.DAT closes exactly (1 + 25*257 + 5*768; swap
   indices are a permutation of 1..25; alt palettes are 6-bit). PALETTE.DAT
   refuted the published size equation: declared count 32, actual table region
-  64 tables — deviance preserved and recorded as D0013 (proposed) +
+  64 tables — deviance preserved and recorded as D0013 (accepted) +
   COMPATIBILITY_SCOPE 0b/0c + PROVENANCE rows 10/11.
 - `read_palette_dat` / `read_lookup_dat` / canonical writers: bounded, counts
   validated before allocation, fail-closed structured errors, byte-identical

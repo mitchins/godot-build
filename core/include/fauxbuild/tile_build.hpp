@@ -56,7 +56,18 @@ struct BuiltArt {
     TileManifest manifest; // updated (possibly with new assignments)
 };
 
-Result<BuiltArt> build_art_from_tileset(const TilesetDef& tileset, const TileManifest& manifest);
+// Names whose art the caller has explicitly accepted as changed (D0014 rule 4).
+// A picnum's *number* is immutable; its artwork is not — redrawing a tile while
+// keeping its picnum is ordinary authoring. Unacknowledged changes still fail
+// closed, so the manifest stays a drift detector without freezing the art.
+// An entry may name a tile ("hero") or a single animation frame ("hero#2").
+struct TileUpdateAcceptance {
+    std::vector<std::string> accepted_names;
+    bool accepts(const std::string& entry_name) const;
+};
+
+Result<BuiltArt> build_art_from_tileset(const TilesetDef& tileset, const TileManifest& manifest,
+                                        const TileUpdateAcceptance& accepted = {});
 
 // Palette spec DSL (fixtures/source/palettes/*.palette):
 //   palette <name>

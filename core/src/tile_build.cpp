@@ -67,6 +67,24 @@ std::uint8_t anim_code(const std::string& text) {
 }
 
 // Deterministic pattern generators. Pixel (x, y) -> palette index.
+// write_art serializes meta.raw, not the decoded fields. Every mutation of
+// frames/anim_type must repack, or the in-memory view and the emitted file
+// disagree — tests pass on the decoded struct while the ART on disk carries
+// different animation metadata (found in review, reproduced end to end).
+void repack_picanm(ArtTile& tile) {
+    tile.meta.raw =
+        (static_cast<std::uint32_t>(tile.meta.frames & 0x3F)) |
+        (static_cast<std::uint32_t>(tile.meta.anim_type & 0x3) << 6) |
+        (static_cast<std::uint32_t>(static_cast<std::uint8_t>(tile.meta.x_center)) << 8) |
+        (static_cast<std::uint32_t>(static_cast<std::uint8_t>(tile.meta.y_center)) << 16) |
+        (static_cast<std::uint32_t>(tile.meta.speed & 0xF) << 24);
+}
+
+bool is_known_pattern(const std::string& pattern) {
+    return pattern == "solid" || pattern == "checker" || pattern == "ramp" || pattern == "grid" ||
+           pattern == "indexed";
+}
+
 std::uint8_t pattern_pixel(const std::string& pattern, const std::vector<long>& p, std::int32_t x,
                            std::int32_t y, std::int32_t w, std::int32_t h, std::int32_t phase) {
     (void)h;
@@ -74,7 +92,11 @@ std::uint8_t pattern_pixel(const std::string& pattern, const std::vector<long>& 
         return static_cast<std::uint8_t>(p[0]);
     }
     if (pattern == "checker") {
-        const long square = p.size() > 2 ? p[2] : 8;
+        // Defensive: parse_tileset rejects square<=0, but this function is
+        // reachable from any TilesetDef, and a zero here is a division by zero
+        // (UBSan-confirmed before the parse-time check existed).
+        const long raw_square = p.size() > 2 ? p[2] : 8;
+        const long square = raw_square > 0 ? raw_square : 1;
         const long a = p[0];
         const long b = p[1];
         const auto cx = (x + phase * square) / square;
@@ -87,7 +109,8 @@ std::uint8_t pattern_pixel(const std::string& pattern, const std::vector<long>& 
         return static_cast<std::uint8_t>(from + (to - from) * x / span);
     }
     if (pattern == "grid") {
-        const long major = p[0];
+        const long raw_major = p[0];
+        const long major = raw_major > 0 ? raw_major : 1; // see checker above
         const long line = p[1];
         const long bg = p[2];
         return static_cast<std::uint8_t>((x % major == 0 || y % major == 0) ? line : bg);
@@ -218,6 +241,15 @@ Result<TilesetDef> parse_tileset(std::string_view text, std::string source) {
                     {source, line_no, "tileset.line", ErrorCode::InvalidName,
                      "tile '" + tile.name + "' has no pattern=... directive"});
             }
+            // Unknown pattern names silently produced a fallback pixel; a
+            // non-positive square/major divides by zero downstream. Both are
+            // untrusted input and must fail at the parse boundary.
+            if (!is_known_pattern(pattern_field)) {
+                return Result<TilesetDef>::err(
+                    {source, line_no, "tileset.line", ErrorCode::InvalidName,
+                     "tile '" + tile.name + "' has unknown pattern '" + pattern_field +
+                         "'; expected solid|checker|ramp|grid|indexed"});
+            }
             tile.pattern = pattern_field;
             if (kind == "anim") {
                 auto frames = option_value(fields, 4, "frames", 0, source, line_no);
@@ -257,6 +289,18 @@ Result<TilesetDef> parse_tileset(std::string_view text, std::string source) {
             if (param_failed) {
                 return Result<TilesetDef>::err(param_error);
             }
+            if (pattern_field == "checker" && tile.params.size() > 2 && tile.params[2] <= 0) {
+                return Result<TilesetDef>::err(
+                    {source, line_no, "tileset.line", ErrorCode::InvalidCount,
+                     "tile '" + tile.name + "' has square=" + std::to_string(tile.params[2]) +
+                         "; must be positive"});
+            }
+            if (pattern_field == "grid" && !tile.params.empty() && tile.params[0] <= 0) {
+                return Result<TilesetDef>::err(
+                    {source, line_no, "tileset.line", ErrorCode::InvalidCount,
+                     "tile '" + tile.name + "' has major=" + std::to_string(tile.params[0]) +
+                         "; must be positive"});
+            }
             def.tiles.push_back(std::move(tile));
             continue;
         }
@@ -295,7 +339,26 @@ Result<TilesetDef> parse_tileset(std::string_view text, std::string source) {
     return Result<TilesetDef>::ok(std::move(def));
 }
 
-Result<BuiltArt> build_art_from_tileset(const TilesetDef& tileset, const TileManifest& manifest) {
+bool TileUpdateAcceptance::accepts(const std::string& entry_name) const {
+    // "hero" accepts every frame of hero; "hero#2" accepts only that frame.
+    const auto hash = entry_name.rfind('#');
+    const std::string base = hash == std::string::npos ? entry_name : entry_name.substr(0, hash);
+    for (const auto& name : accepted_names) {
+        if (name == entry_name || name == base) {
+            return true;
+        }
+    }
+    return false;
+}
+
+Result<BuiltArt> build_art_from_tileset(const TilesetDef& tileset, const TileManifest& manifest,
+                                        const TileUpdateAcceptance& accepted) {
+    // This is a public entry point: the manifest may arrive from anywhere, not
+    // only from parse_tile_manifest. Its invariants (gapless, ascending from 0,
+    // unique names) are what makes picnum-indexed access safe below.
+    if (auto valid = validate_tile_manifest(manifest); !valid.is_ok()) {
+        return Result<BuiltArt>::err(valid.error());
+    }
     // Stability pass 1: every manifest entry must resolve to a tileset tile
     // with identical shape; assignments are immutable. Frame entries carry
     // the base tile name plus '#k'; only the anchor (#0) records the frame
@@ -354,15 +417,22 @@ Result<BuiltArt> build_art_from_tileset(const TilesetDef& tileset, const TileMan
         const bool anchor = frame == 0 || (frame == -1 && source->frames <= 1);
         const std::uint8_t recorded_frames = (anchor && source->frames > 1) ? source->frames : 0;
         const std::uint8_t recorded_anim = (anchor && source->frames > 1) ? source->anim_type : 0;
-        if (source->width != entry.width || source->height != entry.height ||
-            source->x_center != entry.x_center || source->y_center != entry.y_center ||
-            recorded_anim != entry.anim_type || recorded_frames != entry.frames ||
-            source->speed != entry.speed) {
+        // Metadata drift is acknowledged through the same path as content
+        // (D0014 rule 4): the build fails closed and names what changed, and an
+        // explicit acceptance updates the record while keeping the picnum.
+        if ((source->width != entry.width || source->height != entry.height ||
+             source->x_center != entry.x_center || source->y_center != entry.y_center ||
+             recorded_anim != entry.anim_type || recorded_frames != entry.frames ||
+             source->speed != entry.speed) &&
+            !accepted.accepts(entry.name)) {
             return Result<BuiltArt>::err(
                 {"tileset", 0, "build.stability", ErrorCode::InvalidName,
                  "tile '" + entry.name +
-                     "' changed shape/pivot/animation vs the manifest; entries are "
-                     "immutable once assigned"});
+                     "' changed shape/pivot/animation vs the manifest. Picnum " +
+                     std::to_string(entry.picnum) +
+                     " keeps its number either way; if this change is intended, re-run with "
+                     "--accept-tile-update " +
+                     entry.name});
         }
         // Shape and metadata are not enough: a tile can keep its name, size,
         // pivot and animation and still be a different picture, which is
@@ -370,16 +440,55 @@ Result<BuiltArt> build_art_from_tileset(const TilesetDef& tileset, const TileMan
         // silently draw something else). Content is the immutability anchor.
         const ArtTile rendered = build_tile(*source, frame < 0 ? 0 : frame);
         const std::uint64_t content = fnv1a64(rendered.pixels.data(), rendered.pixels.size());
-        if (content != entry.content) {
-            return Result<BuiltArt>::err({"tileset", 0, "build.stability", ErrorCode::InvalidName,
-                                          "tile '" + entry.name +
-                                              "' has the same shape but different pixels than the "
-                                              "manifest records; picnum content is immutable"});
+        if (content != entry.content && !accepted.accepts(entry.name)) {
+            return Result<BuiltArt>::err(
+                {"tileset", 0, "build.stability", ErrorCode::InvalidName,
+                 "tile '" + entry.name +
+                     "' has the same shape but different pixels than the manifest records. "
+                     "Picnum " +
+                     std::to_string(entry.picnum) +
+                     " keeps its number either way; if this repaint is intended, re-run with "
+                     "--accept-tile-update " +
+                     entry.name});
         }
     }
 
     // Stability pass 2: assign picnums for new tiles (append-only, max+1).
     TileManifest updated = manifest;
+
+    // An accepted repaint refreshes the recorded hash and metadata but never
+    // the picnum (D0014 rule 4): maps own numbers, artists own art. Doing this
+    // before the append pass keeps the rewritten manifest consistent with the
+    // ART actually emitted below.
+    for (auto& entry : updated.entries) {
+        if (!accepted.accepts(entry.name)) {
+            continue;
+        }
+        const auto hash_pos = entry.name.rfind('#');
+        const std::string base =
+            hash_pos == std::string::npos ? entry.name : entry.name.substr(0, hash_pos);
+        std::int32_t phase = 0;
+        if (hash_pos != std::string::npos) {
+            phase = std::stoi(entry.name.substr(hash_pos + 1));
+        }
+        for (const auto& tile : tileset.tiles) {
+            if (tile.name != base) {
+                continue;
+            }
+            const ArtTile rendered = build_tile(tile, phase);
+            entry.content = fnv1a64(rendered.pixels.data(), rendered.pixels.size());
+            entry.width = tile.width;
+            entry.height = tile.height;
+            entry.x_center = tile.x_center;
+            entry.y_center = tile.y_center;
+            const bool anchor = tile.frames <= 1 || phase == 0;
+            entry.frames = (anchor && tile.frames > 1) ? tile.frames : 0;
+            entry.anim_type = (anchor && tile.frames > 1) ? tile.anim_type : 0;
+            entry.speed = tile.speed;
+            break;
+        }
+    }
+
     for (const auto& tile : tileset.tiles) {
         const bool already_assigned = tile.frames > 1 ? updated.find(tile.name + "#0") != nullptr
                                                       : updated.find(tile.name) != nullptr;
@@ -404,6 +513,14 @@ Result<BuiltArt> build_art_from_tileset(const TilesetDef& tileset, const TileMan
                 return Result<BuiltArt>::err(assigned.error());
             }
         }
+    }
+
+    // An empty set would emit localtileend = -1, i.e. an ART header describing
+    // a negative range. Reject it rather than publishing a malformed container.
+    if (updated.entries.empty()) {
+        return Result<BuiltArt>::err({"tileset", 0, "build.emit", ErrorCode::InvalidCount,
+                                      "tileset defines no tiles; an ART container needs at "
+                                      "least one"});
     }
 
     // Emit tiles in picnum order.
@@ -443,6 +560,7 @@ Result<BuiltArt> build_art_from_tileset(const TilesetDef& tileset, const TileMan
             out.meta.anim_type = 0;
             out.meta.frames = 0;
         }
+        repack_picanm(out);
         built.art.tiles.push_back(std::move(out));
     }
     // Anchor semantics: frame 0 of each set carries frames/type (Build
@@ -455,8 +573,10 @@ Result<BuiltArt> build_art_from_tileset(const TilesetDef& tileset, const TileMan
         if (anchor == nullptr) {
             continue;
         }
-        built.art.tiles[static_cast<std::size_t>(anchor->picnum)].meta.frames = tile.frames;
-        built.art.tiles[static_cast<std::size_t>(anchor->picnum)].meta.anim_type = tile.anim_type;
+        auto& anchor_tile = built.art.tiles[static_cast<std::size_t>(anchor->picnum)];
+        anchor_tile.meta.frames = tile.frames;
+        anchor_tile.meta.anim_type = tile.anim_type;
+        repack_picanm(anchor_tile);
     }
     return Result<BuiltArt>::ok(std::move(built));
 }
@@ -536,11 +656,6 @@ Result<PaletteSpec> parse_palette_spec(std::string_view text, std::string source
             }
             ramp.start = static_cast<std::int32_t>(start.value());
             ramp.count = static_cast<std::int32_t>(count.value());
-            for (int c = 0; c < 3; ++c) {
-                auto from = to_long(fields[3][c] == 'x' ? "0" : std::string(1, fields[3][c]),
-                                    source, line_no, "from");
-                (void)from;
-            }
             // parse "<r g b> -> <r g b>": fields are 3,4('->'),5,6,7 and 8,9
             // layout: ramp <start> <count> <r> <g> <b> -> <r> <g> <b>
             for (int c = 0; c < 3; ++c) {
@@ -597,6 +712,9 @@ Result<PaletteSpec> parse_palette_spec(std::string_view text, std::string source
     for (const auto& ramp : spec.ramps) {
         for (std::int32_t i = 0; i < ramp.count; ++i) {
             const std::int32_t index = ramp.start + i;
+            if (spec.entry_set[index]) {
+                continue; // an explicit 'entry' wins over a covering ramp
+            }
             const std::int32_t denom = std::max<std::int32_t>(1, ramp.count - 1);
             for (int c = 0; c < 3; ++c) {
                 spec.entry[index][c] = ramp.from[c] + (ramp.to[c] - ramp.from[c]) * i / denom;
