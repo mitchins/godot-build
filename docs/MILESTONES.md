@@ -1008,12 +1008,19 @@ render-all visibility.
 - Wall-loop extraction per sector via bounded point2 walks: multiple loops,
   any winding, outer loop chosen by exact |shoelace| magnitude; holes and
   non-convex boundaries handled without mutation or convex splitting.
-- Triangulation: original ear clipping with hole bridging (PROVENANCE row 12)
-  — all predicates exact (int64 + two-limb int128; no floating point); two
-  exact area invariants per sector verify bridge splice and clip coverage;
-  collinear vertices dropped (no zero-area triangles); ceilings emitted with
-  opposite winding to floors; holes with vertices touching the outer loop are
-  rejected structured (not silently filled).
+- Triangulation (current contract): **exact validation -> earcut -> exact
+  verification** (D0017). FauxBuild's own predicates are exact (int64 +
+  two-limb int128, no floating point) and own input validity; earcut owns
+  robustness; the exact-area oracle owns correctness of the output, so emitted
+  triangles must tile the outer loop minus its holes. Ceilings are emitted with
+  opposite winding to floors, and holes whose vertices touch the outer loop are
+  valid — real content relies on it.
+
+  *Historical note:* slice 1 originally shipped an original ear clipper with
+  hole bridging (PROVENANCE row 12, now superseded). It was replaced during
+  review; see the slice-1 amendment below for the measurements and the two root
+  causes. Nothing in the current implementation performs ear selection or hole
+  bridging.
 - Walls: solid spans for non-portal walls (own ceiling -> own floor); portal
   walls emit only `portal_upper`/`portal_lower` outside the vertical opening
   overlap — never a full quad across the opening. Interior-left orientation

@@ -173,7 +173,7 @@ mapv7::MapData multi_loop_world() {
 mapv7::MapData double_hole_world() {
     mapv7::MapData map;
     // One sector, one outer loop, two disjoint holes: exercises multi-hole
-    // bridging (each hole is spliced separately into the merged ring).
+    // triangulation and the hole-emptiness invariant.
     const std::int32_t ox[] = {0, 2 * kUnit, 2 * kUnit, 0};
     const std::int32_t oy[] = {0, 0, 2 * kUnit, 2 * kUnit};
     add_loop(map, ox, oy, 4);

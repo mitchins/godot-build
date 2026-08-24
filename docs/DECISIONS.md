@@ -416,8 +416,8 @@ everything derived from a map.
 
 Decision:
 1. **One conversion, in `fauxbuild::to_render_space` (core), nothing else.**
-   render.x = build.x * scale, render.y = -build.z * scale, render.z =
-   build.y * scale (Build Z grows down; render Y up). The scale must be a
+   `render.x = build.x * scale`, `render.y = -build.z * scale`,
+   `render.z = build.y * scale` (Build Z grows down; render Y up). The scale must be a
    power of two (default 2^-11: one 65536 grid square -> 32 render units,
    the M3 storey height 16384 -> 8) so every int32 Build coordinate maps to
    an exactly representable double and back — vertex bytes are bit-identical

@@ -1,7 +1,9 @@
 #include "fauxbuild/structural.hpp"
 
 #include <array>
+#include <cmath>
 #include <cstdint>
+#include <limits>
 
 #include "earcut_adapt.hpp" // wraps earcut.hpp; see that header
 
@@ -107,23 +109,26 @@ int orient_sign(const Pt& a, const Pt& b, const Pt& c) {
 }
 
 // Compare |a| < |b|.
+// |a| < |b|. Sign is irrelevant to magnitude: an earlier version short-circuited
+// on differing signs and returned `sa < sb`, which compares signs instead. That
+// is not an abstract helper bug -- extract_loops picks the outer loop by largest
+// |area|, so a sector whose outer loop is wound CW (negative shoelace) against a
+// hole wound CCW (positive) selected the *hole* as the outer boundary, and the
+// build then failed with the real outer vertices "outside" it. Sign equality is
+// signed_equal's job, not this function's.
 bool magnitude_less(const S128& a, const S128& b) {
-    const int sa = a.sign();
-    const int sb = b.sign();
-    if (sa != sb) {
-        return sa < sb;
-    }
-    if (sa == 0) {
-        return false;
-    }
     S128 abs_a = a;
     S128 abs_b = b;
-    if (sa < 0) {
+    if (abs_a.sign() < 0) {
         abs_a.negate();
+    }
+    if (abs_b.sign() < 0) {
         abs_b.negate();
     }
-    if (abs_a.hi != abs_b.hi) {
-        return abs_a.hi < abs_b.hi;
+    const auto hi_a = static_cast<std::uint64_t>(abs_a.hi);
+    const auto hi_b = static_cast<std::uint64_t>(abs_b.hi);
+    if (hi_a != hi_b) {
+        return hi_a < hi_b;
     }
     return abs_a.lo < abs_b.lo;
 }
@@ -562,17 +567,44 @@ std::vector<std::uint32_t> flipped_triangles(const std::vector<std::uint32_t>& i
     return out;
 }
 
+// D0016 requires the render scale to be a positive, finite power of two, so
+// every Build int32 coordinate maps to an exactly representable double and back.
+//
+// Expressed with frexp rather than integer casts. An earlier version cast the
+// scale (and 1/scale) to uint64 to test it, which is undefined behaviour when
+// the value does not fit: UBSan-confirmed on a very large finite scale and,
+// via 1/scale, on a very small positive one. frexp states the contract
+// directly -- a power of two is exactly 0.5 x 2^exp -- and needs no conversion,
+// so infinities, NaN and denormals are ordinary inputs rather than hazards.
 bool scale_is_power_of_two(double scale) {
-    if (!(scale > 0.0)) {
+    if (!std::isfinite(scale) || !(scale > 0.0)) {
+        return false; // NaN fails the ordered comparison; so do zero and negatives
+    }
+    int exponent = 0;
+    const double mantissa = std::frexp(scale, &exponent);
+    // frexp yields mantissa in [0.5, 1); it is exactly 0.5 only for a power of
+    // two.
+    if (mantissa != 0.5) {
         return false;
     }
-    if (scale >= 1.0) {
-        const std::uint64_t u = static_cast<std::uint64_t>(scale);
-        return static_cast<double>(u) == scale && u != 0 && (u & (u - 1)) == 0;
+    // Being a power of two is necessary but not sufficient. D0016's actual
+    // requirement is that every int32 maps to an exactly representable double
+    // and back, and an extreme exponent breaks that even though the value is a
+    // power of two: at 2^-1074 the products underflow into denormals and the
+    // round trip stops being exact. Test the contract itself at the int32
+    // extremes rather than reasoning about exponent bounds.
+    const double inverse = 1.0 / scale;
+    if (!std::isfinite(inverse)) {
+        return false;
     }
-    const double inv = 1.0 / scale;
-    const std::uint64_t u = static_cast<std::uint64_t>(inv);
-    return static_cast<double>(u) == inv && u != 0 && (u & (u - 1)) == 0;
+    for (const std::int32_t probe : {std::numeric_limits<std::int32_t>::min(), std::int32_t{-1},
+                                     std::int32_t{1}, std::numeric_limits<std::int32_t>::max()}) {
+        const double scaled = static_cast<double>(probe) * scale;
+        if (!std::isfinite(scaled) || scaled * inverse != static_cast<double>(probe)) {
+            return false;
+        }
+    }
+    return true;
 }
 
 std::string hex16(std::int16_t value) {

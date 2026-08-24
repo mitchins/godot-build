@@ -3,6 +3,8 @@
 #include <string>
 #include <vector>
 
+#include <limits>
+
 #include <doctest/doctest.h>
 
 #include "fauxbuild/map_io.hpp"
@@ -760,4 +762,74 @@ TEST_CASE("post-verification rejects a triangulation that does not tile the poly
     auto world = build_structural_world(sector_from_loops({spiral}));
     REQUIRE_FALSE(world.is_ok());
     CHECK(world.error().detail.find("exact area invariant") != std::string::npos);
+}
+
+TEST_CASE("outer loop selection is by magnitude, not by winding sign") {
+    // Consumer-level regression for magnitude_less. extract_loops picks the
+    // outer loop by largest |area|; comparing signs instead selects a small
+    // hole over a large outer boundary whenever their windings differ. Tested
+    // through build_structural_world rather than the helper, because the
+    // failure that matters is loop selection, not the comparison in isolation.
+    const std::int32_t u = kUnit;
+    // Outer wound CW (negative shoelace), hole wound CCW (positive) -- 16x the
+    // area, so any magnitude comparison must prefer it.
+    const std::vector<std::pair<std::int32_t, std::int32_t>> outer_cw = {
+        {0, 0}, {0, 4 * u}, {4 * u, 4 * u}, {4 * u, 0}};
+    const std::vector<std::pair<std::int32_t, std::int32_t>> hole_ccw = {
+        {u, u}, {2 * u, u}, {2 * u, 2 * u}, {u, 2 * u}};
+    auto world = build_structural_world(sector_from_loops({outer_cw, hole_ccw}));
+    REQUIRE(world.is_ok()); // sign comparison failed outright here
+    CHECK(world.value().diagnostics.empty());
+    // 16 square units minus a 1-unit hole, in render units (u -> 32).
+    CHECK(total_floor_area(world.value()) == doctest::Approx(15.0 * 32.0 * 32.0));
+    CHECK_FALSE(covered_by_floor(world.value(), 0, 1.5 * 32.0, 1.5 * 32.0));
+
+    SUBCASE("and with both windings reversed") {
+        const std::vector<std::pair<std::int32_t, std::int32_t>> outer_ccw = {
+            {0, 0}, {4 * u, 0}, {4 * u, 4 * u}, {0, 4 * u}};
+        const std::vector<std::pair<std::int32_t, std::int32_t>> hole_cw = {
+            {u, u}, {u, 2 * u}, {2 * u, 2 * u}, {2 * u, u}};
+        auto flipped = build_structural_world(sector_from_loops({outer_ccw, hole_cw}));
+        REQUIRE(flipped.is_ok());
+        CHECK(total_floor_area(flipped.value()) == doctest::Approx(15.0 * 32.0 * 32.0));
+    }
+}
+
+TEST_CASE("render scale validation is total and free of float-to-integer UB") {
+    // An earlier implementation tested the scale by casting it (and 1/scale) to
+    // uint64, which is undefined behaviour when the value does not fit --
+    // UBSan-confirmed on a very large finite scale and, via 1/scale, on a very
+    // small positive one. These run under the ASan/UBSan configuration.
+    auto accepts = [](double scale) {
+        fauxbuild::StructuralOptions options;
+        options.scale = scale;
+        return build_structural_world(fauxbuild::synth::map_fixture("square_room").value(), options)
+            .is_ok();
+    };
+    SUBCASE("powers of two in a usable range are accepted") {
+        CHECK(accepts(1.0 / 2048.0));
+        CHECK(accepts(1.0));
+        CHECK(accepts(0.5));
+        CHECK(accepts(1024.0));
+    }
+    SUBCASE("non-powers of two are rejected") {
+        CHECK_FALSE(accepts(1.0 / 1000.0));
+        CHECK_FALSE(accepts(3.0));
+        CHECK_FALSE(accepts(0.3));
+    }
+    SUBCASE("non-finite and non-positive values are rejected") {
+        CHECK_FALSE(accepts(std::numeric_limits<double>::infinity()));
+        CHECK_FALSE(accepts(-std::numeric_limits<double>::infinity()));
+        CHECK_FALSE(accepts(std::numeric_limits<double>::quiet_NaN()));
+        CHECK_FALSE(accepts(0.0));
+        CHECK_FALSE(accepts(-0.5));
+    }
+    SUBCASE("extreme magnitudes are rejected without undefined behaviour") {
+        CHECK_FALSE(accepts(1e300));
+        CHECK_FALSE(accepts(1e-300));
+        CHECK_FALSE(accepts(std::numeric_limits<double>::max()));
+        // A power of two, but the int32 round trip stops being exact once the
+        // products underflow into denormals -- D0016's actual requirement.
+        CHECK_FALSE(accepts(std::numeric_limits<double>::denorm_min()));
+    }
 }
