@@ -14,13 +14,13 @@ namespace mapbox {
 namespace util {
 
 template <>
-struct nth<0, std::array<std::int64_t, 2>> {
-    static std::int64_t get(const std::array<std::int64_t, 2>& point) { return point[0]; }
+struct nth<0, std::array<double, 2>> {
+    static double get(const std::array<double, 2>& point) { return point[0]; }
 };
 
 template <>
-struct nth<1, std::array<std::int64_t, 2>> {
-    static std::int64_t get(const std::array<std::int64_t, 2>& point) { return point[1]; }
+struct nth<1, std::array<double, 2>> {
+    static double get(const std::array<double, 2>& point) { return point[1]; }
 };
 
 } // namespace util

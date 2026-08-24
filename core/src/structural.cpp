@@ -1,6 +1,7 @@
 #include "fauxbuild/structural.hpp"
 
 #include <array>
+#include <cstdint>
 
 #include "earcut.hpp"
 #include "earcut_adapt.hpp"
@@ -308,7 +309,19 @@ Result<SectorLoops> extract_loops(const mapv7::MapData& map, std::size_t s) {
 
 // A ring as earcut consumes it. Disposable input representation only; MapData
 // is never mutated and these coordinates are exact int64 copies.
-using EcRing = std::vector<std::array<std::int64_t, 2>>;
+// earcut computes in double internally. Handing it int64 pushes the narrowing
+// conversion inside the standard library, where MSVC reports C4244 at a header
+// no external-include rule covers. Converting here instead makes the boundary
+// explicit and provably exact: every coordinate originates as a Build int32
+// (mapv7::Wall::x/y), and every int32 is exactly representable in a double.
+// Validation and the area oracle either side of earcut remain exact integer
+// arithmetic -- only the ring handed to the library is double.
+using EcRing = std::vector<std::array<double, 2>>;
+
+double exact_as_double(std::int64_t v) {
+    FB_CHECK(v >= INT32_MIN && v <= INT32_MAX); // exactness precondition
+    return static_cast<double>(v);
+}
 
 // Do segments ab and cd properly cross? Shared endpoints and collinear touching
 // are not crossings: real Build sectors legitimately touch their own hole
@@ -488,14 +501,14 @@ Result<Triangulation> triangulate_sector(const mapv7::MapData& map, std::size_t 
     rings.reserve(1 + holes.size());
     EcRing ec_outer;
     for (const Pt& p : outer) {
-        ec_outer.push_back({p.x, p.y});
+        ec_outer.push_back({exact_as_double(p.x), exact_as_double(p.y)});
         out.points.push_back(p);
     }
     rings.push_back(std::move(ec_outer));
     for (const auto& hole : holes) {
         EcRing ec_hole;
         for (const Pt& p : hole) {
-            ec_hole.push_back({p.x, p.y});
+            ec_hole.push_back({exact_as_double(p.x), exact_as_double(p.y)});
             out.points.push_back(p);
         }
         rings.push_back(std::move(ec_hole));
