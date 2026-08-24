@@ -1167,7 +1167,19 @@ That attestation is what the amendment existed to make possible. Before it,
 the same map could not be built at all (sector 147 fatal), and the strongest
 evidence lived in an ad-hoc harness nobody else could run.
 
-Slice 2 was not started.
+**Slice 1 — ACCEPTED 2026-08-25** by mitchellcurrie. Pure-C++ structural world
+derivation from authoritative MAP topology is accepted. D0016, D0017 and D0018
+all accepted; E1L1 HUMAN-ATTESTED (1936 surfaces / 5134 triangles / 0
+diagnostics / validation OK). PR #5 residual review closed with zero unresolved
+threads, including both Major correctness findings.
+
+The residual round improved the contract rather than merely closing tickets:
+opposite-winding outer/hole selection gained a consumer-level regression;
+scale validation now tests D0016's actual exact-reversibility requirement
+instead of asking whether a double numerically resembles a power of two; and
+two float-to-integer conversions that UBSan flagged as undefined are gone.
+
+M5 remains IN_PROGRESS. Slice 2 was not started.
 ## M6 — Slopes, indexed textures, flags, and sprites — NOT_STARTED
 
 Gate summary: slope query and render share one function; UV/sprite-flag/palette-shade matrix
