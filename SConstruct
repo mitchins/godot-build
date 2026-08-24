@@ -24,7 +24,16 @@ else:
     env['CXX'] = os.environ.get('CXX', 'clang++')
     env.Append(CXXFLAGS=['-std=c++20', '-Wall', '-Wextra', '-Werror'])
 
-env.Append(CPPPATH=['#core/include', '#third_party/earcut'])
+env.Append(CPPPATH=['#core/include'])
+# Vendored third-party headers are included as *system* headers so their
+# diagnostics are not escalated by our own -Werror//WX. We hold our code to
+# that bar, not Mapbox's: earcut trips MSVC C4458 (declaration hides class
+# member) and C4244 inside the standard library, neither of which we can or
+# should fix in a pinned dependency.
+if is_msvc:
+    env.Append(CXXFLAGS=['/external:I', Dir('#third_party/earcut').abspath, '/external:W0'])
+else:
+    env.Append(CXXFLAGS=['-isystem', Dir('#third_party/earcut').abspath])
 
 cfg = env['config']
 if cfg == 'dev':
