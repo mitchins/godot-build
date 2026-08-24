@@ -335,8 +335,8 @@ DSLs, and manifests are build output. Regenerate with `--init-manifest`.
 
 ### D0015 — Indexed atlas: authoritative representation and namespace policy (M4)
 
-Status: proposed — amended 2026-08-24 after review (the numtiles "floor" was
-an invented semantic and is gone); awaiting ratification
+Status: accepted — human ratification 2026-08-24 (amended the same day: the
+numtiles "floor" was an invented semantic and is gone)
 Date: 2026-08-24
 Context: M4 slice 4 builds the atlas M5 will render from. Two policies had
 to be fixed before code: where RGBA may exist, and how multiple ART files

@@ -402,7 +402,7 @@ with tempfile.TemporaryDirectory() as tmp:
             failures.append(f"inspect-atlas dir: stdout missing {expected!r}")
     # Gate-A summary lines: counts and dimensions only, never pixels or hashes.
     for expected in ("largest populated tile: 8x8 at picnum 1", "non-zero pivots: 3",
-                     "animated metadata entries: 1", "raw picanm entries preserved: 7"):
+                     "animated metadata entries: 1", "raw picanm entries preserved: 7 (3 non-zero)"):
         if expected not in proc.stdout:
             failures.append(f"inspect-atlas: report missing {expected!r}")
 

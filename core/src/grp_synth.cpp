@@ -3,6 +3,7 @@
 #include <array>
 #include <cstdio>
 #include <cstring>
+#include <limits>
 #include <string>
 
 #include "fauxbuild/check.hpp"
@@ -101,9 +102,15 @@ std::vector<std::uint8_t> build_grp(const std::vector<GrpFileSpec>& files) {
         FB_CHECK(!file.name.empty());
         payload += file.bytes.size();
     }
-    // Round-trip contract: grp::parse rejects containers above its entry
-    // limit (D0011), so the writer must never emit one (CodeRabbit, PR#4).
+    // Round-trip contract: build_grp is the canonical synthetic generator and
+    // its output must parse back through grp::parse. That constrains both the
+    // entry count (D0011 limit) and each payload, since the directory records
+    // size in a uint32 -- a larger payload would narrow silently and produce a
+    // container our own parser reads wrongly (CodeRabbit, PR#4).
     FB_CHECK(files.size() <= grp::kMaxEntryCount);
+    for (const auto& file : files) {
+        FB_CHECK(file.bytes.size() <= std::numeric_limits<std::uint32_t>::max());
+    }
     out.reserve(static_cast<std::size_t>(16 + 16ull * files.size() + payload));
 
     out.insert(out.end(), {'K', 'e', 'n', 'S', 'i', 'l', 'v', 'e', 'r', 'm', 'a', 'n'});

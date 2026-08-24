@@ -2,6 +2,7 @@
 
 #include <godot_cpp/classes/color_rect.hpp>
 #include <godot_cpp/classes/control.hpp>
+#include <godot_cpp/classes/label.hpp>
 #include <godot_cpp/classes/option_button.hpp>
 #include <godot_cpp/classes/shader_material.hpp>
 #include <godot_cpp/classes/spin_box.hpp>
@@ -40,6 +41,9 @@ class FauxAtlasPreview : public godot::Control {
     int get_bound_page() const { return bound_page_; }
     void select_picnum(int picnum);
     int bound_texel_at(int x, int y) const;
+    // The status line, so the boundary test can assert the empty-picnum
+    // presentation rather than only that nothing crashed.
+    godot::String get_status_text() const;
 
   private:
     void rebuild();
@@ -48,6 +52,7 @@ class FauxAtlasPreview : public godot::Control {
 
     godot::Ref<FauxAssetSet> asset_;
     godot::Ref<godot::ShaderMaterial> material_;
+    godot::Label* status_ = nullptr;
     godot::SpinBox* picnum_box_ = nullptr;
     godot::SpinBox* shade_box_ = nullptr;
     godot::OptionButton* palette_button_ = nullptr;

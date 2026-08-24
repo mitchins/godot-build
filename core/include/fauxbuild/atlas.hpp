@@ -83,9 +83,10 @@ struct AtlasOptions {
 // localtileend]; the namespace size is max(localtileend + 1) over all
 // contributing ART files. numtiles is preserved raw and consulted by nothing:
 // the published description calls it unused, and real content shows only that
-// it is not an upper bound — never that it is a lower one (D0015).// one global count (2816) while
-// later files claim picnums beyond it (max observed end 3327), so it is never validated against a
-// range. Gaps between and after claimed ranges become explicit empty picnums.
+// it is not an upper bound: all 13 shipped files declare 2816 while ranges
+// reach 3327. Nothing observed makes it a lower bound either, so it is never
+// validated against a range and never sizes anything. Gaps between and after
+// claimed ranges become explicit empty picnums.
 //
 // Rejections: overlapping claimed ranges, malformed ranges, tile counts
 // inconsistent with their own range, pixel payloads inconsistent with

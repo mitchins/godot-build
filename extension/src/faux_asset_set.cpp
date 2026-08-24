@@ -132,6 +132,11 @@ godot::Dictionary FauxAssetSet::get_tile_meta(std::int32_t picnum) const {
     const auto& t = atlas_->tiles[picnum];
     out["picnum"] = picnum;
     out["populated"] = t.populated;
+    // "claimed": some ART file declares a range covering this picnum. An
+    // unclaimed picnum is a gap (no such tile); a claimed-but-unpopulated one
+    // is a real tile with zero dimensions. M5 needs that distinction, and
+    // without it the two empty states are indistinguishable at the boundary.
+    out["claimed"] = !t.source.empty();
     out["page"] = t.page;
     out["width"] = t.width;
     out["height"] = t.height;

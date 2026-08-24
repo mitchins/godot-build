@@ -12,8 +12,9 @@ namespace fauxbuild {
 // ART tile container (published description: ModdingWiki "ART Format
 // (Build)", PROVENANCE row 10). Every structural claim was corroborated
 // against three legally owned TILES###.ART files before encoding
-// (COMPATIBILITY_SCOPE row 0d): version==1; the numtiles header field is a
-// global game tile count (2816 in all three files), NOT the per-file count —
+// (COMPATIBILITY_SCOPE row 0d): version==1; the numtiles header field has no
+// established meaning — the published description calls it unused, and the
+// only thing observation establishes is that it is not the per-file count —
 // the count is end-start+1; ranges chain contiguously; and
 // 16 + n*8 + sum(w*h) closes exactly on real file sizes.
 //

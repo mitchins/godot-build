@@ -232,6 +232,45 @@ func _assert_multipage(dir: String) -> void:
 		break
 	check(checked_above_zero, "no populated tile landed above page 0")
 
+	# Empty picnums are a normal state (1723 of 3328 in the shipped GRP), and
+	# they report page = -1. Selecting one previously reached
+	# ImageTexture::create_from_image(null) before the populated check ran.
+	var preview2 := FauxAtlasPreview.new()
+	preview2.asset = multi
+	add_child(preview2)
+	var saw_gap := false
+	var saw_zero_dim := false
+	for p2 in range(multi.get_tile_count()):
+		var m2: Dictionary = multi.get_tile_meta(p2)
+		if bool(m2["populated"]):
+			continue
+		var size2: Vector2i = multi.get_tile_size(p2)
+		# A gap has no ART owner at all; a zero-dimension tile is claimed by a
+		# range but has no texels. Both report page = -1, so "claimed" is the
+		# only thing that separates them at the boundary.
+		var is_zero_dim: bool = bool(m2["claimed"])
+		if is_zero_dim and saw_zero_dim:
+			continue
+		if not is_zero_dim and saw_gap:
+			continue
+		preview2.select_picnum(p2)
+		check(preview2.get_status_text().contains("empty"),
+			"picnum %d (empty) should present an empty state, got '%s'"
+			% [p2, preview2.get_status_text()])
+		check(size2.x == 0 or size2.y == 0 or m2["page"] == -1,
+			"picnum %d is unpopulated yet claims atlas space" % p2)
+		if is_zero_dim:
+			saw_zero_dim = true
+		else:
+			saw_gap = true
+		if saw_gap and saw_zero_dim:
+			break
+	check(saw_gap, "fixture must contain a gap picnum")
+	check(saw_zero_dim, "fixture must contain a zero-dimension claimed tile")
+	# Selecting an empty tile must not disturb what is bound for the next
+	# populated one.
+	preview2.queue_free()
+
 # The Image representation Godot would upload: R8, byte-identical.
 func _assert_images(a: FauxAssetSet) -> void:
 	var img = a.make_index_image(0)

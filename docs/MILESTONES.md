@@ -845,7 +845,7 @@ data *behind* the preview rather than the preview. `FauxAtlasPreview` now
 exposes `get_bound_page()`, `select_picnum()` and `bound_texel_at()`, and the
 test reads back through the bound page. With rebinding disabled it now reports:
 
-```
+```text
 consumer-boundary FAILED: preview bound page 0 for a tile on page 1
 consumer-boundary FAILED: preview shows 12 wrong texels for picnum 8 on page 1
 ```
@@ -863,8 +863,41 @@ counts and dimensions only, no pixels or hashes. On the shipped GRP: largest
 **Verified unchanged by the amendment:** the real GRP still composes to 3328
 picnums, 1605 populated, 0 gaps, 3 pages.
 
-**Not accepted yet.** D0015 stays `proposed`. Human gates A (real GRP inspect +
-preview) and B (fixture ART in Mapster32) remain open.
+Slice-4 review round 2 (2026-08-24) — **D0015 ratified**; the boundary test
+was still one layer short:
+
+- **`bound_texel_at` reconstructed what *ought* to be bound.** It called
+  `make_index_image(bound_page_)` rather than reading the texture the shader
+  actually holds, so this regression passed: `bound_page_ = 1` (correct),
+  reconstructed image page 1 (correct), shader `index_atlas` still page 0
+  (wrong), test green. Requirement 3 named as load-bearing, then implemented
+  one abstraction layer above the boundary — the same trap in a new place.
+  It now reads `material_->get_shader_parameter("index_atlas")` →
+  `Texture2D::get_image()`. Negative-tested against the *specific* shape:
+  sabotaging only the shader rebind while still advancing `bound_page_` gives
+  `preview shows 12 wrong texels for picnum 8 on page 1`, and the coarser
+  page-0-only regression is still caught too.
+- **Empty picnums fed a null image to `ImageTexture`.** A gap or
+  zero-dimension tile reports `page = -1`, so `make_index_image(-1)` returned
+  null *before* the populated check ran. The unpopulated path is now handled
+  first with an explicit empty presentation — it is a normal state (1723 of
+  3328 in the shipped GRP), not an error. Both shapes are in the boundary
+  test, which required exposing `claimed` on tile metadata: gaps and
+  zero-dimension tiles both report `page = -1` and were otherwise
+  indistinguishable at the boundary. M5 needs that distinction anyway ("no
+  such picnum" vs "picnum exists but is empty").
+- **`build_grp` narrowed payload sizes into a uint32 directory field.** The
+  entry count was bounded but individual payloads were not, so the canonical
+  synthetic generator could emit a container its own parser reads wrongly.
+  Precondition added.
+- Housekeeping: the gate asserts the full `raw picanm entries preserved: 7
+  (3 non-zero)` string; the stale "numtiles is a global game tile count"
+  claim is gone from both `art.hpp` and COMPATIBILITY 0d (it has no
+  established meaning); a mangled comment in `atlas.hpp` and an untagged
+  markdown fence fixed.
+
+**Human gates still open.** Gate A (real GRP inspect + multi-page preview) and
+gate B (fixture ART in Mapster32) have not been run.
 
 ## M5 — Static structural world viewer — NOT_STARTED
 

@@ -4,6 +4,7 @@
 #include <godot_cpp/classes/image_texture.hpp>
 #include <godot_cpp/classes/label.hpp>
 #include <godot_cpp/classes/shader.hpp>
+#include <godot_cpp/classes/texture2d.hpp>
 #include <godot_cpp/classes/v_box_container.hpp>
 #include <godot_cpp/core/class_db.hpp>
 
@@ -122,6 +123,10 @@ void FauxAtlasPreview::rebuild() {
     palette_button_->connect("item_selected",
                              callable_mp(this, &FauxAtlasPreview::refresh_palette));
 
+    status_ = memnew(godot::Label);
+    status_->set_text("");
+    root->add_child(status_);
+
     refresh_palette(0); // installs base palette + identity remap textures
     refresh_tile(0);
     ready_ = true;
@@ -139,21 +144,46 @@ void FauxAtlasPreview::refresh_tile(double value) {
         picnum_box_ ? static_cast<std::int32_t>(picnum_box_->get_value()) : 0;
     const auto rect = asset_->get_tile_rect(picnum);
     const auto meta = asset_->get_tile_meta(picnum);
+
+    // Empty picnums first. A gap or zero-dimension tile reports page = -1, and
+    // make_index_image(-1) returns null -- which reached
+    // ImageTexture::create_from_image before this check existed. Unpopulated
+    // is a normal state (1723 of 3328 picnums in the shipped GRP), not an
+    // error, so it gets an explicit presentation rather than a bad texture.
+    if (!static_cast<bool>(meta["populated"])) {
+        material_->set_shader_parameter("tile_rect", godot::Vector4i(0, 0, 0, 0));
+        if (canvas_ != nullptr) {
+            canvas_->set_custom_minimum_size(godot::Vector2(64, 64));
+        }
+        if (status_ != nullptr) {
+            status_->set_text(godot::vformat("picnum %d: empty (no atlas page)", picnum));
+        }
+        return;
+    }
+
     // Multi-page atlases: rebind the index texture when the selected tile
     // lives on a different page (the rect is page-relative; CodeRabbit
     // PR#4 caught the page-0-only binding).
     const std::int32_t page = static_cast<std::int32_t>(meta["page"]);
     if (page != bound_page_) {
-        material_->set_shader_parameter(
-            "index_atlas", godot::ImageTexture::create_from_image(asset_->make_index_image(page)));
+        const godot::Ref<godot::Image> image = asset_->make_index_image(page);
+        if (image.is_null()) {
+            return; // never hand a null image to ImageTexture
+        }
+        material_->set_shader_parameter("index_atlas",
+                                        godot::ImageTexture::create_from_image(image));
         bound_page_ = page;
     }
     material_->set_shader_parameter(
         "tile_rect", godot::Vector4i(rect.position.x, rect.position.y, rect.size.x, rect.size.y));
-    if (static_cast<bool>(meta["populated"]) && canvas_ != nullptr) {
+    if (canvas_ != nullptr) {
         // Scale the drawing rect to the tile's aspect so texelFetch UVs
         // stay aligned with page pixels.
         canvas_->set_custom_minimum_size(godot::Vector2(rect.size.x * 8, rect.size.y * 8));
+    }
+    if (status_ != nullptr) {
+        status_->set_text(
+            godot::vformat("picnum %d: %dx%d on page %d", picnum, rect.size.x, rect.size.y, page));
     }
     if (shade_box_) {
         material_->set_shader_parameter("shade_row",
@@ -196,16 +226,30 @@ void FauxAtlasPreview::select_picnum(int picnum) {
 
 // Reads back through the *bound* page, so it reflects what the shader would
 // sample rather than what the atlas happens to contain.
+// Reads back through the texture the shader is actually sampling -- the
+// `index_atlas` shader parameter -- not a fresh image reconstructed from
+// bound_page_. Reconstructing re-derives what *ought* to be bound and passes
+// even when the rebind never reached the material: one abstraction layer short
+// of the boundary, which is the exact trap this test exists to close
+// (review, PR #4).
 int FauxAtlasPreview::bound_texel_at(int x, int y) const {
-    if (asset_ == nullptr || bound_page_ < 0) {
+    if (material_.is_null()) {
         return -1;
     }
-    const godot::Ref<godot::Image> image = asset_->make_index_image(bound_page_);
+    const godot::Ref<godot::Texture2D> texture = material_->get_shader_parameter("index_atlas");
+    if (texture.is_null()) {
+        return -1;
+    }
+    const godot::Ref<godot::Image> image = texture->get_image();
     if (image.is_null() || x < 0 || y < 0 || x >= image->get_width() || y >= image->get_height()) {
         return -1;
     }
     const godot::PackedByteArray data = image->get_data();
     return data[y * image->get_width() + x];
+}
+
+godot::String FauxAtlasPreview::get_status_text() const {
+    return status_ != nullptr ? status_->get_text() : godot::String();
 }
 
 void FauxAtlasPreview::_bind_methods() {
@@ -219,6 +263,8 @@ void FauxAtlasPreview::_bind_methods() {
                                 &FauxAtlasPreview::select_picnum);
     godot::ClassDB::bind_method(godot::D_METHOD("bound_texel_at", "x", "y"),
                                 &FauxAtlasPreview::bound_texel_at);
+    godot::ClassDB::bind_method(godot::D_METHOD("get_status_text"),
+                                &FauxAtlasPreview::get_status_text);
     ADD_PROPERTY(godot::PropertyInfo(godot::Variant::OBJECT, "asset",
                                      godot::PROPERTY_HINT_NODE_TYPE, "FauxAssetSet"),
                  "set_asset", "get_asset");
