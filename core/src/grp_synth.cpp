@@ -6,6 +6,7 @@
 #include <string>
 
 #include "fauxbuild/check.hpp"
+#include "fauxbuild/grp.hpp"
 
 namespace fauxbuild::synth {
 
@@ -100,6 +101,9 @@ std::vector<std::uint8_t> build_grp(const std::vector<GrpFileSpec>& files) {
         FB_CHECK(!file.name.empty());
         payload += file.bytes.size();
     }
+    // Round-trip contract: grp::parse rejects containers above its entry
+    // limit (D0011), so the writer must never emit one (CodeRabbit, PR#4).
+    FB_CHECK(files.size() <= grp::kMaxEntryCount);
     out.reserve(static_cast<std::size_t>(16 + 16ull * files.size() + payload));
 
     out.insert(out.end(), {'K', 'e', 'n', 'S', 'i', 'l', 'v', 'e', 'r', 'm', 'a', 'n'});

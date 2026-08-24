@@ -232,6 +232,37 @@ TEST_CASE("atlas placement overflow is rejected") {
     CHECK(atlas.error().code == ErrorCode::TooLarge);
 }
 
+TEST_CASE("namespace allocation is capped before any materialization") {
+    // The 24-byte DoS shape (CodeRabbit, PR#4): a minimal valid ART whose
+    // numtiles field declares two billion tiles. read_art is right to
+    // accept it; the atlas must fail closed instead of allocating.
+    ArtData huge;
+    huge.version = 1;
+    huge.numtiles_field = 2000000000;
+    huge.localtilestart = 0;
+    huge.localtileend = 0;
+    ArtTile zero;
+    zero.width = 0;
+    zero.height = 0;
+    huge.tiles.push_back(zero);
+    auto atlas = build_indexed_atlas({huge}, AtlasOptions{});
+    REQUIRE_FALSE(atlas.is_ok());
+    CHECK(atlas.error().code == ErrorCode::TooLarge);
+    CHECK(atlas.error().record == std::string("atlas.namespace"));
+
+    // The cap is a dial, not a wall: a namespace within the cap passes
+    // (demonstrated small — the point is the comparison, not gigabytes).
+    AtlasOptions tight;
+    tight.max_tile_count = 3;
+    auto small_reject = build_indexed_atlas({art_a()}, tight); // namespace 4
+    REQUIRE_FALSE(small_reject.is_ok());
+    CHECK(small_reject.error().code == ErrorCode::TooLarge);
+    tight.max_tile_count = 4;
+    auto small_ok = build_indexed_atlas({art_a()}, tight);
+    REQUIRE(small_ok.is_ok());
+    CHECK(small_ok.value().tile_count == 4);
+}
+
 TEST_CASE("index bytes survive into the page exactly (no transposition)") {
     auto atlas = build_indexed_atlas({art_a(), art_b()}, AtlasOptions{});
     REQUIRE(atlas.is_ok());

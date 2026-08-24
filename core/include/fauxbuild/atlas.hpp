@@ -68,6 +68,12 @@ struct AtlasOptions {
     std::int32_t page_width = 2048;
     std::int32_t page_height = 2048;
     std::uint64_t max_tile_area = 1ull << 31; // int16 dims; 2^31 is generous
+    // Namespace-size cap, enforced BEFORE any allocation: a 24-byte ART can
+    // legitimately carry numtiles_field = 2e9 (read_art is fine with that),
+    // and without a cap the atlas would try to materialize a multi-GB entry
+    // table from it (CodeRabbit, PR#4). Real content namespaces are ~3.3k;
+    // 1M is three orders of headroom while staying fail-closed.
+    std::uint32_t max_tile_count = 1u << 20;
 };
 
 // Compose ART files into one global picnum namespace and pack populated
@@ -75,9 +81,10 @@ struct AtlasOptions {
 //
 // Namespace policy (D0015): each file claims [localtilestart,
 // localtileend]; the namespace size is max(end+1, numtiles) over all
-// files. numtiles is a floor, not a per-file bound — real shipped sets
-// declare one global count (2816) while later files claim picnums beyond
-// it (observed end 3071), so it is never validated against a range. Gaps
+// files, capped by AtlasOptions::max_tile_count before allocation.
+// numtiles is a floor, not a per-file bound — real shipped sets declare
+// one global count (2816) while later files claim picnums beyond it
+// (max observed end 3327), so it is never validated against a range. Gaps
 // between and after claimed ranges become explicit empty picnums.
 //
 // Rejections: overlapping claimed ranges, malformed ranges, tile counts

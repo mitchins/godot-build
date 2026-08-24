@@ -45,6 +45,7 @@ class FauxAtlasPreview : public godot::Control {
     godot::SpinBox* shade_box_ = nullptr;
     godot::OptionButton* palette_button_ = nullptr;
     godot::ColorRect* canvas_ = nullptr;
+    std::int32_t bound_page_ = -1; // page whose index texture is bound
     bool ready_ = false;
 };
 

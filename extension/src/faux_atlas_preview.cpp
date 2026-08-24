@@ -71,10 +71,12 @@ void FauxAtlasPreview::rebuild() {
     material_ = memnew(godot::ShaderMaterial);
     material_->set_shader(shader);
 
-    // Whole-page textures handed to the GPU as single-channel/baseline
-    // data; the atlas never leaves indexed form.
+    // Whole-page textures handed to the GPU as single-channel data; the
+    // atlas never leaves indexed form. The selected page's texture is
+    // (re)bound in refresh_tile; page 0 starts bound (CodeRabbit PR#4).
     material_->set_shader_parameter(
         "index_atlas", godot::ImageTexture::create_from_image(asset_->make_index_image(0)));
+    bound_page_ = 0;
     material_->set_shader_parameter(
         "shade_tex", godot::ImageTexture::create_from_image(asset_->make_shade_image()));
     material_->set_shader_parameter("shade_rows", asset_->get_shade_row_count());
@@ -137,6 +139,15 @@ void FauxAtlasPreview::refresh_tile(double value) {
         picnum_box_ ? static_cast<std::int32_t>(picnum_box_->get_value()) : 0;
     const auto rect = asset_->get_tile_rect(picnum);
     const auto meta = asset_->get_tile_meta(picnum);
+    // Multi-page atlases: rebind the index texture when the selected tile
+    // lives on a different page (the rect is page-relative; CodeRabbit
+    // PR#4 caught the page-0-only binding).
+    const std::int32_t page = static_cast<std::int32_t>(meta["page"]);
+    if (page != bound_page_) {
+        material_->set_shader_parameter(
+            "index_atlas", godot::ImageTexture::create_from_image(asset_->make_index_image(page)));
+        bound_page_ = page;
+    }
     material_->set_shader_parameter(
         "tile_rect", godot::Vector4i(rect.position.x, rect.position.y, rect.size.x, rect.size.y));
     if (static_cast<bool>(meta["populated"]) && canvas_ != nullptr) {

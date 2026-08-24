@@ -107,7 +107,7 @@ Result<IndexedAtlas> build_indexed_atlas(const std::vector<ArtData>& arts,
         }
         // numtiles is NOT validated against end+1: real shipped sets keep
         // the same declared global count (2816) while later files claim
-        // picnums beyond it (observed: range end 3071, black-box, GRP mount
+        // picnums beyond it (max observed end 3327, black-box, GRP mount
         // — the first real-GRP run of inspect-atlas rejected on exactly
         // this). The field is a namespace floor, not a per-file bound.
         claims.push_back(RangeClaim{art.localtilestart, art.localtileend, i});
@@ -140,6 +140,15 @@ Result<IndexedAtlas> build_indexed_atlas(const std::vector<ArtData>& arts,
         return Result<IndexedAtlas>::err(
             {"atlas", 0, "atlas.namespace", ErrorCode::TooLarge,
              "picnum namespace " + std::to_string(namespace_size) + " overflows int32"});
+    }
+    // Allocation guard BEFORE the entry/side tables materialize: numtiles
+    // is untrusted data (a 24-byte ART may declare 2e9 tiles); the cap
+    // keeps the failure a ParseError instead of an OOM (CodeRabbit, PR#4).
+    if (namespace_size > static_cast<std::int64_t>(options.max_tile_count)) {
+        return Result<IndexedAtlas>::err(
+            {"atlas", 0, "atlas.namespace", ErrorCode::TooLarge,
+             "picnum namespace " + std::to_string(namespace_size) + " exceeds the cap " +
+                 std::to_string(options.max_tile_count) + " (AtlasOptions::max_tile_count)"});
     }
 
     // Pass 2: build the entry table plus a picnum -> owning ART index side

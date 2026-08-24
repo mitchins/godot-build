@@ -408,7 +408,7 @@ with tempfile.TemporaryDirectory() as tmp:
     grp_path = pathlib.Path(tmp) / "synthetic.grp"
     entries = []
     for name in ["TILES000.ART", "TILES001.ART", "PALETTE.DAT", "LOOKUP.DAT"]:
-        entries.append((name, (pathlib.Path("fixtures/atlas") / name).read_bytes()))
+        entries.append((name, (root / "fixtures/atlas" / name).read_bytes()))
     blob = bytearray(b"KenSilverman")
     blob += _struct.pack("<I", len(entries))
     for name, data in entries:
