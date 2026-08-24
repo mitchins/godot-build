@@ -10,6 +10,7 @@
 #include "fauxbuild/map_io.hpp"
 #include "fauxbuild/map_synth.hpp"
 #include "fauxbuild/map_validate.hpp"
+#include "fauxbuild/structural.hpp"
 #include "fauxbuild/vfs.hpp"
 
 namespace fauxbuild::tool {
@@ -313,6 +314,54 @@ int gen_map(int argc, char** argv) {
     }
     std::printf("fbtool: wrote %zu-byte fixture '%s' to %s\n", bytes.value().size(),
                 fixture.c_str(), out.c_str());
+    return 0;
+}
+
+int inspect_structural(int argc, char** argv) {
+    const MapArgs args = parse_args(argc, argv, /*allow_verbose=*/false);
+    if (args.usage_error || args.positional.size() != 1) {
+        std::fprintf(stderr, "fbtool: inspect-structural [--grp FILE] <map-path-or-name>\n");
+        return 2;
+    }
+    auto map = load_map(args.grp, args.positional[0]);
+    if (!map.is_ok()) {
+        std::fprintf(stderr, "fbtool: parse: %s\n", map.error().to_string().c_str());
+        return 1;
+    }
+    auto world = build_structural_world(map.value(), fauxbuild::StructuralOptions{});
+    if (!world.is_ok()) {
+        std::fprintf(stderr, "fbtool: structural: %s\n", world.error().to_string().c_str());
+        return 1;
+    }
+
+    std::size_t counts[5] = {0, 0, 0, 0, 0};
+    std::size_t triangles = 0;
+    for (const auto& surface : world.value().surfaces) {
+        counts[static_cast<std::size_t>(surface.kind)]++;
+        triangles += surface.indices.size() / 3;
+    }
+
+    std::printf("source: %s\n", map.value().source.c_str());
+    std::printf("map: version 7\n");
+    std::printf("sectors: %zu\n", map.value().sectors.size());
+    std::printf("walls: %zu\n", map.value().walls.size());
+    std::printf("\n");
+    std::printf("structural surfaces: %zu\n", world.value().surfaces.size());
+    std::printf("triangles: %zu\n", triangles);
+    std::printf("\n");
+    std::printf("floors: %zu\n", counts[0]);
+    std::printf("ceilings: %zu\n", counts[1]);
+    std::printf("solid wall spans: %zu\n", counts[2]);
+    std::printf("portal upper spans: %zu\n", counts[3]);
+    std::printf("portal lower spans: %zu\n", counts[4]);
+    std::printf("\n");
+    std::printf("notes: %zu\n", world.value().notes.size());
+    std::printf("diagnostics: %zu\n", world.value().diagnostics.size());
+    for (const auto& diagnostic : world.value().diagnostics) {
+        std::printf("  %s %s: %s\n", diagnostic.record.c_str(), diagnostic.surface.c_str(),
+                    diagnostic.reason.c_str());
+    }
+    std::printf("validation: OK\n");
     return 0;
 }
 

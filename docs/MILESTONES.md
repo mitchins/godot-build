@@ -1131,9 +1131,26 @@ rejected by `-Werror` and re-run rather than interpreted):
 Non-sweep assertions: **3,068** (the original slice-1 report said "≈1,400";
 the raw total is sweep-dominated and not a useful figure).
 
-**Not accepted.** D0017 and D0018 are proposed, not self-ratified. The E1L1
-whole-map result is local development evidence; the HUMAN-ATTESTED checkbox is
-the reviewer's. Slice 2 was not started.
+**D0017 and D0018 accepted** (human ratification 2026-08-24). The earcut
+valid-spiral rejection is recorded as a bounded incompatibility in
+COMPATIBILITY_SCOPE row 0f rather than treated as a defect: failing closed on a
+triangulation the oracle rejects is the designed behaviour.
+
+**`fbtool inspect-structural` added.** Review correctly observed that
+`dump-map` attests the M3 parser, not the M5 derivation, and that the strongest
+M5 result existed only in an ad-hoc harness nobody else could run. The command
+is pure C++ — no Godot, no atlas, no textures, no output files — and reports
+only generic structural facts. It has no knowledge of any particular map:
+E1L6's diagnostics are simply what the generic zero-area path prints.
+
+Contract coverage: three fixtures with expected surface/triangle counts, the
+portal-span summary, the zero-area diagnostic path (exit 0, floors 0,
+`zero_area`), bowtie failing closed (exit 1, structured), GRP-backed hit and
+miss, and three usage errors. Negative-tested — ignoring structural failures in
+the command turns the gate red (`exit -6, expected 1`).
+
+**Slice 1 is not accepted**; the HUMAN-ATTESTED checkbox is the reviewer's.
+Slice 2 was not started.
 ## M6 — Slopes, indexed textures, flags, and sprites — NOT_STARTED
 
 Gate summary: slope query and render share one function; UV/sprite-flag/palette-shade matrix

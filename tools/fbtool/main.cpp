@@ -71,6 +71,7 @@ void print_usage() {
                 "  dump-grp <file.grp>    parse a GRP container and list its directory\n"
                 "  dump-map [--grp G] <m> parse a MAP v7 and summarize the world\n"
                 "  validate-map [--grp G] <m>  structural validation report\n"
+                "  inspect-structural [--grp G] <m>  derived structural geometry\n"
                 "  rewrite-map [--grp G] <in> <out>  canonical rewrite + self-check\n"
                 "  diff-map [--grp G] <a> <b>  semantic field diff of two maps\n"
                 "  gen-map --fixture N --out F | --list   synthetic MAP fixtures\n"
@@ -292,6 +293,9 @@ int main(int argc, char** argv) {
     }
     if (std::strcmp(cmd, "dump-map") == 0) {
         return fauxbuild::tool::dump_map(argc - 2, argv + 2);
+    }
+    if (std::strcmp(cmd, "inspect-structural") == 0) {
+        return fauxbuild::tool::inspect_structural(argc - 2, argv + 2);
     }
     if (std::strcmp(cmd, "validate-map") == 0) {
         return fauxbuild::tool::validate_map(argc - 2, argv + 2);

@@ -17,6 +17,43 @@ fbtool = sys.argv[1] if len(sys.argv) > 1 else str(root / "build/dev/fbtool")
 failures = []
 
 
+# Minimal MAP v7 writers for the structural cases. Original synthetic geometry:
+# a collinear (zero-area) sector and a self-intersecting bowtie. Written here
+# rather than as committed fixtures because they exist only to pin CLI
+# behaviour, and keeping them in code makes the geometry visible.
+def _map_v7(walls, sectors):
+    import struct
+    out = struct.pack("<iiii", 7, 0, 0, 0) + struct.pack("<hh", 0, 0)
+    out += struct.pack("<H", len(sectors))
+    for wallptr, wallnum in sectors:
+        out += struct.pack("<hh", wallptr, wallnum)
+        out += struct.pack("<ii", 8192, -8192)          # floorz, ceilingz
+        out += struct.pack("<hhhh", 0, 0, 0, 0)          # stats, picnums
+        out += struct.pack("<bBBB", 0, 0, 0, 0)
+        out += struct.pack("<hhbBBB", 0, 0, 0, 0, 0, 0)
+        out += struct.pack("<BB", 0, 0)
+        out += struct.pack("<hhh", 0, 0, 0)
+    out += struct.pack("<H", len(walls))
+    for x, y, point2 in walls:
+        out += struct.pack("<ii", x, y)
+        out += struct.pack("<hhh", point2, -1, -1)
+        out += struct.pack("<hhh", 0, 0, 0)
+        out += struct.pack("<bBBBBB", 0, 0, 64, 64, 0, 0)
+        out += struct.pack("<hhh", 0, 0, 0)
+    out += struct.pack("<H", 0)
+    return out
+
+
+def _collinear_sector_map():
+    u = 65536
+    return _map_v7([(0, u, 1), (2 * u, u, 2), (u, u, 0)], [(0, 3)])
+
+
+def _bowtie_map():
+    u = 65536
+    return _map_v7([(0, 0, 1), (2 * u, 2 * u, 2), (2 * u, 0, 3), (0, 2 * u, 0)], [(0, 4)])
+
+
 def run(args, expect_rc, label, expect_out=None, expect_err=None):
     proc = subprocess.run([fbtool, *args], capture_output=True, text=True, cwd=root)
     if proc.returncode != expect_rc:
@@ -387,6 +424,58 @@ with tempfile.TemporaryDirectory() as tmp:
     direct = run(["dump-art", art_out], 0, "dump-art direct")
     if direct.stdout.split("\n")[1:] != proc.stdout.split("\n")[1:]:
         failures.append("dump-art: GRP-backed output differs from the loose-file output")
+
+    # ---------------- inspect-structural (M5 slice 1) ----------------
+    # The derived structural shell through shipped tooling, so the M5 result is
+    # reproducible by anyone rather than living in an ad-hoc harness.
+    struct_map = str(pathlib.Path(tmp) / "struct.MAP")
+    for fixture, surfaces, triangles in (("square_room", 6, 12), ("non_convex", 8, 20),
+                                         ("multi_loop", 10, 32)):
+        run(["gen-map", "--fixture", fixture, "--out", struct_map], 0, f"gen {fixture}")
+        proc = run(["inspect-structural", struct_map], 0, f"inspect-structural {fixture}",
+                   expect_out="validation: OK")
+        for expected in (f"structural surfaces: {surfaces}", f"triangles: {triangles}",
+                         "diagnostics: 0"):
+            if expected not in proc.stdout:
+                failures.append(f"inspect-structural {fixture}: missing {expected!r}")
+
+    # Portal spans: matching heights leave the opening open, so the fixture with
+    # differing heights is the one that must report upper and lower spans.
+    run(["gen-map", "--fixture", "portal_heights", "--out", struct_map], 0, "gen portal_heights")
+    proc = run(["inspect-structural", struct_map], 0, "inspect-structural portal spans")
+    for expected in ("portal upper spans: 1", "portal lower spans: 1", "solid wall spans: 6"):
+        if expected not in proc.stdout:
+            failures.append(f"inspect-structural portal_heights: missing {expected!r}")
+
+    # A zero-area sector is a diagnostic, not a failure (D0018): the world still
+    # builds, the surface is omitted, and the exit code stays 0.
+    degenerate = pathlib.Path(tmp) / "degenerate.MAP"
+    degenerate.write_bytes(_collinear_sector_map())
+    proc = run(["inspect-structural", str(degenerate)], 0, "inspect-structural zero-area",
+               expect_out="zero_area")
+    for expected in ("diagnostics: 2", "floors: 0", "ceilings: 0", "validation: OK"):
+        if expected not in proc.stdout:
+            failures.append(f"inspect-structural zero-area: missing {expected!r}")
+
+    # Invalid topology stays fatal and structured.
+    bowtie = pathlib.Path(tmp) / "bowtie.MAP"
+    bowtie.write_bytes(_bowtie_map())
+    run(["inspect-structural", str(bowtie)], 1, "inspect-structural bowtie fails closed",
+        expect_err="self-intersect")
+
+    # GRP-backed hit and miss, and usage errors.
+    struct_grp = pathlib.Path(tmp) / "struct.grp"
+    payload = pathlib.Path(struct_map).read_bytes()
+    struct_grp.write_bytes(b"KenSilverman" + (1).to_bytes(4, "little")
+                           + b"STRUCT.MAP".ljust(12, b"\x00") + len(payload).to_bytes(4, "little")
+                           + payload)
+    run(["inspect-structural", "--grp", str(struct_grp), "STRUCT.MAP"], 0,
+        "inspect-structural via grp", expect_out="validation: OK")
+    run(["inspect-structural", "--grp", str(struct_grp), "NOSUCH.MAP"], 1,
+        "inspect-structural grp miss", expect_err="not_found")
+    run(["inspect-structural"], 2, "inspect-structural arity")
+    run(["inspect-structural", "--wat", struct_map], 2, "inspect-structural unknown option")
+    run(["inspect-structural", "--grp"], 2, "inspect-structural dangling option")
 
     run(["no-such-command"], 2, "unknown command", expect_err="unknown command")
 

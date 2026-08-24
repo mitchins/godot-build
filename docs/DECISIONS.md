@@ -455,9 +455,9 @@ surfaces; M6 slopes will extend, not replace, this derivation (flat-Z
 output order stays stable for unsloped sectors).
 
 
-### D0017 — Structural polygon triangulation pipeline (M5, proposed)
+### D0017 — Structural polygon triangulation pipeline (M5)
 
-Status: PROPOSED — ratification belongs to M5 review. Not self-ratified.
+Status: **accepted — human ratification 2026-08-24**.
 Date: 2026-08-24
 
 Context: the slice-1 bespoke ear clipper with hole bridging was correct where
@@ -500,13 +500,16 @@ Decision:
    loop orientation is normalised only in a disposable input copy.
 
 Consequences: all 2450 sectors across the six locally owned maps now
-triangulate, each verified by the exact-area oracle. Every failure class that
+triangulate, each verified by the exact-area oracle. The spiral rejection is
+recorded as a bounded incompatibility (COMPATIBILITY_SCOPE row 0f), not
+papered over: the pipeline is designed to reject wrong triangulation rather
+than emit it. Every failure class that
 could be reduced to original synthetic geometry has been; classes that could
 not be reproduced synthetically are recorded as such rather than claimed.
 
-### D0018 — Nonfatal derived-surface diagnostics (M5, proposed)
+### D0018 — Nonfatal derived-surface diagnostics (M5)
 
-Status: PROPOSED — ratification belongs to M5 review. Not self-ratified.
+Status: **accepted — human ratification 2026-08-24**.
 Date: 2026-08-24
 
 Context: real shipped content contains a sector whose walls are collinear,
