@@ -584,7 +584,8 @@ Delivery is sliced per the M4 task brief; each slice stops for review.
   PROVENANCE 10 / COMPATIBILITY 0d).
 - `tile_manifest` (core): the picnum authority — append-only max+1,
   immutable entries, whole-line comments (frame names contain '#').
-  D0014 (proposed) records format + semantics.
+  D0014 records format + semantics (accepted as amended 2026-08-24;
+  see the residual review below — the first draft made artwork immutable).
 - `tile_build` (core): original text DSLs (tileset + palette spec, no image
   dependencies — PNG import is game-repo pipeline work), deterministic
   pattern generators, animation sets as consecutive frame tiles with
@@ -706,6 +707,28 @@ Slice-3 residual round 2 (2026-08-24) — D0014 ratified as amended; eight items
   went red. Caught by CI, not locally, because a single-threaded local run
   never overlapped. `compute_manifest` now takes a root and the probe builds a
   scratch tree — a gate must never mutate the repository it is checking.
+
+Slice-3 residual round 3 (2026-08-24) — one doc fix, one finding rejected:
+
+- Fixed: an older slice summary still said "D0014 (proposed)" while the header
+  and review record said accepted.
+- **Rejected** (CodeRabbit, `check_fbtool.py`): the claim that `proc` is
+  overwritten between the GRP `dump-art` call and the final comparison, so the
+  comparison tests the wrong thing. Inapplicable to current code — only the
+  GRP `dump-art` call assigns `proc`; every intervening palette/lookup/miss
+  call is a bare `run(...)`. Verified by execution rather than by reading:
+  introducing a line that appears **only** on the GRP path produces
+  `dump-art: GRP-backed output differs from the loose-file output`, so the
+  comparison does bind, and against the operand the finding says it has lost.
+
+**Pattern worth naming.** M4 caught the same defect class three separate ways —
+a parser accepting values its serialized form cannot hold (`speed`), a manifest
+recording a value wider than the wire field (`frames`/`speed`), and a
+serializer emitting a stale packed field after the decoded view was mutated
+(`picanm.raw`). All three are one failure: **an internal representation and the
+bytes that actually cross a boundary disagreeing, with tests asserting on the
+internal one.** That is why slice 4 must test the atlas as the consumer
+receives it, not as the builder assembled it.
 - Built artifacts verified through the M2/M4 stack: built ART parses via
   read_art, round-trips byte-identically, dump-art stats consistent.
 
