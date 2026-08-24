@@ -6,15 +6,23 @@ The full implementation contract is `docs/PROJECT_CONTRACT.md` and the source pl
 
 ## Active milestone
 
-**M4 — ART, palette, lookup, and tile tooling: slice 4 of 4 delivered, at
-checkpoint review.** Slices 1-3 accepted (D0013, D0014 accepted as amended).
-Slice 4 added the indexed atlas + consumer boundary (D0015 proposed): real
-assets reach the atlas through the GRP mount with **no extraction step**
-(dev-verified on the owned GRP), and **no RGBA representation becomes
-authoritative** — indexed bytes are the atlas payload, RGBA is derived-only.
-Pending human gates: real-GRP atlas inspection/preview (gate A,
-`fbtool inspect-atlas --grp ...` + the preview scene with `--grp`), and
-synthetic ART in Mapster32 (gate B, `fbtool build-art` output).
+**M5 — Static structural world viewer: NOT_STARTED.**
+
+M4 (ART, palette, lookup, tile tooling and the indexed atlas) was **ACCEPTED
+2026-08-24**: all six gate items met, D0013/D0014/D0015 ratified, and two
+HUMAN-ATTESTED results that automated evidence could not have produced — real
+`DUKE3D.GRP` traversing GRP -> VFS -> 13 ART files + palette + lookup ->
+indexed atlas with no extraction step, and FauxBuild-generated ART consumed by
+Mapster32 (which independently decoded picnum 12 as 64x16, pivot 0,-8,
+confirming our signed picanm encoding rather than agreeing with our own
+reader).
+
+M5's asset-side contract is settled and narrow. It asks the atlas for a picnum
+and receives page + rect, dimensions, pivot, picanm and indexed texels. It does
+**not** rediscover assets, decode palettes, reason about ART file ordering, or
+care which atlas page a tile landed on. The question M5 answers: can untouched
+E1L1 sector/wall/sprite topology be made visibly recognisable in Godot with no
+Duke-specific rendering hack?
 
 ## Repository boundary and evidence classes
 

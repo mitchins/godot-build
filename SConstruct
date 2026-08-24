@@ -270,9 +270,20 @@ if os.path.exists(godot_cpp_sconstruct):
     # godot-cpp creates its own clean environment (we export no `env`), builds
     # the bindings with the CLI platform/target/arch, and returns an env whose
     # CPPPATH/LIBPATH/LIBS already reference the built bindings library.
-    gc_env = SConscript(godot_cpp_sconstruct,
-                        exports={'api_version': '4.7',
-                                 'customs': ['tools/godot_cpp_vars.py']})
+    # godot-cpp builds its own Variables set from ARGUMENTS and warns about
+    # every key it does not recognise -- including ours. A `customs` file
+    # cannot fix that: SCons Variables files are plain assignment files, they
+    # cannot *declare* options, and the path resolves relative to godot-cpp's
+    # own directory anyway (the previous shim was silently ignored on both
+    # counts). Hide our keys for the duration of the call instead; godot-cpp
+    # ignores them regardless, and ARGUMENTS is restored immediately after.
+    fauxbuild_only = {name: ARGUMENTS.pop(name)
+                      for name in ('config', 'godot')
+                      if name in ARGUMENTS}
+    try:
+        gc_env = SConscript(godot_cpp_sconstruct, exports={'api_version': '4.7'})
+    finally:
+        ARGUMENTS.update(fauxbuild_only)
 
     ext_env = gc_env.Clone()
     ext_env.Append(CPPPATH=['#extension/include', '#core/include'])

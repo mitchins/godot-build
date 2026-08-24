@@ -542,9 +542,11 @@ Do not implement rendering, collision, Duke tags, or game logic.
 
 ## M4 — ART, palette, lookup, and tile tooling
 
-Status: **IN_PROGRESS** — slices 1-3 of 4 delivered and reviewed; slice 4
-(atlas builder + indexed preview) not started. D0013 accepted; D0014 accepted
-as amended 2026-08-24.
+Status: **ACCEPTED** 2026-08-24 by mitchellcurrie — all six gate items
+satisfied. HUMAN-ATTESTED evidence: real-GRP atlas inspection and preview
+(gates A1/A2) and FauxBuild-generated ART consumed by Mapster32 (gate B).
+D0013, D0014 (as amended) and D0015 (as amended) all ratified. No proprietary
+content entered the repository or CI.
 Started: 2026-08-23
 
 Delivery is sliced per the M4 task brief; each slice stops for review.
@@ -988,7 +990,8 @@ No extraction step at any point; nothing was written outside the mount.
 Gate B — **HUMAN-ATTESTED PASS 2026-08-24**. Recorded in full in the gate
 checklist above.
 
-**All six M4 gate items are met.** Awaiting human acceptance of the milestone.
+**M4 ACCEPTED 2026-08-24.** All six gate items satisfied; see the gate
+checklist above for the evidence and class of each.
 
 ## M5 — Static structural world viewer — NOT_STARTED
 
