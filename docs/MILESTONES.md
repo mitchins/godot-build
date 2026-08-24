@@ -993,13 +993,193 @@ checklist above.
 **M4 ACCEPTED 2026-08-24.** All six gate items satisfied; see the gate
 checklist above for the evidence and class of each.
 
-## M5 — Static structural world viewer — NOT_STARTED
+## M5 — Static structural world viewer — IN_PROGRESS (slice 1 delivered at checkpoint)
 
 Gate summary: structural fixtures render with correct topology; holes/non-convex sectors render;
 no persistent Godot scene becomes authority; local E1L1 loads as recognizable 3D shell (HUMAN-ATTESTED);
 diagnostics instead of crashes. Allowed shortcuts: untextured diagnostic materials,
 render-all visibility.
 
+### Slice 1 — pure C++ structural geometry (delivered 2026-08-24, checkpoint)
+
+- `core/structural.{hpp,cpp}`: `build_structural_world(MapData, options) ->
+  StructuralWorld` — deterministic, disposable derived geometry; no Godot
+  types in core/ (layering guard).
+- Wall-loop extraction per sector via bounded point2 walks: multiple loops,
+  any winding, outer loop chosen by exact |shoelace| magnitude; holes and
+  non-convex boundaries handled without mutation or convex splitting.
+- Triangulation (current contract): **exact validation -> earcut -> exact
+  verification** (D0017). FauxBuild's own predicates are exact (int64 +
+  two-limb int128, no floating point) and own input validity; earcut owns
+  robustness; the exact-area oracle owns correctness of the output, so emitted
+  triangles must tile the outer loop minus its holes. Ceilings are emitted with
+  opposite winding to floors, and holes whose vertices touch the outer loop are
+  valid — real content relies on it.
+
+  *Historical note:* slice 1 originally shipped an original ear clipper with
+  hole bridging (PROVENANCE row 12, now superseded). It was replaced during
+  review; see the slice-1 amendment below for the measurements and the two root
+  causes. Nothing in the current implementation performs ear selection or hole
+  bridging.
+- Walls: solid spans for non-portal walls (own ceiling -> own floor); portal
+  walls emit only `portal_upper`/`portal_lower` outside the vertical opening
+  overlap — never a full quad across the opening. Interior-left orientation
+  per wall from loop winding (normalized CCW outer / CW holes), so spans face
+  into their sector; inverted ceiling/floor intervals normalize with a note.
+- D0016 (proposed): render space is right-handed Y-up via the single
+  `to_render_space` (x, -z, y with power-of-two scale 2^-11, exact and
+  reversible for int32); canonical surface order sector -> floor, ceiling,
+  walls ascending (upper before lower); StructuredNote vs structured-error
+  boundary for deferred features (slope flags, masked/one-way walls,
+  uninterpreted cstat) vs fatal geometry failures.
+- Fixtures added: `portal_heights` (window opening: 1 upper + 1 lower span
+  from one side, none from the other), `portal_step_floor` (single lower
+  span), `double_hole` (one sector, two holes — exercises multi-hole
+  bridging and pinch-degree management found by the double-bridge deadlock).
+- Tests (`tests/unit/structural.test.cpp`, 18 cases): coordinate conversion
+  exactness/reversibility/rejection; square room incl. inward-facing walls;
+  portal opening not closed (equal heights -> no portal spans); span
+  extents/counts for height-difference cases; non-convex no-concavity-fill
+  (area + coverage probes); multi_loop + double_hole hole-emptiness (area +
+  probes, hole walls facing material); determinism (two independent builds +
+  serialize/parse round trip equal); malformed/unrepresentable content
+  (validation surfacing, degenerate loop, self-intersecting bowtie, hole
+  outside outer); slope-marked and masked-wall fixtures diagnosed/deferred
+  with flat planes.
+- Sabotage evidence (each observed red, then reverted): triangle-fan
+  triangulation (holes filled + zero-area triangles), skipping hole bridging
+  (holes silently filled — notably the internal area invariant stays
+  self-consistent, the coverage probes catch it), full quad across portal
+  openings (solid count 8 != 6, spans missing), render-space sign flip
+  (conversion + reversibility), call-count-seeded surface reordering
+  (rebuild equality).
+- Deferred by design to later milestones (M6 unless noted): slopes (flat base
+  Z + note), masked/one-way wall semantics, wall cstat interpretation,
+  texture UVs/picnum behaviour (source picnum kept as inert metadata only),
+  portal-aware visibility (M10), sprites, collision, sector lookup.
+
+Next milestone work was not started.
+
+
+#### Slice-1 amendment (2026-08-24) — triangulation replaced
+
+Review found the bespoke ear clipper's *domain of successful input* narrower
+than Build content requires. It was correct where it succeeded — independently
+verified: exact fixture areas, holes genuinely unfilled, portal openings not
+closed, transform exact over 66,669 random int32 triples plus both extremes —
+but it could not build a real map.
+
+Measured over six legally owned maps, per sector:
+
+| | bespoke | after amendment |
+|---|---|---|
+| sectors failing | **33 / 2450** | **0 / 2450** |
+| E1L1 whole-map | **fails** | 1936 surfaces, 5134 triangles |
+| distinct failure classes | 5 | none |
+
+The five classes were: no valid ear remains (18), residual winding flipped (8),
+hole vertex not strictly inside the outer loop (3), no visible bridge target
+(3), degenerate zero-area loop (1).
+
+**Pipeline (D0017, proposed):** FauxBuild exact validation -> earcut (pinned
+v3.2.3, ISC) -> FauxBuild exact verification. Validation owns input validity so
+earcut never sees a bowtie; earcut owns robustness; the exact-area oracle owns
+correctness of the result. The bespoke clipper and hole bridging are deleted —
+no fallback, no second algorithm.
+
+**Two root causes were found, both worth recording:**
+
+- *The "strictly inside" rule was wrong, and so was the point classifier it
+  rested on.* `classify_point` skipped edges lying entirely on one side of the
+  ray height — which includes a horizontal edge **at** the probe height — so a
+  point resting on a horizontal boundary edge was reported Outside unless it
+  happened to coincide with a vertex. Real content relies on holes touching
+  their outer boundary. Fixed with an explicit exact on-segment test per edge.
+- *Validation must precede the degeneracy check.* A self-intersecting bowtie
+  has exactly zero net signed area, so testing degeneracy first classified
+  malformed topology as a benign empty surface and returned success. Caught
+  because the existing bowtie regression went green when it should not have.
+
+**Degenerate surfaces are nonfatal (D0018, proposed).** A zero-area sector
+emits `zero_area` diagnostics, no floor or ceiling, and keeps its wall spans;
+the world still builds. Verified on the real sector that previously made an
+entire map unbuildable.
+
+**earcut is not infallible, and the oracle proves it.** It mis-triangulates a
+tightly wound spiral that is a valid simple polygon (independently checked:
+zero proper self-crossings, non-zero area). Post-verification turns that from
+silent wrong geometry into a structured fatal error. This is a real case, not a
+simulated one, and it is pinned by a regression.
+
+**Synthetic reductions — honest accounting.** Three failure classes were
+reduced to original synthetic geometry that fails against the old
+implementation and passes against the new: hole vertex on a horizontal outer
+edge; hole meeting the outer boundary at two vertices; fully collinear
+zero-area sector. A fourth reduction (self-intersecting hole) is *stricter*
+than the old code, which accepted it. **Three classes were not successfully
+reduced** — "no valid ear remains", "residual winding flipped" and "no visible
+bridge target": every synthetic shape tried for them was also handled by the
+bespoke clipper, so the tests written for them are ordinary coverage and are
+labelled as such rather than claimed as reductions. Those classes cannot recur
+by construction (bridging no longer exists), and the six-map scan is their only
+evidence — supporting, proprietary, not CI proof.
+
+**Sabotage evidence** (each on a verified-clean build; two first attempts were
+rejected by `-Werror` and re-run rather than interpreted):
+
+| sabotage | result |
+|---|---|
+| bypass pre-validation | 4 cases fail; bowtie reaches earcut |
+| neuter the exact-area oracle | 1 case fails — the spiral regression |
+| restore the bespoke clipper | 3 of 6 reductions fail |
+| make zero-area fatal | 1 case fails — degenerate world regression |
+| drop hole rings before earcut | 7 cases fail |
+
+Non-sweep assertions: **3,068** (the original slice-1 report said "≈1,400";
+the raw total is sweep-dominated and not a useful figure).
+
+**D0017 and D0018 accepted** (human ratification 2026-08-24). The earcut
+valid-spiral rejection is recorded as a bounded incompatibility in
+COMPATIBILITY_SCOPE row 0f rather than treated as a defect: failing closed on a
+triangulation the oracle rejects is the designed behaviour.
+
+**`fbtool inspect-structural` added.** Review correctly observed that
+`dump-map` attests the M3 parser, not the M5 derivation, and that the strongest
+M5 result existed only in an ad-hoc harness nobody else could run. The command
+is pure C++ — no Godot, no atlas, no textures, no output files — and reports
+only generic structural facts. It has no knowledge of any particular map:
+E1L6's diagnostics are simply what the generic zero-area path prints.
+
+Contract coverage: three fixtures with expected surface/triangle counts, the
+portal-span summary, the zero-area diagnostic path (exit 0, floors 0,
+`zero_area`), bowtie failing closed (exit 1, structured), GRP-backed hit and
+miss, and three usage errors. Negative-tested — ignoring structural failures in
+the command turns the gate red (`exit -6, expected 1`).
+
+**Slice 1 — HUMAN-ATTESTED PASS 2026-08-24** by mitchellcurrie. Untouched
+local `E1L1.MAP` loaded directly through `DUKE3D.GRP` with the shipped
+`fbtool inspect-structural`: 317 sectors / 1937 walls -> **1936 structural
+surfaces, 5134 triangles, 0 diagnostics, validation OK**. No extraction, no
+conversion, no generated authority, and no proprietary data entered the
+repository or CI.
+
+That attestation is what the amendment existed to make possible. Before it,
+the same map could not be built at all (sector 147 fatal), and the strongest
+evidence lived in an ad-hoc harness nobody else could run.
+
+**Slice 1 — ACCEPTED 2026-08-25** by mitchellcurrie. Pure-C++ structural world
+derivation from authoritative MAP topology is accepted. D0016, D0017 and D0018
+all accepted; E1L1 HUMAN-ATTESTED (1936 surfaces / 5134 triangles / 0
+diagnostics / validation OK). PR #5 residual review closed with zero unresolved
+threads, including both Major correctness findings.
+
+The residual round improved the contract rather than merely closing tickets:
+opposite-winding outer/hole selection gained a consumer-level regression;
+scale validation now tests D0016's actual exact-reversibility requirement
+instead of asking whether a double numerically resembles a power of two; and
+two float-to-integer conversions that UBSan flagged as undefined are gone.
+
+M5 remains IN_PROGRESS. Slice 2 was not started.
 ## M6 — Slopes, indexed textures, flags, and sprites — NOT_STARTED
 
 Gate summary: slope query and render share one function; UV/sprite-flag/palette-shade matrix

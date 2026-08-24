@@ -24,7 +24,14 @@ else:
     env['CXX'] = os.environ.get('CXX', 'clang++')
     env.Append(CXXFLAGS=['-std=c++20', '-Wall', '-Wextra', '-Werror'])
 
-env.Append(CPPPATH=['#core/include'])
+# third_party/earcut is on CPPPATH so SCons scans the dependency: without it,
+# editing or re-pinning the vendored header rebuilds nothing (verified -- a
+# content change to structural.hpp triggers a rebuild, the same change to
+# earcut.hpp did not). Its own warnings are suppressed by pragmas in
+# third_party/earcut/earcut_adapt.hpp rather than by system-include flags,
+# which only apply when a header is found through the system path and would
+# therefore depend on include-path precedence.
+env.Append(CPPPATH=['#core/include', '#third_party/earcut'])
 
 cfg = env['config']
 if cfg == 'dev':
@@ -106,6 +113,7 @@ core_sources = [
     f'{bdir}/core/src/tile_build.cpp',
     f'{bdir}/core/src/asset_set.cpp',
     f'{bdir}/core/src/atlas.cpp',
+    f'{bdir}/core/src/structural.cpp',
 ]
 core_objects = env.Object(core_sources)
 core = env.StaticLibrary(f'{bdir}/libfauxbuild_core', core_objects)
@@ -193,6 +201,7 @@ if host_build:
             f'{bdir}/tests/unit/art.test.cpp',
             f'{bdir}/tests/unit/tile_build.test.cpp',
             f'{bdir}/tests/unit/atlas.test.cpp',
+            f'{bdir}/tests/unit/structural.test.cpp',
             f'{bdir}/tests/unit/byte_reader.test.cpp',
         f'{bdir}/tests/unit/file_io.test.cpp',
             f'{bdir}/tests/unit/grp.test.cpp',

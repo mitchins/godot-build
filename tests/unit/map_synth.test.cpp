@@ -43,6 +43,30 @@ TEST_CASE("fixture worlds have the intended shape") {
         CHECK(world.value().walls[1].nextsector == 1);
         CHECK(world.value().walls[7].nextsector == 0);
     }
+    SUBCASE("portal_heights") {
+        auto world = fauxbuild::synth::map_fixture("portal_heights");
+        REQUIRE(world.is_ok());
+        REQUIRE(world.value().walls.size() == 8);
+        // Real-content vertical ordering: ceilingz < floorz numerically.
+        // A spans [0, 16384]; B's window [4096, 8192] is strictly inside.
+        CHECK(world.value().sectors[0].ceilingz == 0);
+        CHECK(world.value().sectors[0].floorz == 16384);
+        CHECK(world.value().sectors[1].ceilingz == 4096);
+        CHECK(world.value().sectors[1].floorz == 8192);
+    }
+    SUBCASE("portal_step_floor") {
+        auto world = fauxbuild::synth::map_fixture("portal_step_floor");
+        REQUIRE(world.is_ok());
+        CHECK(world.value().sectors[1].ceilingz == 0);
+        CHECK(world.value().sectors[1].floorz == 8192);
+    }
+    SUBCASE("double_hole") {
+        auto world = fauxbuild::synth::map_fixture("double_hole");
+        REQUIRE(world.is_ok());
+        CHECK(world.value().sectors.size() == 1);
+        CHECK(world.value().sectors[0].wallnum == 12);
+        CHECK(world.value().walls.size() == 12);
+    }
     SUBCASE("multi_loop") {
         auto world = fauxbuild::synth::map_fixture("multi_loop");
         REQUIRE(world.is_ok());

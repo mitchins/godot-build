@@ -6,7 +6,8 @@ The full implementation contract is `docs/PROJECT_CONTRACT.md` and the source pl
 
 ## Active milestone
 
-**M5 — Static structural world viewer: NOT_STARTED.**
+**M5 — Static structural world viewer: IN_PROGRESS (slice 1 delivered at checkpoint;
+slices 2–3 pending).**
 
 M4 (ART, palette, lookup, tile tooling and the indexed atlas) was **ACCEPTED
 2026-08-24**: all six gate items met, D0013/D0014/D0015 ratified, and two

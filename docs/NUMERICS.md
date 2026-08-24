@@ -10,12 +10,19 @@ implementation:
 - Native integer coordinates and angle units at all external core interfaces.
 - 64-bit integers for products, squared distances, cross products, range checks.
 - `double` only for robust intermediate geometry where exact integer arithmetic is not
-  required.
+  required. M5 structural derivation (D0016, accepted): every geometric predicate
+  (orientation, area, containment) is exact integer math on int64 coordinates with
+  two-limb signed 128-bit accumulators (Build coordinates are int32; products of
+  differences overflow 64 bits). `double` appears only in final render-space vertex
+  values, exact by the power-of-two render scale — never in a predicate.
 - Explicit, tested rounding/quantization at every query output; never platform default
   rounding modes; never undefined signed overflow.
 - Build-space → Godot-space conversion in exactly one place (the Godot adapter).
 - Build's native vertical sign convention preserved inside the core; axes flipped only in the
-  adapter. XY/Z display scale centralized — no scattered magic constants.
+  adapter. XY/Z display scale centralized — no scattered magic constants. M5 (D0016,
+  accepted): that one place is `fauxbuild::to_render_space` in core/ (x, -z, y;
+  power-of-two scale, default 2^-11) — the adapter forwards its output verbatim, and the
+  power-of-two rule makes the mapping exact and reversible for every int32 input.
 - Binary parsing only through the bounds-checked little-endian `ByteReader`; never
   `reinterpret_cast` of file bytes into packed structs. Structured parse errors carry source
   name, byte offset, record kind/index, error code, explanation. Malformed input fails
