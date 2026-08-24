@@ -3,8 +3,7 @@
 #include <array>
 #include <cstdint>
 
-#include "earcut.hpp"
-#include "earcut_adapt.hpp"
+#include "earcut_adapt.hpp" // wraps earcut.hpp; see that header
 
 #include <algorithm>
 #include <string>
