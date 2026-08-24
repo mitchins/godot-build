@@ -783,8 +783,22 @@ original fixture ART works in Mapster.
       storage is `std::vector<uint8_t>` (one index per texel), pinned by the
       layering guard and by byte-count tripwires at unit, fbtool and Godot
       levels; RGBA exists only as a per-call derived preview product.
-- [ ] Original fixture ART works in Mapster. **HUMAN-ATTESTED, PENDING** —
-      gate B.
+- [x] Original fixture ART works in Mapster. **HUMAN-ATTESTED 2026-08-24** by
+      mitchellcurrie. Mapster32 r9598 (native macOS, used as a black box) loaded
+      FauxBuild-generated `TILES000.ART` directly alongside the normal game GRP
+      with **no conversion step**. Diagnostic tiles 0-12 rendered recognisably;
+      checker, grid, ramp and palette-strip structure intact. Selected picnum 12
+      reported **64x16, pivot 0,-8**.
+
+      That last figure is the load-bearing part. Three independent readings
+      agree: the authored source (`tile wall_uv_b 64 16` + `pivot wall_uv_b
+      0 -8`), our manifest (`12  wall_uv_b  64 16  0 -8`), and a third-party
+      editor's decode of our binary. The pivot travelled source -> build ->
+      picanm dword -> Mapster's parser and survived. It is also a *signed*
+      value packed into picanm bits 15-8: a wrong sign convention would have
+      shown 248 rather than -8, so this is third-party confirmation of a
+      bit-level encoding decision that no amount of our own round-tripping
+      could establish — our reader and writer would agree on the wrong answer.
 
 ### Slice 4 — indexed atlas, consumer boundary, real-asset ingestion (delivered 2026-08-24)
 
@@ -971,7 +985,10 @@ the automated case that reads the shader's own `index_atlas` texture.
 
 No extraction step at any point; nothing was written outside the mount.
 
-**Gate B remains open** (original fixture ART in Mapster32).
+Gate B — **HUMAN-ATTESTED PASS 2026-08-24**. Recorded in full in the gate
+checklist above.
+
+**All six M4 gate items are met.** Awaiting human acceptance of the milestone.
 
 ## M5 — Static structural world viewer — NOT_STARTED
 
