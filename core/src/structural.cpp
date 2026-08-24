@@ -40,10 +40,10 @@ struct S128 {
     // value += a * b, exact for any int64 a, b.
     void add_product(std::int64_t a, std::int64_t b) {
         const bool negative = (a < 0) != (b < 0);
-        const std::uint64_t ua =
-            a < 0 ? -static_cast<std::uint64_t>(a) : static_cast<std::uint64_t>(a);
-        const std::uint64_t ub =
-            b < 0 ? -static_cast<std::uint64_t>(b) : static_cast<std::uint64_t>(b);
+        const std::uint64_t ua = a < 0 ? std::uint64_t{0} - static_cast<std::uint64_t>(a)
+                                       : static_cast<std::uint64_t>(a);
+        const std::uint64_t ub = b < 0 ? std::uint64_t{0} - static_cast<std::uint64_t>(b)
+                                       : static_cast<std::uint64_t>(b);
         const std::uint64_t a0 = ua & 0xffffffffull;
         const std::uint64_t a1 = ua >> 32;
         const std::uint64_t b0 = ub & 0xffffffffull;
