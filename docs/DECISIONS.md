@@ -270,7 +270,7 @@ should not be trusted for rendering.
 
 ### D0014 — Tile manifest format and stability semantics (M4)
 
-Status: proposed — amendments applied 2026-08-24, awaiting ratification
+Status: accepted — human ratification 2026-08-24 (amended from the content-immutable draft the same day)
 Date: 2026-08-23 (amended 2026-08-24)
 Context: plan §7.5 requires a stable tile manifest ("never casually renumber
 tiles after maps exist"). The M4 brief demands the stability property as a

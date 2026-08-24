@@ -280,6 +280,17 @@ Result<TilesetDef> parse_tileset(std::string_view text, std::string source) {
                 auto speed = option_value(fields, 4, "speed", 0, source, line_no);
                 if (!speed.is_ok())
                     return Result<TilesetDef>::err(speed.error());
+                // picanm carries speed in 4 bits. Validating against uint8 (the
+                // convenience representation) let -1 become 255 in the manifest
+                // and 15 on the wire, and 16 become 0 — the manifest and the
+                // emitted ART disagreeing again. Validate against the *wire*
+                // width, which is the narrower of the two.
+                if (speed.value() < 0 || speed.value() > 15) {
+                    return Result<TilesetDef>::err(
+                        {source, line_no, "tileset.line", ErrorCode::OutOfBounds,
+                         "anim '" + tile.name + "' speed " + std::to_string(speed.value()) +
+                             " is out of the serialized picanm range 0..15"});
+                }
                 tile.speed = static_cast<std::uint8_t>(speed.value());
             }
             bool param_failed = false;

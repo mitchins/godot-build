@@ -6,10 +6,14 @@ The full implementation contract is `docs/PROJECT_CONTRACT.md` and the source pl
 
 ## Active milestone
 
-**M4 — ART, palette, lookup, and tile tooling: IN_PROGRESS, slices 1-3 of 4
-delivered; slice 3 at checkpoint review.** D0013 accepted; D0014 (tile
-manifest format + stability) proposed. Remaining: slice 4 (atlas +
-indexed preview).
+**M4 — ART, palette, lookup, and tile tooling: IN_PROGRESS.** Slices 1-3 of 4
+delivered and reviewed (palette/lookup, ART + picanm, fixture compilers +
+stable tile manifest). D0013 and D0014 both accepted; D0014 was amended after
+review — picnum assignment is immutable, artwork is not, and intentional
+updates go through `--accept-tile-update`. Remaining: slice 4 (atlas builder +
+indexed preview), whose two hard gates are that real assets reach the atlas
+through the GRP mount with **no extraction step**, and that **no RGBA
+representation becomes authoritative** — tiles stay palette indices.
 
 ## Repository boundary and evidence classes
 

@@ -542,7 +542,9 @@ Do not implement rendering, collision, Duke tags, or game logic.
 
 ## M4 — ART, palette, lookup, and tile tooling
 
-Status: **IN_PROGRESS** — slice 1 of 4 delivered, checkpoint review requested
+Status: **IN_PROGRESS** — slices 1-3 of 4 delivered and reviewed; slice 4
+(atlas builder + indexed preview) not started. D0013 accepted; D0014 accepted
+as amended 2026-08-24.
 Started: 2026-08-23
 
 Delivery is sliced per the M4 task brief; each slice stops for review.
@@ -668,6 +670,37 @@ Also: explicit `entry` lines no longer silently lose to a covering `ramp`;
 the palette corpus regression compares bytes rather than length; D0013's body
 said "Decision (proposed)" under an accepted header; stale `dump-art` help text
 and a `tile_manifest.test.cpp` reference that never existed.
+
+Slice-3 residual round 2 (2026-08-24) — D0014 ratified as amended; eight items:
+
+- **`speed` was validated against uint8 while picanm serializes 4 bits.**
+  Reproduced: `speed=-1` reached the manifest as 255 and the wire as 15;
+  `speed=16` reached the manifest as 16 and the wire as 0 — the manifest and
+  the emitted ART disagreeing, the same class as the `meta.raw` bug.
+  Constrained to 0..15 at tileset parse time; the manifest parser likewise now
+  bounds `frames` to 6 bits and `speed` to 4 rather than to uint8. Standing
+  rule from this: **never validate against the convenience representation when
+  the wire representation is narrower.**
+- **The Python comment damage was wider than the shebang.** Seventeen
+  historical comments restored verbatim from 417396e (the last pre-corruption
+  revision) and the M4-era ones repaired by hand; the earlier claim that
+  comments were fixed covered a single string. Every committed `.py` is clean.
+- **The CRLF manifest test was fake-green**: it inserted one CR into a header
+  comment, and comment lines are skipped whole, so the entry line never saw a
+  CR. It now converts every line ending and asserts the trailing content hash
+  survives. Negative-tested: disabling CR stripping turns it red, which the
+  old version did not.
+- **Corpus filtering is now executable evidence** (`ci/check_corpus_filter.py`,
+  wired into `fuzz`): README.md is neither seed nor manifest entry, a non-.bin
+  is not a seed, a README_*.bin is both. Both regressions are detectable —
+  reverting the loader to accept any file, and widening the manifest exclusion
+  back to a prefix rule, each turn it red.
+- **GRP-backed positive traces for `dump-art`/`dump-palette`/`dump-lookup`**,
+  with case-folded hits, structured misses, and byte-identical agreement with
+  the loose-file path. Slice 4 consumes exactly this route, so it inherits a
+  proven mount rather than being its first caller.
+- `.c` added to the formatter suffixes; slice status corrected here and in
+  AGENTS.md; D0014 recorded accepted.
 - Built artifacts verified through the M2/M4 stack: built ART parses via
   read_art, round-trips byte-identically, dump-art stats consistent.
 

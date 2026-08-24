@@ -305,6 +305,67 @@ TEST_CASE("picanm raw stays in sync with the decoded fields") {
     }
 }
 
+TEST_CASE("animation speed is validated against the serialized picanm width") {
+    // picanm carries speed in 4 bits. Validating against uint8 -- the
+    // convenience representation -- let -1 reach the manifest as 255 and the
+    // wire as 15, and 16 reach the manifest as 16 and the wire as 0: the
+    // manifest and the emitted ART disagreeing, the same class as the
+    // meta.raw bug. Never validate against the wider representation.
+    auto build = [](const char* speed) {
+        return parse_tileset(std::string("tileset t\nanim spin 8 8 frames=4 type=forward speed=") +
+                                 speed + " pattern=solid color=2\n",
+                             "s");
+    };
+    SUBCASE("negative speed is rejected") {
+        auto ts = build("-1");
+        REQUIRE_FALSE(ts.is_ok());
+        CHECK(ts.error().detail.find("0..15") != std::string::npos);
+    }
+    SUBCASE("speed 16 overflows the field and is rejected") {
+        auto ts = build("16");
+        REQUIRE_FALSE(ts.is_ok());
+    }
+    SUBCASE("speed 255 is rejected") {
+        REQUIRE_FALSE(build("255").is_ok());
+    }
+    SUBCASE("accepted speeds survive serialization unchanged") {
+        for (const char* value : {"0", "1", "15"}) {
+            auto ts = build(value);
+            REQUIRE(ts.is_ok());
+            TileManifest manifest;
+            auto built = build_art_from_tileset(ts.value(), manifest);
+            REQUIRE(built.is_ok());
+            const auto* anchor_entry = built.value().manifest.find("spin#0");
+            REQUIRE(anchor_entry != nullptr);
+            auto bytes = fauxbuild::write_art(built.value().art);
+            REQUIRE(bytes.is_ok());
+            auto reparsed = fauxbuild::read_art(
+                std::string_view(reinterpret_cast<const char*>(bytes.value().data()),
+                                 bytes.value().size()),
+                "s");
+            REQUIRE(reparsed.is_ok());
+            // The manifest record and the bytes on disk must agree.
+            CHECK(
+                reparsed.value().tiles[static_cast<std::size_t>(anchor_entry->picnum)].meta.speed ==
+                anchor_entry->speed);
+        }
+    }
+}
+
+TEST_CASE("manifest parser rejects fields wider than their serialized form") {
+    // frames is 6 bits and speed is 4 on the wire, whatever uint8 can hold.
+    SUBCASE("frames 64") {
+        auto parsed = parse_tile_manifest(
+            "# fauxbuild tile manifest v2\n# h\n0 a 8 8 0 0 forward 64 0 0000000000000000\n", "f");
+        REQUIRE_FALSE(parsed.is_ok());
+    }
+    SUBCASE("speed 16") {
+        auto parsed = parse_tile_manifest(
+            "# fauxbuild tile manifest v2\n# h\n0 a 8 8 0 0 forward 4 16 0000000000000000\n", "s");
+        REQUIRE_FALSE(parsed.is_ok());
+    }
+}
+
 TEST_CASE("manifest parser range-checks before narrowing") {
     // width 70000 narrowed to 4464 as an int16 and then passed validation.
     auto parsed = parse_tile_manifest(
@@ -522,9 +583,24 @@ TEST_CASE("CRLF line endings parse identically in every text format") {
     REQUIRE(manifest.assign("a", 8, 8, 0, 0, 0, 0, 0, 0x3333333333333333ull).is_ok());
     auto text = write_tile_manifest(manifest);
     REQUIRE(text.is_ok());
-    auto crlf = parse_tile_manifest(std::string(text.value()).insert(1, 1, '\r'), "crlf-manifest");
+    // Convert every line ending, which is what core.autocrlf actually does.
+    // A single CR inserted into the header comment exercises nothing: comment
+    // lines are skipped whole, so the entry line never saw a CR at all.
+    std::string crlf_text;
+    for (const char ch : text.value()) {
+        if (ch == '\n') {
+            crlf_text += '\r';
+        }
+        crlf_text += ch;
+    }
+    REQUIRE(crlf_text.find("\r\n") != std::string::npos);
+    auto crlf = parse_tile_manifest(crlf_text, "crlf-manifest");
     REQUIRE(crlf.is_ok());
     REQUIRE(crlf.value().entries.size() == 1);
+    // The trailing field must survive intact: a CR absorbed into the content
+    // hash is exactly the Windows-only bug this pins.
+    CHECK(crlf.value().entries[0].content == 0x3333333333333333ull);
+    CHECK(crlf.value().entries[0].name == "a");
 
     const char* palette_lf = "palette p\r\nentry 0 1 2 3\r\n";
     auto bad = parse_palette_spec(palette_lf, "crlf-palette");

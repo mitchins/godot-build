@@ -25,7 +25,7 @@ if shutil.which("clang-format") is None:
     sys.exit(0)
 
 files = []
-CXX_SUFFIXES = (".h", ".hpp", ".cpp", ".cc", ".cxx")
+CXX_SUFFIXES = (".c", ".h", ".hpp", ".cpp", ".cc", ".cxx")
 
 for directory in ("core", "tools", "tests", "extension"):
     base = root / directory

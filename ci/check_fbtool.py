@@ -33,17 +33,17 @@ with tempfile.TemporaryDirectory() as tmp:
     run(["gen-grp", "--out", good, "--seed", "4", "--files", "5", "--max-size", "64"],
         0, "gen-grp", expect_out="wrote")
 
-#A generated container must round - trip through our own dumper.
+    # A generated container must round-trip through our own dumper.
     proc = run(["dump-grp", good], 0, "dump-grp", expect_out="files: 5")
     if "SYN0000.DAT" not in proc.stdout:
         failures.append("dump-grp: generated names missing from output")
 
-#The published header is 16 bytes : first entry data starts at 16 + 16 * 5.
+    # The published header is 16 bytes: first entry data starts at 16 + 16*5.
     if "data starts at offset 96" not in proc.stdout:
         failures.append("dump-grp: data_start is not 16 + 16*file_count")
 
-#vfs - stat reads through GrpMount + the normalized VFS lookup, not the
-#directory parse that dump - grp uses.
+    # vfs-stat reads through GrpMount + the normalized VFS lookup, not the
+    # directory parse that dump-grp uses.
     proc = run(["vfs-stat", good, "SYN0000.DAT"], 0, "vfs-stat hit", expect_out="OK")
     if "via grp:" not in proc.stdout:
         failures.append("vfs-stat: origin not reported")
@@ -62,14 +62,14 @@ with tempfile.TemporaryDirectory() as tmp:
     run(["gen-grp", "--out", good, "--files", ""], 2, "gen-grp empty number")
     run(["gen-grp", "--out", good, "--files", "12x"], 2, "gen-grp trailing garbage")
     run(["gen-grp", "--out", good, "--files", "-1"], 2, "gen-grp negative")
-#Previously reached a modulo by zero inside generate_grp(UBSan - confirmed).
+    # Previously reached a modulo by zero inside generate_grp (UBSan-confirmed).
     run(["gen-grp", "--out", good, "--max-size", "4294967295"], 2, "gen-grp max-size overflow")
     run(["gen-grp", "--out", "/nonexistent/dir/out.grp"], 1, "gen-grp unwritable",
         expect_err="io_error")
-#Per - option bounds pass individually but multiply into a ~1 TiB request.
+    # Per-option bounds pass individually but multiply into a ~1 TiB request.
     run(["gen-grp", "--out", good, "--files", "65536", "--max-size", "16777216"],
         2, "gen-grp aggregate payload", expect_err="over the")
-#-- -- -- -- -- -- -- -- MAP v7 commands(M3) -- -- -- -- -- -- -- --
+    # ---------------- MAP v7 commands (M3) ----------------
     fix = str(pathlib.Path(tmp) / "two_sector.MAP")
     run(["gen-map", "--fixture", "two_sector_portal", "--out", fix], 0, "gen-map",
         expect_out="wrote")
@@ -87,30 +87,30 @@ with tempfile.TemporaryDirectory() as tmp:
         expect_out="semantically identical")
     run(["gen-map", "--list"], 0, "gen-map list", expect_out="multi_loop")
 
-#Malformed content is a content error(1); usage problems exit 2.
+    # Malformed content is a content error (1); usage problems exit 2.
     bad_version = pathlib.Path(tmp) / "bad_version.MAP"
     bad_version.write_bytes((9).to_bytes(4, "little") + b"\x00" * 40)
     run(["validate-map", str(bad_version)], 1, "validate-map bad version",
         expect_err="unsupported_version")
-#No positional : with one present the arity check yields exit 2 on its own,
-#so the case would pass even with unknown - option handling deleted.
+    # No positional: with one present the arity check yields exit 2 on its own,
+    # so the case would pass even with unknown-option handling deleted.
     run(["dump-map", "--bogus"], 2, "dump-map unknown option")
 
-#A failing rewrite - map must publish nothing.Note what this can and cannot
-#reach : the self - check(reparse + semantic diff) cannot be made to fail
-#from outside the process, because the reader and writer enforce identical
-#limits and every field round - trips at fixed width — with a correct writer
-#it is an assertion, not a validation.Its ordering was verified in review
-#by injecting a writer bug(see MILESTONES M3 review round 5).What is
-#externally observable is that neither a rejected parse nor a failed write
-#leaves a file behind.
+    # A failing rewrite-map must publish nothing. Note what this can and cannot
+    # reach: the self-check (reparse + semantic diff) cannot be made to fail
+    # from outside the process, because the reader and writer enforce identical
+    # limits and every field round-trips at fixed width — with a correct writer
+    # it is an assertion, not a validation. Its ordering was verified in review
+    # by injecting a writer bug (see MILESTONES M3 review round 5). What is
+    # externally observable is that neither a rejected parse nor a failed write
+    # leaves a file behind.
     unwritten = pathlib.Path(tmp) / "unwritten.MAP"
     run(["rewrite-map", str(bad_version), str(unwritten)], 1,
         "rewrite-map rejects bad input without writing", expect_err="unsupported_version")
     if unwritten.exists():
         failures.append("rewrite-map: wrote output despite a rejected parse")
 
-#Parse and self - check both succeed here; only the write fails.
+    # Parse and self-check both succeed here; only the write fails.
     run(["rewrite-map", fix, "/nonexistent-dir/out.MAP"], 1, "rewrite-map unwritable destination",
         expect_err="io_error")
     run(["dump-map", "--grp"], 2, "dump-map dangling option value")
@@ -122,8 +122,8 @@ with tempfile.TemporaryDirectory() as tmp:
     run(["dump-map", str(pathlib.Path(tmp) / "missing.MAP")], 1, "dump-map missing",
         expect_err="io_error")
 
-#The-- grp path routes through GrpMount + the normalized VFS lookup, which
-#nothing else in this gate exercises for the MAP commands.
+    # The --grp path routes through GrpMount + the normalized VFS lookup, which
+    # nothing else in this gate exercises for the MAP commands.
     map_bytes = pathlib.Path(fix).read_bytes()
     name = b"TWOSECT.MAP"
     grp_with_map = pathlib.Path(tmp) / "maps.grp"
@@ -141,16 +141,16 @@ with tempfile.TemporaryDirectory() as tmp:
     run(["dump-map", "--grp", str(grp_with_map), "NOSUCH.MAP"], 1, "map not in grp",
         expect_err="not_found")
 
-#Options are per - command and a value may not be an option token : both
-#shapes previously became positional paths(exit 1) instead of usage errors.
+    # Options are per-command and a value may not be an option token: both
+    # shapes previously became positional paths (exit 1) instead of usage errors.
     run(["validate-map", "--verbose", fix], 2, "validate-map rejects --verbose")
     run(["rewrite-map", "--verbose", fix, str(pathlib.Path(tmp) / "v.MAP")], 2,
         "rewrite-map rejects --verbose")
     run(["dump-map", "--grp", "--bogus", fix], 2, "--grp value may not be an option")
     run(["gen-map", "--list", "--wat"], 2, "gen-map --list is standalone")
 
-#Sprite orientation is a two - bit field; 0x0030 is reserved and appears in
-#no real map, so the classifier's fallback is otherwise unexercised.
+    # Sprite orientation is a two-bit field; 0x0030 is reserved and appears in
+    # no real map, so the classifier's fallback is otherwise unexercised.
     ori = pathlib.Path(tmp) / "sprites.MAP"
     run(["gen-map", "--fixture", "sprite_orientations", "--out", str(ori)], 0, "gen-map sprites")
     raw = bytearray(ori.read_bytes())
@@ -166,12 +166,12 @@ with tempfile.TemporaryDirectory() as tmp:
     run(["dump-map", str(reserved)], 0, "reserved sprite orientation",
         expect_out="reserved=1")
 
-#gen - map option values may not be option tokens either.
+    # gen-map option values may not be option tokens either.
     run(["gen-map", "--fixture", "minimal", "--out", "--wat"], 2, "gen-map --out needs a value")
     run(["gen-map", "--fixture", "--out", str(pathlib.Path(tmp) / "y.MAP")], 2,
         "gen-map --fixture needs a value")
 
-#-- -- -- -- -- -- -- -- palette / lookup commands(M4 slice 1) -- -- -- -- -- -- -- --
+    # ---------------- palette/lookup commands (M4 slice 1) ----------------
     import struct as _struct
     pal = pathlib.Path(tmp) / "synth.dat"
     pal_bytes = bytearray(i % 64 for i in range(768))
@@ -350,6 +350,43 @@ with tempfile.TemporaryDirectory() as tmp:
     run(["build-art", "--wat"], 2, "build-art unknown option")
     run(["build-palette", "--source"], 2, "build-palette dangling option value")
     run(["build-palette"], 2, "build-palette arity")
+
+    # GRP-backed positive paths for every M4 dump command. Slice 4 consumes
+    # exactly this route (GRP -> VFS -> ART/palette/lookup -> atlas), so it
+    # should inherit a proven mount path rather than being its first caller.
+    assets = pathlib.Path(tmp) / "assets.grp"
+    entries = [
+        ("TILES000.ART", pathlib.Path(art_out).read_bytes()),
+        ("PALETTE.DAT", pathlib.Path(pal).read_bytes()),
+        ("LOOKUP.DAT", pathlib.Path(lut).read_bytes()),
+    ]
+    header = b"KenSilverman" + len(entries).to_bytes(4, "little")
+    directory = b"".join(
+        name.encode("ascii").ljust(12, b"\x00") + len(data).to_bytes(4, "little")
+        for name, data in entries)
+    assets.write_bytes(header + directory + b"".join(data for _, data in entries))
+
+    proc = run(["dump-art", "--grp", str(assets), "TILES000.ART"], 0, "dump-art via grp",
+               expect_out="version: 1")
+    if "tile range:" not in proc.stdout:
+        failures.append("dump-art via grp: no tile range reported")
+    run(["dump-palette", "--grp", str(assets), "PALETTE.DAT"], 0, "dump-palette via grp",
+        expect_out="shade tables:")
+    run(["dump-lookup", "--grp", str(assets), "LOOKUP.DAT"], 0, "dump-lookup via grp",
+        expect_out="swaps:")
+    # Case-folding is part of the mount contract, and a miss must be structured.
+    run(["dump-art", "--grp", str(assets), "tiles000.art"], 0, "dump-art via grp, case-folded",
+        expect_out="version: 1")
+    run(["dump-art", "--grp", str(assets), "NOSUCH.ART"], 1, "dump-art grp miss",
+        expect_err="not_found")
+    run(["dump-palette", "--grp", str(assets), "NOSUCH.DAT"], 1, "dump-palette grp miss",
+        expect_err="not_found")
+    run(["dump-lookup", "--grp", str(assets), "NOSUCH.DAT"], 1, "dump-lookup grp miss",
+        expect_err="not_found")
+    # The mount must deliver identical bytes to the loose-file path.
+    direct = run(["dump-art", art_out], 0, "dump-art direct")
+    if direct.stdout.split("\n")[1:] != proc.stdout.split("\n")[1:]:
+        failures.append("dump-art: GRP-backed output differs from the loose-file output")
 
     run(["no-such-command"], 2, "unknown command", expect_err="unknown command")
 

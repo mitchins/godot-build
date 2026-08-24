@@ -192,14 +192,14 @@ Result<TileManifest> parse_tile_manifest(std::string_view text, std::string sour
         auto frames = parse_int(fields[7], source, line_no, "frames");
         if (!frames.is_ok())
             return Result<TileManifest>::err(frames.error());
-        if (!in_range(frames, 0, 255))
-            return range_error("frames", 0, 255);
+        if (!in_range(frames, 0, 63))
+            return range_error("frames", 0, 63); // picanm frames field is 6 bits
         entry.frames = static_cast<std::uint8_t>(frames.value());
         auto speed = parse_int(fields[8], source, line_no, "speed");
         if (!speed.is_ok())
             return Result<TileManifest>::err(speed.error());
-        if (!in_range(speed, 0, 255))
-            return range_error("speed", 0, 255);
+        if (!in_range(speed, 0, 15))
+            return range_error("speed", 0, 15); // picanm speed field is 4 bits
         entry.speed = static_cast<std::uint8_t>(speed.value());
         // Content hash: exactly 16 lowercase hex digits, no 0x, no sign. Strict
         // because this field is the immutability anchor.

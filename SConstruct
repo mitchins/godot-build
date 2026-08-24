@@ -140,6 +140,14 @@ if cfg == 'fuzz':
             ['python3 ci/check_fuzz_gate.py ${SOURCE.abspath}', Touch('$TARGET')])
         env.AlwaysBuild(gate)
         fuzz_runs.append(gate)
+        # The loader and the manifest gate must agree on exactly which files
+        # are seeds, or a file can influence fuzzing while evading the
+        # integrity check. Executable evidence, not just implementation.
+        filter_gate = env.Command(
+            f'{bdir}/corpus_filter_{name}.stamp', [program],
+            ['python3 ci/check_corpus_filter.py ${SOURCE.abspath}', Touch('$TARGET')])
+        env.AlwaysBuild(filter_gate)
+        fuzz_runs.append(filter_gate)
     Alias('all', fuzz_targets)
     Alias('fuzz', fuzz_runs)
     Default('all')
