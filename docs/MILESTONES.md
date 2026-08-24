@@ -761,6 +761,31 @@ Gate summary: fixture tiles decode exactly; palette test strip correct; pivot/an
 round-trip; local Duke tile atlas inspectable without extraction; no RGBA-only assumption;
 original fixture ART works in Mapster.
 
+### Gate (plan wording, verbatim)
+
+- [x] Every fixture tile decodes exactly. *(CI)* Unit round-trips, the fbtool
+      contract gate, and the Godot consumer boundary all compare bytes, and the
+      fixture's asymmetric index formulas make a transposition loud.
+- [x] Palette test strip is correct. *(CI)* The 16x16 `pattern=indexed` strip
+      carries every palette index exactly once and the atlas places index i at
+      row-major position i. Added during the pre-acceptance audit: the strip
+      existed as a fixture tile but nothing asserted it decoded correctly.
+      Negative-tested — inverting the atlas transpose fails this case on its own.
+- [x] Pivot and animation metadata round-trip where supported. *(CI)* picanm
+      raw agrees with the decoded fields and survives a file round-trip;
+      pivots/anim/speed are preserved through manifest and atlas; `speed` and
+      `frames` are validated against their serialized widths, not uint8.
+- [x] A local Duke tile atlas can be inspected without extraction as a required
+      user step. **HUMAN-ATTESTED 2026-08-24** — gates A1 (inspect-atlas over
+      the untouched GRP) and A2 (multi-page preview, page selection round-trip).
+      Everything reads through the VFS mount; no extraction at any point.
+- [x] No RGBA-only assumption enters the world asset model. *(CI)* Authoritative
+      storage is `std::vector<uint8_t>` (one index per texel), pinned by the
+      layering guard and by byte-count tripwires at unit, fbtool and Godot
+      levels; RGBA exists only as a per-call derived preview product.
+- [ ] Original fixture ART works in Mapster. **HUMAN-ATTESTED, PENDING** —
+      gate B.
+
 ### Slice 4 — indexed atlas, consumer boundary, real-asset ingestion (delivered 2026-08-24)
 
 Abstraction delivered: M5 can ask for picnum N and receive stable metadata
@@ -931,7 +956,22 @@ Verified against the real archive, headless, zero errors: 3328 picnums, 1605
 populated, pages carrying 409/641/555 tiles, 6 palette choices, 26 remap
 choices, 32 shade rows.
 
-**Gate A2 and gate B remain open.**
+Gate A2 — **HUMAN-ATTESTED PASS 2026-08-24** by mitchellcurrie. The real GRP
+was mounted into `atlas_preview_human.tscn` and tiles were selected across all
+three atlas pages, plus an empty picnum, with shade/palette/remap varied.
+Attested: page selection works and **round-trips** — moving between pages and
+back to a previously viewed page shows the correct tile each time.
+
+That round-trip is the part worth recording. A page rebind that only ever moves
+forward could pass a one-directional check while leaving a stale texture bound
+on return; observing correct texels after returning to a previously bound page
+exercises the rebinding path in both directions, over real 2048x2048 pages that
+CI's 12x12 synthetic fixture cannot represent. It is the human counterpart to
+the automated case that reads the shader's own `index_atlas` texture.
+
+No extraction step at any point; nothing was written outside the mount.
+
+**Gate B remains open** (original fixture ART in Mapster32).
 
 ## M5 — Static structural world viewer — NOT_STARTED
 
