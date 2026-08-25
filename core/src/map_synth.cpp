@@ -315,6 +315,37 @@ mapv7::MapData ramp_world(bool ceiling_slope, std::int16_t heinum) {
     map.start = {kRampRun / 4, kRampRun / 4, 0, 0, 0};
     return map;
 }
+// Wide-Z ramps: the evaluated Z deliberately leaves the int32 range the MAP
+// stores its base Z in, proving the derived value reaches render space without
+// a silent narrowing. Hinge A->B along X, apex 200,000,000 units away, so at
+// heinum 4096 the delta is 200000000 * 16 = 3,200,000,000 -- beyond INT32_MAX;
+// the negative variant goes beyond INT32_MIN.
+mapv7::MapData wide_z_ramp_world(std::int16_t heinum) {
+    mapv7::MapData map;
+    const std::int32_t xs[] = {0, 65536, 0};
+    const std::int32_t ys[] = {0, 0, 200000000};
+    add_loop(map, xs, ys, 3);
+    map.sectors.push_back(make_sector(0, 3, 0, -65536));
+    map.sectors[0].floorstat |= mapv7::kStatSloped;
+    map.sectors[0].floorheinum = heinum;
+    map.start = {1024, 1024, -32768, 0, 0};
+    return map;
+}
+mapv7::MapData slope_wide_z_pos_world() {
+    return wide_z_ramp_world(4096);
+}
+mapv7::MapData slope_wide_z_neg_world() {
+    return wide_z_ramp_world(-4096);
+}
+// A flagged plane whose FIRST WALL is degenerate: the hinge, and therefore the
+// height, is undefined. Used to pin the omit-plus-diagnostic policy.
+mapv7::MapData slope_degenerate_hinge_world() {
+    mapv7::MapData map = ramp_world(false, 4096);
+    map.walls[1].x = map.walls[0].x; // first wall collapses to a point
+    map.walls[1].y = map.walls[0].y;
+    return map;
+}
+
 mapv7::MapData ramp_floor_pos_world() {
     return ramp_world(false, 4096);
 }
@@ -493,6 +524,12 @@ Result<mapv7::MapData> map_fixture(const std::string& name) {
     mapv7::MapData map;
     if (name == "minimal") {
         map = minimal_world();
+    } else if (name == "slope_wide_z_pos") {
+        map = slope_wide_z_pos_world();
+    } else if (name == "slope_wide_z_neg") {
+        map = slope_wide_z_neg_world();
+    } else if (name == "slope_degenerate_hinge") {
+        map = slope_degenerate_hinge_world();
     } else if (name == "ramp_floor_pos") {
         map = ramp_floor_pos_world();
     } else if (name == "ramp_floor_neg") {

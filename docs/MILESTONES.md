@@ -1777,16 +1777,61 @@ base Z on walls (seam test red); a second divergent equation in generation
 first rejected by `-Werror` as an unused variable and re-run so it actually
 compiled — a failed build is not a failed test.
 
+**Residual closeout 2026-08-25 — wide Z, policy, determinism.**
+
+- **int64 derived Z reaches render space unnarrowed.** `to_render_space` now
+  takes `std::int64_t z` (source X/Y stay int32). An int32 z promotes exactly,
+  so ordinary MAP behaviour is byte-identical. Exactness holds for
+  |z| <= 2^53; `render_z_is_exact` guards it, and from int32 MAP coordinates
+  the largest reachable derived |z| is about 2^39.5, so the limit is
+  unreachable from valid content. Fixtures `slope_wide_z_pos`/`_neg` evaluate
+  to +/-3,200,000,000 — outside int32 in both directions — and the emitted
+  surface carries -97656.25 render units. Negative-tested: restoring the
+  `static_cast<std::int32_t>` at the call site gives `0 == -97656.2` red.
+- **The numeric domain limit was over-strict and is gone.** The evaluator
+  previously rejected operands above 2^53 on the theory that they had to be
+  exactly representable. Only the RELATIVE precision of the quotient matters;
+  binary64 gives ~2^-53 relative at any operand magnitude. Removing it left
+  exactly one underivable case: a flagged plane whose first wall is
+  degenerate.
+- **Underivable slopes are omitted, not flattened (D0019, proposed).** Flat
+  emission was described as failing closed; it is not — it is a specific,
+  knowingly incorrect answer, and a diagnostic does not make it safe. Such a
+  sector now emits NO surfaces plus a `slope_hinge_degenerate` diagnostic,
+  following D0018's pattern. The alternative (structured fatal) is a one-line
+  change and is recorded in D0019, which is **proposed, not accepted**.
+- **Determinism claim corrected and proven.** The earlier wording implied C++
+  guarantees cross-platform bit identity because division and sqrt are used.
+  It does not, and nothing now claims it. binary64 is documented as the chosen
+  deterministic numeric lane for the supported toolchains, and the claim is
+  backed by a 14-case corpus — axis-aligned, 3/4/5, irrational-length, both
+  heinum signs, both sides of the hinge, points exactly on the rounding half
+  boundary and either side of it, a one-unit hinge, and a point on the hinge —
+  pinned to integers derived independently in Python from the documented
+  recipe. It runs in dev, asan and release, and in CI on Linux x86_64, macOS
+  arm64 and Windows MSVC. No platform tolerance is permitted.
+  **The corpus immediately earned its place:** it caught a real bug in the
+  128-bit-to-double conversion, which converted the two's complement limbs
+  directly and so destroyed small negative values (-2000000 is hi = -1,
+  lo = 2^64 - 2000000; lo loses its low bits at that magnitude and the limbs
+  very nearly cancel). Fixed by converting the magnitude and reapplying the
+  sign.
+
 *Real-content scan (dev evidence, aggregate only):*
 
-| map | sloped planes | stale heinum | max \|z−base\| | surfaces | tris | diags |
-|---|---|---|---|---|---|---|
-| E1L1 | 69 | 22 | 24576 | 1936 | 5134 | 0 |
-| E1L2 | 67 | 7 | 44544 | 1726 | 4686 | 0 |
-| E1L3 | 252 | 57 | 40960 | 3085 | 8348 | 0 |
-| E1L4 | 278 | 287 | 60407 | 3468 | 9312 | 0 |
-| E1L5 | 302 | 49 | 152056 | 3106 | 8854 | 0 |
-| E1L6 | 206 | 27 | 78200 | 1917 | 4894 | 2 |
+| map | sloped planes | stale heinum | max \|z−base\| | max negative Δz | surfaces | tris | diags |
+|---|---|---|---|---|---|---|---|
+| E1L1 | 69 | 22 | 24576 | 15360 | 1936 | 5134 | 0 |
+| E1L2 | 67 | 7 | 44544 | 24576 | 1726 | 4686 | 0 |
+| E1L3 | 252 | 57 | 40960 | 40960 | 3085 | 8348 | 0 |
+| E1L4 | 278 | 287 | 60407 | 60407 | 3468 | 9312 | 0 |
+| E1L5 | 302 | 49 | 152056 | 152056 | 3106 | 8854 | 0 |
+| E1L6 | 206 | 27 | 78200 | 78200 | 1917 | 4894 | 2 |
+
+Every map exercises substantial NEGATIVE deltas, which is why the scan is
+meaningful evidence that the sign-conversion bug is gone: the same aggregates
+were produced independently by the earlier exact-integer conversion path and
+by the current magnitude-plus-sign one.
 
 E1L1 holds 317/1937/1936/5134/0, and its note count fell 321 → 252 — exactly
 the 69 slope-deferral notes removed. E1L6's 2 diagnostics are the

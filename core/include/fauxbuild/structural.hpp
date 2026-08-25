@@ -180,8 +180,19 @@ struct StructuralOptions {
 // lengths. Both factors are powers of two, so the mapping stays exact for
 // all int32 inputs and reversible by multiplying with the matching inverse
 // and rounding toward zero.
-StructuralVertex to_render_space(std::int32_t x, std::int32_t y, std::int32_t z,
+// Source X/Y are int32 MAP coordinates; Z is int64 because it may be DERIVED
+// (a slope evaluation is not bounded by the stored int32 base). Passing an
+// int32 z is unchanged in value and in bytes -- the promotion is exact.
+//
+// Exactness holds for |z| <= 2^53 (binary64's exact integer range). From int32
+// MAP coordinates the largest reachable derived |z| is about 2^39.5, so the
+// limit is unreachable from valid content; `render_z_is_exact` exists so the
+// derivation can reject rather than silently narrow if that ever changes.
+StructuralVertex to_render_space(std::int32_t x, std::int32_t y, std::int64_t z,
                                  const StructuralOptions& options = {});
+
+// False when |z| exceeds the exactly representable render domain.
+bool render_z_is_exact(std::int64_t z);
 
 enum class SurfacePlane { Floor, Ceiling };
 
@@ -218,14 +229,28 @@ enum class SurfacePlane { Floor, Ceiling };
 // with the flag clear is an ignored leftover in real content (M3, n=4,900)
 // and returns base_z unchanged.
 //
-// Determinism: the cross product and squared hinge length are computed
-// exactly in 128-bit integers. The only inexact step is the single division
-// by the hinge length, which is irrational by definition; IEEE-754 requires
-// division and sqrt to be correctly rounded, so the result is bit-identical
-// across conforming platforms (unlike long double, which is 80-bit on x86
-// and 64-bit on arm64). Rounding to integer Build Z is symmetric
-// (half away from zero), which is what makes negating heinum negate the
-// result exactly.
+// Determinism. The cross product and squared hinge length are computed
+// exactly in 128-bit integers. The definition contains the hinge LENGTH, which
+// is irrational, so the evaluation cannot be wholly integral.
+//
+// **binary64 is the chosen deterministic numeric lane for the supported
+// toolchains.** That is a decision plus evidence, not a language guarantee:
+// C++ does not promise cross-platform bit identity for floating point, and
+// nothing here claims it does. What is relied on is narrower and checkable --
+// every operation is binary64, IEEE-754 specifies division and sqrt as
+// correctly rounded, and no operation is order-dependent or contractable into
+// an FMA. `long double` is deliberately avoided: it is 80-bit on x86 and
+// 64-bit on arm64, which would make vertices differ per platform.
+//
+// The claim is PROVEN rather than asserted: a corpus of hinges (axis-aligned,
+// 3/4/5, irrational-length, both signs, both sides, and values exactly on the
+// rounding half boundary) is pinned to expected integers derived
+// independently, and runs in dev, asan and release here and on Linux x86_64,
+// macOS arm64 and Windows MSVC in CI. No platform tolerance is permitted; a
+// mismatch is a real divergence.
+//
+// Rounding to integer Build Z is symmetric (half away from zero), which is
+// what makes negating heinum negate the result exactly.
 std::int64_t surface_z_at(const mapv7::MapData& map, std::int16_t sector_index, SurfacePlane plane,
                           std::int32_t x, std::int32_t y);
 

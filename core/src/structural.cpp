@@ -636,7 +636,12 @@ const char* surface_kind_name(SurfaceKind kind) {
     return "unknown";
 }
 
-StructuralVertex to_render_space(std::int32_t x, std::int32_t y, std::int32_t z,
+bool render_z_is_exact(std::int64_t z) {
+    constexpr std::int64_t kExactIntegerDouble = 1LL << 53;
+    return z >= -kExactIntegerDouble && z <= kExactIntegerDouble;
+}
+
+StructuralVertex to_render_space(std::int32_t x, std::int32_t y, std::int64_t z,
                                  const StructuralOptions& options) {
     // Power-of-two scale keeps the mapping exact (D0016): the product of an
     // int32 and 2^-k is exactly representable and reversible. Internal misuse
@@ -647,6 +652,8 @@ StructuralVertex to_render_space(std::int32_t x, std::int32_t y, std::int32_t z,
     // and the exactness/reversibility contract is unchanged.
     const double vertical_scale = options.scale / kBuildVerticalUnitsPerHorizontal;
     FB_CHECK(scale_is_power_of_two(vertical_scale));
+    // Derived Z must not be silently narrowed on its way to render space.
+    FB_CHECK(render_z_is_exact(z));
     StructuralVertex v;
     v.x = static_cast<double>(x) * options.scale;
     v.y = -static_cast<double>(z) * vertical_scale;
@@ -659,24 +666,45 @@ StructuralVertex to_render_space(std::int32_t x, std::int32_t y, std::int32_t z,
 
 namespace {
 
-// Exact 128-bit -> int64 when it fits. Slope evaluation needs its operands
-// exactly representable as double for the one correctly-rounded division, so
-// anything wider fails closed rather than being silently approximated.
-bool s128_to_int64(const S128& v, std::int64_t* out) {
-    if (v.hi == 0 && v.lo <= static_cast<std::uint64_t>(INT64_MAX)) {
-        *out = static_cast<std::int64_t>(v.lo);
-        return true;
+// Exact 128-bit -> binary64. All-binary64 arithmetic, so the result is
+// reproducible on every supported toolchain.
+//
+// An earlier version rejected operands above 2^53 on the theory that they had
+// to be exactly representable. That was over-strict: only the RELATIVE
+// precision of the quotient matters, and binary64 delivers ~2^-53 relative
+// whatever the operand magnitude. The bound that actually matters is on the
+// RESULT, and from int32 MAP coordinates the largest reachable |z| is about
+// 2^39.5 -- far inside the exactly-representable integer range.
+double s128_to_double(const S128& v) {
+    constexpr double kTwo64 = 18446744073709551616.0; // 2^64, exact
+    // Convert the MAGNITUDE and reapply the sign. Converting the two's
+    // complement limbs directly is catastrophically lossy for small negative
+    // values: -2000000 is stored as hi = -1, lo = 2^64 - 2000000, and lo
+    // loses its low bits to rounding at that magnitude, so the two limbs
+    // very nearly cancel and the small true value is destroyed.
+    S128 magnitude = v;
+    const bool negative = magnitude.sign() < 0;
+    if (negative) {
+        magnitude.negate();
     }
-    if (v.hi == -1 && v.lo >= static_cast<std::uint64_t>(INT64_MIN)) {
-        *out = static_cast<std::int64_t>(v.lo);
-        return true;
-    }
-    return false;
+    const double value =
+        static_cast<double>(magnitude.hi) * kTwo64 + static_cast<double>(magnitude.lo);
+    return negative ? -value : value;
 }
 
-// Values above 2^53 are not exactly representable as double, so the division
-// below would start from an approximated operand.
-constexpr std::int64_t kExactDoubleLimit = 1LL << 53;
+// Flagged for slope with a nonzero heinum, irrespective of hinge usability.
+bool slope_flagged(const fauxbuild::mapv7::MapData& map, std::int16_t sector_index,
+                   fauxbuild::SurfacePlane plane) {
+    const auto si = static_cast<std::size_t>(sector_index);
+    if (sector_index < 0 || si >= map.sectors.size()) {
+        return false;
+    }
+    const fauxbuild::mapv7::Sector& sector = map.sectors[si];
+    const bool ceiling = plane == fauxbuild::SurfacePlane::Ceiling;
+    const std::int16_t stat = ceiling ? sector.ceilingstat : sector.floorstat;
+    const std::int16_t heinum = ceiling ? sector.ceilingheinum : sector.floorheinum;
+    return (stat & fauxbuild::mapv7::kStatSloped) != 0 && heinum != 0;
+}
 
 struct SlopeInputs {
     std::int32_t base_z = 0;
@@ -729,14 +757,13 @@ SlopeInputs slope_inputs(const fauxbuild::mapv7::MapData& map, std::int16_t sect
 bool slope_is_evaluable(const fauxbuild::mapv7::MapData& map, std::int16_t sector_index,
                         fauxbuild::SurfacePlane plane) {
     const SlopeInputs in = slope_inputs(map, sector_index, plane);
-    if (!in.sloped) {
-        return true; // nothing to evaluate; base Z is exact
+    if (in.sloped) {
+        return true; // hinge present and non-degenerate
     }
-    S128 length_squared;
-    length_squared.add_product(in.dx, in.dx);
-    length_squared.add_product(in.dy, in.dy);
-    std::int64_t l2 = 0;
-    return s128_to_int64(length_squared, &l2) && l2 > 0 && l2 <= kExactDoubleLimit;
+    // `sloped` is false either because the plane carries no slope (nothing to
+    // evaluate; base Z is exact and correct) or because a FLAGGED plane has no
+    // usable hinge. Only the latter is a failure.
+    return !slope_flagged(map, sector_index, plane);
 }
 
 std::int64_t surface_z_at(const fauxbuild::mapv7::MapData& map, std::int16_t sector_index,
@@ -755,23 +782,13 @@ std::int64_t surface_z_at(const fauxbuild::mapv7::MapData& map, std::int16_t sec
     length_squared.add_product(in.dx, in.dx);
     length_squared.add_product(in.dy, in.dy);
 
-    std::int64_t cross_i = 0;
-    std::int64_t l2 = 0;
-    if (!s128_to_int64(cross, &cross_i) || !s128_to_int64(length_squared, &l2)) {
-        return in.base_z; // out of domain; the builder reports a diagnostic
-    }
-    if (cross_i == 0) {
-        return in.base_z; // on the hinge: invariant, whatever the heinum
-    }
-    if (l2 <= 0 || l2 > kExactDoubleLimit || cross_i > kExactDoubleLimit ||
-        cross_i < -kExactDoubleLimit) {
-        return in.base_z;
+    if (cross.sign() == 0) {
+        return in.base_z; // exactly on the hinge line: invariant, any heinum
     }
 
-    // The one inexact step. Division and sqrt are correctly rounded by
-    // IEEE-754, and 256 is a power of two, so this is bit-identical wherever
-    // the standard is honoured.
-    const double perpendicular = static_cast<double>(cross_i) / std::sqrt(static_cast<double>(l2));
+    // The inexact steps, all binary64. See the header for exactly what is and
+    // is not being claimed about reproducibility.
+    const double perpendicular = s128_to_double(cross) / std::sqrt(s128_to_double(length_squared));
     const double delta = perpendicular * static_cast<double>(in.heinum) / 256.0;
     if (!std::isfinite(delta)) {
         return in.base_z;
@@ -843,16 +860,23 @@ Result<StructuralWorld> build_structural_world(const mapv7::MapData& map,
         }
 
         // --- Slope evaluability (M6 slice 1) ------------------------------
-        // Slope is supported now, so the old "deferred, flat base Z" notes are
-        // gone. What remains is the fail-closed case: a flagged plane whose
-        // hinge is outside the exactly representable domain is emitted FLAT
-        // and says so as a diagnostic, rather than being quietly approximated.
+        // A flagged plane whose first wall is degenerate has NO hinge, so its
+        // height is undefined. Emitting it flat would be knowingly incorrect
+        // geometry dressed up as a diagnostic, so the sector is OMITTED and
+        // reported instead -- the D0018 pattern for a surface that cannot be
+        // derived. See D0019 (proposed): the alternative is a structured fatal
+        // error, which is a one-line change here.
+        bool slope_underivable = false;
         for (const SurfacePlane plane : {SurfacePlane::Floor, SurfacePlane::Ceiling}) {
             if (!slope_is_evaluable(map, static_cast<std::int16_t>(s), plane)) {
+                slope_underivable = true;
                 world.diagnostics.push_back({"sector[" + std::to_string(s) + "]",
                                              plane == SurfacePlane::Floor ? "floor" : "ceiling",
-                                             "slope_hinge_out_of_domain"});
+                                             "slope_hinge_degenerate"});
             }
+        }
+        if (slope_underivable) {
+            continue; // no surfaces from this sector, rather than wrong ones
         }
         if (sector.ceilingz > sector.floorz) {
             world.notes.push_back({"sector[" + std::to_string(s) + "]",
@@ -894,9 +918,8 @@ Result<StructuralWorld> build_structural_world(const mapv7::MapData& map,
                 const std::int64_t z =
                     surface_z_at(map, static_cast<std::int16_t>(s), SurfacePlane::Floor,
                                  static_cast<std::int32_t>(p.x), static_cast<std::int32_t>(p.y));
-                floor.vertices.push_back(to_render_space(static_cast<std::int32_t>(p.x),
-                                                         static_cast<std::int32_t>(p.y),
-                                                         static_cast<std::int32_t>(z), options));
+                floor.vertices.push_back(to_render_space(
+                    static_cast<std::int32_t>(p.x), static_cast<std::int32_t>(p.y), z, options));
             }
             floor.indices =
                 floor_reversed ? flipped_triangles(tri.value().triangles) : tri.value().triangles;
@@ -917,9 +940,8 @@ Result<StructuralWorld> build_structural_world(const mapv7::MapData& map,
                 const std::int64_t z =
                     surface_z_at(map, static_cast<std::int16_t>(s), SurfacePlane::Ceiling,
                                  static_cast<std::int32_t>(p.x), static_cast<std::int32_t>(p.y));
-                ceiling.vertices.push_back(to_render_space(static_cast<std::int32_t>(p.x),
-                                                           static_cast<std::int32_t>(p.y),
-                                                           static_cast<std::int32_t>(z), options));
+                ceiling.vertices.push_back(to_render_space(
+                    static_cast<std::int32_t>(p.x), static_cast<std::int32_t>(p.y), z, options));
             }
             ceiling.indices =
                 floor_reversed ? tri.value().triangles : flipped_triangles(tri.value().triangles);
@@ -982,14 +1004,10 @@ Result<StructuralWorld> build_structural_world(const mapv7::MapData& map,
             surface.appearance.yrepeat = wall.yrepeat;
             surface.appearance.xpanning = wall.xpanning;
             surface.appearance.ypanning = wall.ypanning;
-            surface.vertices.push_back(
-                to_render_space(wall.x, wall.y, static_cast<std::int32_t>(a_lo), options));
-            surface.vertices.push_back(
-                to_render_space(target.x, target.y, static_cast<std::int32_t>(b_lo), options));
-            surface.vertices.push_back(
-                to_render_space(target.x, target.y, static_cast<std::int32_t>(b_hi), options));
-            surface.vertices.push_back(
-                to_render_space(wall.x, wall.y, static_cast<std::int32_t>(a_hi), options));
+            surface.vertices.push_back(to_render_space(wall.x, wall.y, a_lo, options));
+            surface.vertices.push_back(to_render_space(target.x, target.y, b_lo, options));
+            surface.vertices.push_back(to_render_space(target.x, target.y, b_hi, options));
+            surface.vertices.push_back(to_render_space(wall.x, wall.y, a_hi, options));
             if (left) {
                 surface.indices = {0, 2, 1, 0, 3, 2};
             } else {

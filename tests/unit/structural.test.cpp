@@ -18,6 +18,8 @@
 // no Godot types, no scene, no renderer (slice 2 owns presentation).
 
 using fauxbuild::build_structural_world;
+using fauxbuild::render_z_is_exact;
+using fauxbuild::slope_is_evaluable;
 using fauxbuild::StructuralOptions;
 using fauxbuild::StructuralSurface;
 using fauxbuild::StructuralVertex;
@@ -700,6 +702,152 @@ TEST_CASE("slope evaluator: hinge invariance, 45-degree ramp, sign, and flag") {
           ceiling_base + 16384);
     // The floor of that same fixture is unflagged and stays flat.
     CHECK(surface_z_at(ceiling_map.value(), 0, SurfacePlane::Floor, 0, 1024) == 32768);
+}
+
+TEST_CASE("slope evaluator: deterministic corpus with independently derived oracles") {
+    // The expected values are NOT read back from this implementation: they
+    // were produced in Python, a different language and runtime, by applying
+    // the documented recipe (exact integer cross product and squared length,
+    // one binary64 division and sqrt, symmetric rounding). Agreement means the
+    // C++ matches the specification, not merely itself.
+    //
+    // These same integers must hold in dev, asan and release here, and on
+    // Linux x86_64, macOS arm64 and Windows MSVC in CI. No platform tolerance
+    // is allowed: a mismatch is a real divergence to investigate, not noise.
+    struct SlopeCase {
+        const char* label;
+        std::int32_t ax, ay, bx, by; // hinge A -> B
+        std::int32_t px, py;         // query point
+        std::int16_t heinum;
+        std::int64_t expected_delta; // from base Z 0
+    };
+    static const SlopeCase kCases[] = {
+        {"axis_x_pos", 0, 0, 1024, 0, 0, 1024, 4096, 16384},
+        {"axis_x_neg_side", 0, 0, 1024, 0, 0, -1024, 4096, -16384},
+        {"axis_x_neg_heinum", 0, 0, 1024, 0, 0, 1024, -4096, -16384},
+        {"axis_y", 0, 0, 0, 1024, 1024, 0, 4096, -16384},
+        {"pyth_345", 0, 0, 3000, 4000, -4000, 3000, 4096, 80000},
+        {"pyth_345_far", 0, 0, 3000, 4000, 8000, -6000, 2048, -80000},
+        {"irrational_diag", 0, 0, 1000, 1000, -1000, 1000, 4096, 22627},
+        {"irrational_diag_n", 0, 0, 1000, 1000, 1000, -1000, 4096, -22627},
+        {"exact_half_pos", 0, 0, 1024, 0, 0, 1, 1664, 7},
+        {"exact_half_neg", 0, 0, 1024, 0, 0, 1, -1664, -7},
+        {"just_below_half", 0, 0, 1024, 0, 0, 1, 1663, 6},
+        {"just_above_half", 0, 0, 1024, 0, 0, 1, 1665, 7},
+        {"tiny_hinge", 0, 0, 1, 0, 0, 7, 4096, 112},
+        {"on_hinge", 0, 0, 1024, 0, 512, 0, 4096, 0},
+    };
+
+    for (const SlopeCase& c : kCases) {
+        // A bare three-wall sector whose FIRST wall is the hinge under test.
+        fauxbuild::mapv7::MapData map;
+        fauxbuild::mapv7::Wall a;
+        a.x = c.ax;
+        a.y = c.ay;
+        a.point2 = 1;
+        fauxbuild::mapv7::Wall b;
+        b.x = c.bx;
+        b.y = c.by;
+        b.point2 = 2;
+        fauxbuild::mapv7::Wall third;
+        third.x = c.ax;
+        third.y = c.by + 1;
+        third.point2 = 0;
+        map.walls = {a, b, third};
+        fauxbuild::mapv7::Sector sector;
+        sector.wallptr = 0;
+        sector.wallnum = 3;
+        sector.floorz = 0;
+        sector.floorstat = fauxbuild::mapv7::kStatSloped;
+        sector.floorheinum = c.heinum;
+        map.sectors = {sector};
+
+        const std::int64_t got = surface_z_at(map, 0, SurfacePlane::Floor, c.px, c.py);
+        INFO("case: " << c.label);
+        CHECK(got == c.expected_delta);
+
+        // Symmetry: negating the heinum negates the result exactly. This is
+        // what the symmetric rounding policy buys, and it must hold even at a
+        // half boundary.
+        map.sectors[0].floorheinum = static_cast<std::int16_t>(-c.heinum);
+        const std::int64_t mirrored = surface_z_at(map, 0, SurfacePlane::Floor, c.px, c.py);
+        CHECK(mirrored == -c.expected_delta);
+    }
+}
+
+TEST_CASE("derived slope Z wider than int32 reaches render space unnarrowed") {
+    // The MAP stores base Z as int32, but an evaluated slope Z is derived and
+    // is not bounded by it. The apex of this fixture is 200,000,000 units from
+    // the hinge, so at heinum 4096 the delta is 200000000 * 16 =
+    // 3,200,000,000 -- outside int32 in both directions.
+    constexpr std::int64_t kApexDelta = 3200000000LL;
+    static_assert(kApexDelta > INT32_MAX, "the fixture must actually leave int32");
+
+    auto positive = map_fixture("slope_wide_z_pos");
+    REQUIRE(positive.is_ok());
+    const std::int64_t up = surface_z_at(positive.value(), 0, SurfacePlane::Floor, 0, 200000000);
+    CHECK(up == kApexDelta);
+    CHECK(up > INT32_MAX);
+
+    auto negative = map_fixture("slope_wide_z_neg");
+    REQUIRE(negative.is_ok());
+    const std::int64_t down = surface_z_at(negative.value(), 0, SurfacePlane::Floor, 0, 200000000);
+    CHECK(down == -kApexDelta);
+    CHECK(down < INT32_MIN);
+
+    // The render conversion carries the wide value: 3.2e9 / 32768 = 97656.25,
+    // exactly representable. A silent int32 narrowing would wrap to a
+    // completely different height.
+    CHECK(render_z_is_exact(kApexDelta));
+    const StructuralVertex wide = to_render_space(0, 200000000, kApexDelta);
+    CHECK(wide.y == -3200000000.0 / 32768.0);
+    CHECK(wide.y == -97656.25);
+    const StructuralVertex narrowed =
+        to_render_space(0, 200000000, static_cast<std::int32_t>(kApexDelta));
+    CHECK(narrowed.y != wide.y); // the old path really did lose the value
+
+    // ...and the emitted surface carries it, not just the evaluator.
+    const StructuralWorld world = build_fixture("slope_wide_z_pos");
+    CHECK(world.diagnostics.empty());
+    const StructuralSurface* floor = find_surface(world, SurfaceKind::Floor, 0, -1);
+    REQUIRE(floor != nullptr);
+    double lowest = 0.0;
+    for (const auto& v : floor->vertices) {
+        lowest = std::min(lowest, v.y);
+    }
+    CHECK(lowest == -97656.25);
+}
+
+TEST_CASE("a slope with no usable hinge omits the sector and says so") {
+    // D0019 (proposed). A flagged plane whose first wall is degenerate has no
+    // hinge, so its height is undefined. Emitting it flat would be knowingly
+    // incorrect geometry wearing a diagnostic; the sector is omitted instead,
+    // following D0018's pattern for a surface that cannot be derived.
+    auto map = map_fixture("slope_degenerate_hinge");
+    REQUIRE(map.is_ok());
+    CHECK((map.value().sectors[0].floorstat & fauxbuild::mapv7::kStatSloped) != 0);
+    CHECK(map.value().sectors[0].floorheinum == 4096);
+    CHECK(map.value().walls[0].x == map.value().walls[1].x);
+    CHECK(map.value().walls[0].y == map.value().walls[1].y);
+
+    CHECK_FALSE(slope_is_evaluable(map.value(), 0, SurfacePlane::Floor));
+    CHECK(slope_is_evaluable(map.value(), 0, SurfacePlane::Ceiling)); // unflagged
+
+    auto built = build_structural_world(map.value());
+    if (built.is_ok()) {
+        const StructuralWorld world = built.take();
+        bool reported = false;
+        for (const auto& d : world.diagnostics) {
+            if (d.reason == "slope_hinge_degenerate") {
+                reported = true;
+            }
+        }
+        CHECK(reported);
+        // Omitted, not flattened: no surface from that sector survives.
+        for (const auto& surface : world.surfaces) {
+            CHECK(surface.sector != 0);
+        }
+    }
 }
 
 TEST_CASE("sloped geometry comes from the evaluator, and walls meet it exactly") {
