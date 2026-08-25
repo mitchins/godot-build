@@ -993,7 +993,7 @@ checklist above.
 **M4 ACCEPTED 2026-08-24.** All six gate items satisfied; see the gate
 checklist above for the evidence and class of each.
 
-## M5 — Static structural world viewer — IN_PROGRESS (slice 1 delivered at checkpoint)
+## M5 — Static structural world viewer — IN_PROGRESS (slices 1–2 delivered at checkpoints)
 
 Gate summary: structural fixtures render with correct topology; holes/non-convex sectors render;
 no persistent Godot scene becomes authority; local E1L1 loads as recognizable 3D shell (HUMAN-ATTESTED);
@@ -1179,7 +1179,79 @@ scale validation now tests D0016's actual exact-reversibility requirement
 instead of asking whether a double numerically resembles a power of two; and
 two float-to-integer conversions that UBSan flagged as undefined are gone.
 
-M5 remains IN_PROGRESS. Slice 2 was not started.
+M5 remains IN_PROGRESS. Slice 2 delivered at checkpoint below; slice 3 not
+started.
+
+### Slice 2 — Godot structural viewer (delivered 2026-08-25, checkpoint)
+
+- **Production seam:** `FauxBuildView::present_world(const
+  fauxbuild::StructuralWorld&)` — a C++ method deliberately NOT bound to
+  ClassDB. A native StructuralWorld cannot travel through GDScript, so the
+  only callers are C++ owners of a world; the view itself never parses,
+  loads, or derives one. The only numeric operation on accepted geometry is
+  packaging core doubles into Godot's float32 Vector3 (presentation
+  narrowing, D0016 — not a transform).
+- **Mesh organisation:** one MeshInstance3D child per non-empty SurfaceKind
+  (Floors, Ceilings, SolidWalls, PortalUpper, PortalLower — at most five
+  diagnostic groups), each holding one ArrayMesh triangle surface built by
+  traversing the world's canonical surface order, appending vertices in
+  source order and indices with checked accumulated offsets. No welding, no
+  reordering, no normals, no UVs, no winding changes. Empty kinds have no
+  node. Unshaded two-sided flat-colour StandardMaterial3D per kind
+  (presentation-only, not a contract).
+- **Checked packing invariants** (fail cleanly, previous presentation
+  untouched, D0006 — no FB_CHECK on content): source index addresses its own
+  surface's vertices; accumulated vertex count and offset+index fit Godot's
+  int32 index representation.
+- **Test/sample harness:** `FauxStructuralFixture` (registered RefCounted) —
+  committed fixture → core derivation → StructuralWorld → the view's C++
+  seam. It also exposes the retained world's vertices/indices packed by an
+  implementation independent of the view's packer, as the expected side of
+  the boundary test. No production `load_map`/`load_fixture` convenience
+  exists on the view; the harness accepts fixture names only and the CI
+  scene refuses `--grp`/`--map`/`--dir`.
+- **New fixture:** `asymmetric_probe` — Build x 1000..11000, y 2000..7000,
+  ceiling 3000 / floor 9000, pairwise distinct on every render-space axis
+  (core test pins the property, so the fixture cannot silently become
+  symmetric).
+- **Consumer-boundary scene** (`structural_view_test.tscn` +
+  `structural_view_test.gd`, wired into `ci/check_scene.py`): every
+  assertion reads the ACTUAL boundary objects — `MeshInstance3D.mesh` →
+  `ArrayMesh.surface_get_arrays()` — never an intermediate cache or helper
+  getter. Coverage: square_room groups/counts/arrays vs StructuralWorld;
+  non_convex and multi_loop triangles verbatim (not re-derived in the
+  extension); two_sector_portal zero portal groups and no closing quad;
+  portal_heights upper/lower spans; asymmetric transform probe with
+  fixture-spec Vector3 constants read directly from the mesh (float32-exact
+  values); stale-group absence across rebuilds; A→B→A rebuild round-trip
+  equality at the boundary; and presentation disposability (mesh replaced
+  with PlaneMesh / cleared Godot-side, re-present of the same fixture
+  reconstructs from the StructuralWorld).
+- **Human synthetic viewer** (`structural_view_human.tscn`): fly camera
+  (WASD/QE/Shift/mouse, Escape/click), perspective Camera3D, AABB-derived
+  initial framing from the presentation meshes, no physics/collision.
+  Fixture selectable via `--fixture`; refuses real-content arguments. The
+  scene gate launches it headless with a 120 s timeout so it cannot rot.
+- **Static tripwire:** `ci/check_layering.py` viewer guard — the production
+  FauxBuildView files may include exactly one core header
+  (`fauxbuild/structural.hpp`) and must not reference map parsing, fixture
+  synthesis, structural derivation, the core render conversion, VFS/GRP,
+  asset loading, or ResourceSaver. The harness is deliberately outside the
+  guard's file list. Negative-tested both ways (forbidden include → red).
+- **Sabotage evidence** (each observed red on a verified build, then
+  reverted): double transform at the boundary (expected-vs-actual failures
+  AND the direct-read asymmetric probe); zeroed index accumulation
+  (multi-surface kinds' indices wrong from the second surface); no-op
+  discard (stale groups survive; round trip reads stale square_room floor
+  for non_convex); retention of damaged meshes on rebuild (disposable
+  test red); and the boundary-test sabotage — corrupting the mesh while
+  making the actual-side helper report the harness's expected arrays turned
+  every bulk check green, but the direct `surface_get_arrays()` probe with
+  fixture constants still failed. The load-bearing read is the mesh.
+- Deferred by design: textures/UVs/atlas, slopes, sprites, masked/one-way
+  walls, visibility, collision (M6+); real E1L1 presentation is slice 3.
+
+Next milestone work was not started.
 ## M6 — Slopes, indexed textures, flags, and sprites — NOT_STARTED
 
 Gate summary: slope query and render share one function; UV/sprite-flag/palette-shade matrix

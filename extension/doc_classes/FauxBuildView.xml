@@ -5,13 +5,43 @@
 	</brief_description>
 	<description>
 		<para>
-			The rendering adapter for a FauxBuild world. In later milestones this node owns
-			the camera adapter, GPU resources, shaders, the geometry cache, portal-visible
-			instance state, render interpolation, and debug drawing. It consumes world data
-			from [FauxBuildRuntime]; it never becomes the authority for world state.
+			The rendering adapter for a FauxBuild world. It consumes world data produced by the
+			core; it never becomes the authority for world state. In later milestones this node
+			owns the camera adapter, GPU resources, shaders, the geometry cache, portal-visible
+			instance state, render interpolation, and debug drawing.
 		</para>
 		<para>
-			Milestone M1 scope: class registration only.
+			Milestone M5 scope: disposable structural presentation. A C++ owner of a
+			[code]StructuralWorld[/code] hands it to [method present_world] (a C++-only seam; a
+			native world cannot travel through GDScript), and this node packs the accepted
+			surfaces into at most five diagnostic [ArrayMesh] groups — Floors, Ceilings,
+			SolidWalls, PortalUpper, PortalLower — as one [MeshInstance3D] child per non-empty
+			kind. Vertices are copied verbatim in render space (float32 packaging of the core
+			values only); triangles are appended with accumulated vertex offsets and are never
+			re-derived, welded, reordered, or re-transformed. Presenting a new world discards
+			and deterministically recreates the whole presentation; no generated mesh, scene,
+			or cache may become world authority.
 		</para>
 	</description>
+	<methods>
+		<method name="has_world">
+			<return type="bool" />
+			<description>
+				<para>
+					[code]true[/code] once a world has been presented successfully. Presentation
+					state only — never world state.
+				</para>
+			</description>
+		</method>
+		<method name="get_group_names">
+			<return type="PackedStringArray" />
+			<description>
+				<para>
+					Names of the non-empty diagnostic mesh groups currently presented, in
+					canonical kind order (Floors, Ceilings, SolidWalls, PortalUpper,
+					PortalLower). Useful for tests and debug UI.
+				</para>
+			</description>
+		</method>
+	</methods>
 </class>

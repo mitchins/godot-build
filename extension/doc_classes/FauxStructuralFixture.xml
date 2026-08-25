@@ -1,0 +1,101 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="FauxStructuralFixture" inherits="RefCounted" version="4.7">
+	<brief_description>
+		Test/sample bridge that builds committed synthetic structural fixtures and presents them
+		to a [FauxBuildView].
+	</brief_description>
+	<description>
+		<para>
+			[b]Fixture/sample infrastructure, not a production world-loading API.[/b] GDScript
+			cannot carry a native [code]StructuralWorld[/code], so this class owns the one
+			legitimate synthetic producer path: committed core fixture → core structural
+			derivation → [code]StructuralWorld[/code] → [method present] hands it to the view's
+			C++ production seam. [FauxBuildView] itself never constructs a world; this class
+			never renders one.
+		</para>
+		<para>
+			[method present] accepts a committed fixture name only. Real-content (GRP/MAP)
+			loading is out of scope for this harness. The [code]expected_*[/code] accessors
+			expose the retained world's packed vertices/indices — derived independently of the
+			view — as the expected side of consumer-boundary tests.
+		</para>
+	</description>
+	<methods>
+		<method name="get_fixture_names">
+			<return type="PackedStringArray" />
+			<description>
+				<para>
+					Names of the committed synthetic fixtures this harness can build.
+				</para>
+			</description>
+		</method>
+		<method name="present">
+			<return type="bool" />
+			<param index="0" name="name" type="String" />
+			<param index="1" name="view" type="FauxBuildView" />
+			<description>
+				<para>
+					Builds the named committed fixture, derives its structural world through
+					the core, and presents it to [param view]. Returns [code]false[/code] and
+					sets the last error on failure.
+				</para>
+			</description>
+		</method>
+		<method name="get_last_error">
+			<return type="String" />
+			<description>
+				<para>
+					Human-readable description of the most recent failure, empty after a
+					successful [method present].
+				</para>
+			</description>
+		</method>
+		<method name="expected_surface_count">
+			<return type="int" />
+			<param index="0" name="kind" type="int" />
+			<description>
+				<para>
+					Number of surfaces of [param kind] (core SurfaceKind order, Floor=0 ..
+					PortalLower=4) in the retained world.
+				</para>
+			</description>
+		</method>
+		<method name="expected_vertices">
+			<return type="PackedVector3Array" />
+			<param index="0" name="kind" type="int" />
+			<description>
+				<para>
+					Vertices of all [param kind] surfaces in canonical order, packed
+					independently of the view — the expected side of a consumer-boundary test.
+				</para>
+			</description>
+		</method>
+		<method name="expected_indices">
+			<return type="PackedInt32Array" />
+			<param index="0" name="kind" type="int" />
+			<description>
+				<para>
+					Triangle indices of all [param kind] surfaces with accumulated vertex
+					offsets, packed independently of the view.
+				</para>
+			</description>
+		</method>
+		<method name="get_note_count">
+			<return type="int" />
+			<description>
+				<para>
+					Number of deferral notes carried by the retained world.
+				</para>
+			</description>
+		</method>
+		<method name="get_diagnostic_count">
+			<return type="int" />
+			<description>
+				<para>
+					Number of nonfatal structural diagnostics (e.g. zero-area surfaces) in the
+					retained world.
+				</para>
+			</description>
+		</method>
+	</methods>
+</class>
