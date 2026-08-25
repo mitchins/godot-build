@@ -288,6 +288,31 @@ mapv7::MapData slope_probe_floor_px_world() {
     return slope_probe(xs, ys, false, 4096);
 }
 
+// The slope direction matrix is a true 2x2: first-wall direction (+X/+Y)
+// crossed with polygon winding (CCW/CW), same rectangle, same base Z, same
+// stat and heinum. Reversing a loop necessarily flips BOTH, so the original
+// px/py/rx trio could not attribute an observed difference to one or the
+// other. These four can:
+//
+//                 CCW                     CW
+//   first +X      slope_probe_floor_px    slope_probe_floor_px_cw
+//   first +Y      slope_probe_floor_py_ccw slope_probe_floor_py
+//
+// They still encode NO formula. Whether the tilt follows the first wall, a
+// world axis, or the surface normal is exactly what the black-box run is
+// for.
+mapv7::MapData slope_probe_floor_px_cw_world() {
+    // First wall (0,U)->(2U,U): +X. Loop runs clockwise.
+    const std::int32_t xs[] = {0, 2 * kUnit, 2 * kUnit, 0};
+    const std::int32_t ys[] = {kUnit, kUnit, 0, 0};
+    return slope_probe(xs, ys, false, 4096);
+}
+mapv7::MapData slope_probe_floor_py_ccw_world() {
+    // First wall (2U,0)->(2U,U): +Y. Loop runs counter-clockwise.
+    const std::int32_t xs[] = {2 * kUnit, 2 * kUnit, 0, 0};
+    const std::int32_t ys[] = {0, kUnit, kUnit, 0};
+    return slope_probe(xs, ys, false, 4096);
+}
 mapv7::MapData slope_probe_floor_py_world() {
     const std::int32_t xs[] = {0, 0, 2 * kUnit, 2 * kUnit};
     const std::int32_t ys[] = {0, kUnit, kUnit, 0};
@@ -379,7 +404,9 @@ std::vector<std::string> map_fixture_names() {
         "asymmetric_probe",
         "metric_cube",
         "slope_probe_floor_px",
+        "slope_probe_floor_px_cw",
         "slope_probe_floor_py",
+        "slope_probe_floor_py_ccw",
         "slope_probe_floor_rx",
         "slope_probe_floor_neg",
         "slope_probe_ceiling_px",
@@ -418,6 +445,10 @@ Result<mapv7::MapData> map_fixture(const std::string& name) {
         map = asymmetric_probe_world();
     } else if (name == "slope_probe_floor_px") {
         map = slope_probe_floor_px_world();
+    } else if (name == "slope_probe_floor_px_cw") {
+        map = slope_probe_floor_px_cw_world();
+    } else if (name == "slope_probe_floor_py_ccw") {
+        map = slope_probe_floor_py_ccw_world();
     } else if (name == "slope_probe_floor_py") {
         map = slope_probe_floor_py_world();
     } else if (name == "slope_probe_floor_rx") {

@@ -793,7 +793,12 @@ TEST_CASE("slope probes build flat with deferral notes until the evaluator exist
     // its base Z with exactly the deferred-slope note for its flagged surface.
     // When the evaluator lands, these expectations are replaced by the exact
     // attested oracles — not deleted.
-    const char* floor_probes[] = {"slope_probe_floor_px", "slope_probe_floor_py",
+    // The 2x2 direction matrix (first-wall +X/+Y crossed with CCW/CW), plus
+    // the reversal and negative-heinum probes. Pinned only for the
+    // provenance-safe facts: valid map, flat M6-deferred geometry, exactly
+    // one deferral note, raw slope bit readable. No formula.
+    const char* floor_probes[] = {"slope_probe_floor_px", "slope_probe_floor_px_cw",
+                                  "slope_probe_floor_py", "slope_probe_floor_py_ccw",
                                   "slope_probe_floor_rx", "slope_probe_floor_neg"};
     for (const char* name : floor_probes) {
         const StructuralWorld world = build_fixture(name);
@@ -825,6 +830,113 @@ TEST_CASE("slope probes build flat with deferral notes until the evaluator exist
     for (const auto& v : ceiling->vertices) {
         CHECK(v.y == -16384.0 / 32768.0);
     }
+}
+
+TEST_CASE("slope direction probes vary first-wall direction and winding independently") {
+    // The confound this matrix exists to remove: reversing a loop flips BOTH
+    // the first wall's direction and the polygon's winding, so a trio built
+    // by reversal cannot attribute an observed tilt difference to either one.
+    // These four hold one factor fixed while the other varies. Nothing here
+    // asserts what the tilt DOES -- that is the black-box run's job.
+    struct Probe {
+        const char* name;
+        int first_dx; // sign of the first wall's x component
+        int first_dy;
+        int winding; // +1 CCW, -1 CW
+    };
+    const Probe probes[] = {
+        {"slope_probe_floor_px", 1, 0, 1},
+        {"slope_probe_floor_px_cw", 1, 0, -1},
+        {"slope_probe_floor_py_ccw", 0, 1, 1},
+        {"slope_probe_floor_py", 0, 1, -1},
+    };
+
+    for (const Probe& probe : probes) {
+        auto map = map_fixture(probe.name);
+        REQUIRE(map.is_ok());
+        const auto& walls = map.value().walls;
+        REQUIRE(walls.size() == 4);
+
+        const auto& first = walls[0];
+        const auto& second = walls[static_cast<std::size_t>(first.point2)];
+        const std::int64_t dx = static_cast<std::int64_t>(second.x) - first.x;
+        const std::int64_t dy = static_cast<std::int64_t>(second.y) - first.y;
+        CHECK((dx > 0) == (probe.first_dx > 0));
+        CHECK((dx != 0) == (probe.first_dx != 0));
+        CHECK((dy > 0) == (probe.first_dy > 0));
+        CHECK((dy != 0) == (probe.first_dy != 0));
+
+        std::int64_t twice_area = 0;
+        for (std::size_t i = 0; i < walls.size(); ++i) {
+            const auto& a = walls[i];
+            const auto& b = walls[static_cast<std::size_t>(a.point2)];
+            twice_area +=
+                static_cast<std::int64_t>(a.x) * b.y - static_cast<std::int64_t>(b.x) * a.y;
+        }
+        CHECK(twice_area != 0);
+        CHECK((twice_area > 0) == (probe.winding > 0));
+
+        // Everything else must be identical, or the matrix confounds again.
+        REQUIRE(map.value().sectors.size() == 1);
+        const auto& sector = map.value().sectors[0];
+        CHECK(sector.floorz == 0);
+        CHECK(sector.ceilingz == 16384);
+        CHECK(sector.floorheinum == 4096);
+        CHECK((sector.floorstat & fauxbuild::mapv7::kStatSloped) != 0);
+        CHECK((sector.ceilingstat & fauxbuild::mapv7::kStatSloped) == 0);
+    }
+
+    // Both factors are actually exercised in both states.
+    int ccw = 0;
+    int plus_x = 0;
+    for (const Probe& probe : probes) {
+        ccw += probe.winding > 0 ? 1 : 0;
+        plus_x += probe.first_dx != 0 ? 1 : 0;
+    }
+    CHECK(ccw == 2);
+    CHECK(plus_x == 2);
+}
+
+TEST_CASE("raw sector visibility reaches the consumer through StructuralWorld") {
+    // M6 preserves the value verbatim; M10 owns its behavioural and render
+    // interpretation. The point of the test is index correspondence, so the
+    // sectors are given distinct visibilities before deriving -- a table that
+    // is merely the right length, or that copies one value everywhere, must
+    // not pass.
+    auto map = map_fixture("two_sector_portal");
+    REQUIRE(map.is_ok());
+    REQUIRE(map.value().sectors.size() >= 2);
+    auto source = map.take();
+    for (std::size_t i = 0; i < source.sectors.size(); ++i) {
+        source.sectors[i].visibility = static_cast<std::uint8_t>(17 + 5 * i);
+    }
+
+    auto built = build_structural_world(source);
+    REQUIRE(built.is_ok());
+    const StructuralWorld world = built.take();
+
+    REQUIRE(world.sector_appearance.size() == source.sectors.size());
+    for (std::size_t i = 0; i < source.sectors.size(); ++i) {
+        CHECK(world.sector_appearance[i].visibility == source.sectors[i].visibility);
+    }
+    // Distinct by construction, so a broadcast copy cannot satisfy the above.
+    CHECK(world.sector_appearance[0].visibility != world.sector_appearance[1].visibility);
+
+    // A surface indexes its own sector's entry directly.
+    for (const auto& surface : world.surfaces) {
+        REQUIRE(surface.sector >= 0);
+        REQUIRE(static_cast<std::size_t>(surface.sector) < world.sector_appearance.size());
+        CHECK(world.sector_appearance[static_cast<std::size_t>(surface.sector)].visibility ==
+              source.sectors[static_cast<std::size_t>(surface.sector)].visibility);
+    }
+
+    // The table is total: every source sector has an entry even when a sector
+    // emits no surface at all.
+    const StructuralWorld degenerate = build_fixture("square_room");
+    auto square = map_fixture("square_room");
+    REQUIRE(square.is_ok());
+    CHECK(degenerate.sector_appearance.size() == square.value().sectors.size());
+    CHECK(degenerate.sector_appearance[0].visibility == square.value().sectors[0].visibility);
 }
 
 // ---------------------------------------------------------------------------

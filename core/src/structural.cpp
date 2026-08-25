@@ -687,6 +687,18 @@ Result<StructuralWorld> build_structural_world(const mapv7::MapData& map,
 
     StructuralWorld world;
 
+    // Raw sector-level appearance, filled BEFORE the emission loop so the
+    // table is total: a sector that emits no surface (degenerate floor plane,
+    // say) still occupies its own index, and `surface.sector` indexes this
+    // vector directly. Verbatim copy; nothing here is interpreted (M10 owns
+    // visibility's behaviour).
+    world.sector_appearance.reserve(map.sectors.size());
+    for (const mapv7::Sector& sector : map.sectors) {
+        StructuralSectorAppearance appearance;
+        appearance.visibility = sector.visibility;
+        world.sector_appearance.push_back(appearance);
+    }
+
     for (std::size_t s = 0; s < map.sectors.size(); ++s) {
         const mapv7::Sector& sector = map.sectors[s];
         const auto begin = static_cast<std::int64_t>(sector.wallptr);

@@ -116,11 +116,33 @@ struct StructuralDiagnostic {
     bool operator==(const StructuralDiagnostic&) const = default;
 };
 
+// Raw sector-level appearance, one entry per SOURCE sector in source order.
+// M6 preserves the value; **M10 owns its behavioural and render
+// interpretation** (RENDERING_CONTRACT: palette/lookup/shade/visibility
+// shader). It lives here because the M6.2 seam consumes a StructuralWorld
+// and nothing else — a sector-scoped shading input with no route through
+// this type would be unreachable when M10 needs it, and the seam is far
+// harder to widen once several milestones depend on it.
+//
+// Sector-scoped, so it is NOT duplicated into SurfaceAppearance: a surface
+// finds its value through its own `sector` index. Copied verbatim; nothing
+// interprets it, no traversal or visibility determination exists, and no
+// asset/atlas dependency is implied.
+struct StructuralSectorAppearance {
+    std::uint8_t visibility = 0;
+
+    bool operator==(const StructuralSectorAppearance&) const = default;
+};
+
 struct StructuralWorld {
     // Canonical order (tested): sector ascending; per sector floor, ceiling,
     // then walls ascending by wall index; a portal wall contributes
     // portal_upper before portal_lower. Nothing else may reorder surfaces.
     std::vector<StructuralSurface> surfaces;
+    // Exactly one entry per source sector, in source order: index it with a
+    // surface's `sector`. Present for every sector, including ones that emit
+    // no surface, so the index correspondence is total.
+    std::vector<StructuralSectorAppearance> sector_appearance;
     std::vector<StructuralNote> notes;
     std::vector<StructuralDiagnostic> diagnostics;
 

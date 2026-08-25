@@ -1636,13 +1636,51 @@ Delivered (provenance-safe, formula-independent):
   indexed shader. Documented in RENDERING_CONTRACT.md; the accepted
   `present_world(StructuralWorld)` signature is unchanged, and no Godot,
   texture, UV, shader, or sprite work landed (§14).
-- **Original slope probe fixtures** (§4): `slope_probe_floor_px`/`_py`/`_rx`
-  (first wall along +X/+Y/−X, floorheinum +4096), `slope_probe_floor_neg`
-  (heinum −4096), `slope_probe_ceiling_px`. One 2×1 rectangular sector each,
+- **Original slope probe fixtures** (§4). One 2×1 rectangular sector each,
   floorz 0 / ceilingz 16384, slope bit set on exactly one surface. They
   encode NO formula — CI pins only the provenance-safe facts (valid map, flat
   base Z, exactly one deferral note, raw slope bit readable on the emitted
   surface). They exist to be opened in Mapster32 by the human.
+
+  **Amended 2026-08-25 — confound removed.** The original `px`/`py`/`rx`
+  trio was built by reversing loops, and reversing a loop necessarily flips
+  BOTH the first wall's direction and the polygon's winding. A tilt
+  difference between those probes was therefore attributable to either
+  factor, which is precisely the question the run exists to answer. The
+  direction probes are now a true 2×2 holding one factor fixed while the
+  other varies (measured, not assumed — identical |shoelace|, so the
+  rectangle, base Z, stat and heinum are unchanged across all four):
+
+  | | CCW | CW |
+  |---|---|---|
+  | first wall **+X** | `slope_probe_floor_px` | `slope_probe_floor_px_cw` |
+  | first wall **+Y** | `slope_probe_floor_py_ccw` | `slope_probe_floor_py` |
+
+  Retained alongside: `slope_probe_floor_rx` (first wall −X, the reversal
+  case — still useful as a direct reversal of `px`), `slope_probe_floor_neg`
+  (heinum −4096), `slope_probe_ceiling_px`. A CI test pins the matrix's own
+  shape — first-wall direction, winding sign, and that every other field is
+  identical — so it cannot silently re-confound. Negative-tested: rebuilding
+  `px_cw` with `px`'s winding goes red.
+- **Raw sector visibility preserved** (amendment, 2026-08-25).
+  `StructuralWorld::sector_appearance` is a `StructuralSectorAppearance`
+  table with exactly one entry per SOURCE sector in source order, carrying
+  `visibility` copied verbatim from `MapData.sectors[i].visibility`. The
+  table is filled before the emission loop, so it is total: a sector that
+  emits no surface still occupies its index, and `surface.sector` indexes it
+  directly. It is sector-scoped and deliberately NOT duplicated into
+  `SurfaceAppearance`. **M6 preserves the raw value; M10 owns its
+  behavioural and render interpretation.** Nothing interprets it, no
+  visibility traversal or determination exists, and no asset/atlas
+  dependency is implied.
+  It exists now because the M6.2 seam consumes a `StructuralWorld` and
+  nothing else: a sector-scoped shading input with no route through that type
+  would have been unreachable when M10 needed it, and the seam only gets
+  harder to widen as milestones accumulate on it. Consumer test reads the
+  emitted table against the source records with **distinct** per-sector
+  values, so neither a right-length table nor a broadcast copy passes;
+  negative-tested both ways (zeroed copy, and one sector's value broadcast to
+  all).
 
 **STOPPED — slope evaluator not implemented (slice brief §3).** The exact
 evaluation equation is not provenance-safe in the repository:
@@ -1674,21 +1712,42 @@ proprietary content):*
 
 ```sh
 scons config=dev check
-for f in slope_probe_floor_px slope_probe_floor_py slope_probe_floor_rx \
-         slope_probe_floor_neg slope_probe_ceiling_px; do
+for f in slope_probe_floor_px slope_probe_floor_px_cw \
+         slope_probe_floor_py slope_probe_floor_py_ccw \
+         slope_probe_floor_rx slope_probe_floor_neg slope_probe_ceiling_px; do
   ./build/dev/fbtool gen-map --fixture "$f" --out "/tmp/${f^^}.MAP"
 done
-# open each /tmp/*.MAP in Mapster32 (black box) and inspect the 3D preview
+# open each /tmp/*.MAP in Mapster32 (black box)
 ```
 
-*Exact quantities to record:* (1) per probe, which horizontal direction the
-surface height changes along (+X/−X/+Y/−Y); (2) whether px vs py vs rx tilt
-the same world axis (axis-aligned) or follow the first wall's orientation
-(first-wall-relative) — rx is px with the first wall reversed precisely to
-separate these; (3) the sign: does +4096 raise or lower the surface along
-that direction (Build Z grows downward); (4) does neg flip exactly; (5) does
-the ceiling probe behave like the floor probe; (6) anchor: does the surface
-pass through the first point at its declared base Z. Visual observations are
+**Prefer numeric measurement over appearance.** Where Mapster32 exposes a
+height/Z readout at a point, record the number; a visual impression of "it
+slopes that way" cannot distinguish the candidate axes at small heinum and
+cannot answer the rise question at all. Record the observable at the SAME
+four corners of the rectangle for every probe — (0,0), (2×65536,0),
+(2×65536,65536), (0,65536) in Build X/Y — so the probes are directly
+comparable.
+
+*Exact quantities to record,* per probe, at each of the four named corners:
+(1) which horizontal direction the surface height changes along
+(+X/−X/+Y/−Y); (2) **the axis question, now separable** — compare `px` with
+`py_ccw` (winding held CCW, first wall differs) and `px` with `px_cw` (first
+wall held +X, winding differs). If only the first comparison shows a change,
+the tilt is first-wall-relative; if only the second, it follows winding or
+the surface normal; if neither, it is world-axis-aligned; if both, it depends
+on both and none of the simple candidates hold. `rx` remains as the direct
+reversal of `px`, which flips both at once and should agree with whichever
+account the matrix establishes; (3) the sign: does +4096 raise or lower the
+surface along that direction (Build Z grows downward); (4) does `neg` flip
+exactly; (5) does the ceiling probe behave like the floor probe; (6) anchor:
+does the surface pass through the first point at its declared base Z; (7)
+**the rise**: the numeric Z difference across the known horizontal distance,
+which is what turns "4096 = 45°" from a description into an oracle.
+
+*Do not promote a formula until the observations distinguish the
+candidates.* If the matrix comes back ambiguous — e.g. both comparisons
+change — that is a result to report, not to resolve by picking the reading
+that looks familiar. Visual observations are
 HUMAN-ATTESTED; once recorded, the numbers become exact integer CI oracles in
 the probe fixtures (e.g. heinum 4096 ⇒ z delta exactly equal to horizontal
 distance along the attested axis), and only then do the evaluator, the

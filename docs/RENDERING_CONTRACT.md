@@ -27,6 +27,13 @@ Becomes binding at M5/M10 (first binding content at M5 slice 1). Rules fixed by 
   scene gate reads the actual `MeshInstance3D.mesh` →
   `ArrayMesh.surface_get_arrays()` arrays to prove it. Textures, UVs and
   lighting semantics are M6; visibility is M10.
+- **Raw sector visibility is preserved from M6 onward** in
+  `StructuralWorld::sector_appearance` (one entry per source sector, source
+  order, copied verbatim). M6 preserves the value only; **M10 owns its
+  behavioural and render interpretation.** It lives on the structural world
+  because this seam consumes a `StructuralWorld` and nothing else — a
+  sector-scoped shading input with no route through that type would be
+  unreachable when M10 needs it.
 - Real-content entry seam (M5 slice 3, proven): `FauxStructuralSource` owns
   source-side operation only — GRP path or loose directory (core mounts, no
   extraction) → VFS lookup of the MAP name → core MAP reader → core
