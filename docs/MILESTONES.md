@@ -993,7 +993,7 @@ checklist above.
 **M4 ACCEPTED 2026-08-24.** All six gate items satisfied; see the gate
 checklist above for the evidence and class of each.
 
-## M5 — Static structural world viewer — IN_PROGRESS (slices 1–2 ACCEPTED; slice 3 delivered at checkpoint, awaiting HUMAN-ATTESTED real-world gate)
+## M5 — Static structural world viewer — IN_PROGRESS (slices 1–2 ACCEPTED; slice 3 HUMAN-ATTESTED PASS, awaiting review close-out)
 
 Gate summary: structural fixtures render with correct topology; holes/non-convex sectors render;
 no persistent Godot scene becomes authority; local E1L1 loads as recognizable 3D shell (HUMAN-ATTESTED);
@@ -1530,12 +1530,33 @@ seam slices 1–2 already proved.
   presentation before derivation (failed load left an empty shell —
   "group set changed after failed load"); and removing the slice-2 test's
   `--grp` refusal (scene gate red, "exit 0, expected 2").
-- Real E1L1 presentation is the pending HUMAN gate; textures/slopes/
-  sprites/visibility remain M6+. The expected human invariants
-  (317 sectors / 1937 walls / 1936 surfaces / 5134 triangles /
-  0 diagnostics; notes ≈321 are expected deferrals, not errors) are
-  documented here as evidence class HUMAN-ATTESTED-pending, asserted by
-  no CI test.
+- Real E1L1 presentation was the HUMAN gate (**attested below, 2026-08-25**);
+  textures/slopes/sprites/visibility remain M6+. The invariants it was
+  written against (317 sectors / 1937 walls / 1936 surfaces / 5134
+  triangles / 0 diagnostics; notes ≈321 are expected deferrals, not errors)
+  were stated here BEFORE the gate ran and are asserted by no CI test —
+  that ordering is what makes the attestation evidence rather than a
+  description of whatever happened.
+
+**Slice 3 — HUMAN-ATTESTED PASS 2026-08-25** by mitchellcurrie. Untouched
+E1L1 loads through `DUKE3D.GRP` → `GrpMount` → VFS → MAP v7 →
+`StructuralWorld` → `FauxBuildView`: **317 sectors / 1937 walls / 1936
+structural surfaces / 5134 triangles / 0 diagnostics**. No extraction, no
+conversion, no generated authority, and nothing proprietary in the repo or
+CI.
+
+Three things the gate established that counts alone could not:
+
+- The corrected 16:1 Build vertical metric was independently corroborated in
+  Mapster32 against the **original synthetic `metric_cube`** — evidence a
+  reader can reproduce without owning any proprietary content.
+- Free-camera inspection shows a coherent static architectural shell, not
+  merely a topologically valid one. The metric defect was invisible to every
+  count and every automated check; it took a human looking at the thing.
+- The authored start XYZ places the camera inside a plausible playable
+  volume, with **no floor snapping and no map-specific correction** — which
+  is what makes it evidence rather than a result engineered to look right.
+
 
 Next milestone work was not started.
 ## M6 — Slopes, indexed textures, flags, and sprites — NOT_STARTED
