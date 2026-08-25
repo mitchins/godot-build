@@ -1,6 +1,7 @@
 #include "fauxbuild_godot/faux_structural_fixture.hpp"
 
 #include <godot_cpp/core/class_db.hpp>
+#include <godot_cpp/variant/dictionary.hpp>
 #include <godot_cpp/variant/vector3.hpp>
 
 #include <cctype>
@@ -10,7 +11,9 @@
 #include <memory>
 #include <string>
 #include <utility>
+#include <vector>
 
+#include "fauxbuild/grp_synth.hpp"
 #include "fauxbuild/map_synth.hpp"
 #include "fauxbuild_godot/fauxbuild_view.hpp"
 
@@ -24,6 +27,8 @@ void FauxStructuralFixture::_bind_methods() {
                          &FauxStructuralFixture::present);
     ClassDB::bind_method(godot::D_METHOD("write_fixture_map", "name", "directory"),
                          &FauxStructuralFixture::write_fixture_map);
+    ClassDB::bind_method(godot::D_METHOD("write_fixture_grp", "entries", "directory", "file_name"),
+                         &FauxStructuralFixture::write_fixture_grp);
     ClassDB::bind_method(godot::D_METHOD("get_last_error"), &FauxStructuralFixture::get_last_error);
     ClassDB::bind_method(godot::D_METHOD("expected_surface_count", "kind"),
                          &FauxStructuralFixture::expected_surface_count);
@@ -145,6 +150,66 @@ godot::String FauxStructuralFixture::write_fixture_map(const godot::String& name
         return "";
     }
     return vfs_name.c_str();
+}
+
+godot::String FauxStructuralFixture::write_fixture_grp(const godot::Array& entries,
+                                                       const godot::String& directory,
+                                                       const godot::String& file_name) {
+    last_error_ = "";
+    if (entries.is_empty() || directory.is_empty() || file_name.is_empty()) {
+        last_error_ = "write_fixture_grp needs entries, an output directory and a file name";
+        return "";
+    }
+
+    std::vector<fauxbuild::synth::GrpFileSpec> files;
+    files.reserve(static_cast<std::size_t>(entries.size()));
+    for (int i = 0; i < entries.size(); ++i) {
+        const godot::Dictionary entry = entries[i];
+        const godot::String fixture = entry.get("fixture", "");
+        const godot::String vfs_name = entry.get("name", "");
+        const bool corrupt = entry.get("corrupt", false);
+        if (fixture.is_empty() || vfs_name.is_empty()) {
+            last_error_ = "write_fixture_grp entry needs 'fixture' and 'name'";
+            return "";
+        }
+
+        auto bytes = fauxbuild::synth::serialize_map_fixture(fixture.utf8().get_data());
+        if (!bytes.is_ok()) {
+            last_error_ = "fixture '" + fixture + "': " + bytes.error().to_string().c_str();
+            return "";
+        }
+        auto payload = std::move(bytes.value());
+        if (corrupt) {
+            // Damage the version field the MAP reader checks first, so the
+            // archive stays well-formed and only its payload is bad: the
+            // failure must come from parsing mounted bytes, not from the
+            // GRP container.
+            if (payload.empty()) {
+                last_error_ = "fixture '" + fixture + "' serialized to nothing";
+                return "";
+            }
+            payload[0] = 99;
+        }
+        files.push_back({std::string(vfs_name.utf8().get_data()), std::move(payload)});
+    }
+
+    const auto image = fauxbuild::synth::build_grp(files);
+    const std::filesystem::path out =
+        std::filesystem::path(directory.utf8().get_data()) / file_name.utf8().get_data();
+
+    std::ofstream stream(out, std::ios::binary | std::ios::trunc);
+    if (!stream) {
+        last_error_ = "cannot open '" + godot::String(out.string().c_str()) + "' for writing";
+        return "";
+    }
+    stream.write(reinterpret_cast<const char*>(image.data()),
+                 static_cast<std::streamsize>(image.size()));
+    stream.close();
+    if (!stream) {
+        last_error_ = "failed writing '" + godot::String(out.string().c_str()) + "'";
+        return "";
+    }
+    return out.string().c_str();
 }
 
 std::int32_t FauxStructuralFixture::expected_surface_count(std::int32_t kind) const {

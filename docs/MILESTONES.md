@@ -1307,8 +1307,9 @@ seam slices 1–2 already proved.
   `GrpMount`/`DirectoryMount` → `Vfs` → `read_map` →
   `build_structural_world` → `FauxBuildView.present_world` — differing
   only in the mount constructor. No extraction, no third direct-filesystem
-  MAP path (DirectoryMount already covers loose files), no GRP writer, no
-  fbtool helper duplication. The view itself gained nothing: still a pure
+  MAP path (DirectoryMount already covers loose files), no new GRP writer
+  (the approved M4 builder `synth::build_grp` already exists and is what
+  the CI GRP cases use), no fbtool helper duplication. The view itself gained nothing: still a pure
   StructuralWorld consumer with `structural.hpp` as its only core header.
 - **Transactionality:** the complete new world is derived before the view
   is touched; a failure anywhere returns false with a stage-tagged
@@ -1330,9 +1331,41 @@ seam slices 1–2 already proved.
   group-for-group, array-for-array, against the direct fixture route —
   plus group presence, sector/wall counts against the fixture specs, and
   surface/triangle/note/diagnostic facts against boundary-derived values.
-  What differs for the human real-content gate is only DirectoryMount →
-  GrpMount; GRP mounting is proven by M2 and by `present_grp`'s
-  missing-archive error path.
+- **GrpMount success runs in CI too (D0009 hole closed 2026-08-25).** The
+  slice-3 report claimed no GRP writer existed and left `present_grp`'s
+  success path covered only by its missing-archive error. That premise was
+  wrong: `fauxbuild::synth::build_grp` — the canonical builder for
+  arbitrary named payloads — has existed since M4 slice 4 and is
+  round-trip unit-tested. (The M5 slice-3 task brief asserted the same
+  false premise; the agent inherited it.) The scene now packs a serialized
+  fixture into a scratch archive with
+  `FauxStructuralFixture.write_fixture_grp` (test infrastructure only) and
+  loads it through the production `present_grp`, comparing against the
+  DirectoryMount route on sector/wall/surface/triangle/note/diagnostic
+  counts, group presence, and the ACTUAL `surface_get_arrays()` vertex and
+  index arrays. Archive entry names (`SYNTH.MAP`, `OTHER.MAP`) are
+  arbitrary VFS keys: no route behaviour is keyed off a name, and no
+  content, expectation, or branch is tied to any real map. **Real content
+  now differs from CI in no code path at all — only in which bytes are
+  mounted.**
+- **GRP byte-consumption tripwire (standing):** equivalence alone cannot
+  distinguish consuming archive bytes from re-deriving a fixture, so the
+  GRP path has its own corruption case — a well-formed archive whose MAP
+  payload is damaged must fail at the parse stage, replace no
+  presentation, and rewrite no facts. Negative-tested with a realistic
+  bypass (a byte cache keyed by map name): every equivalence case and the
+  requested-entry pin still passed, and only the corruption gates went
+  red. A second sabotage (packing the wrong fixture into the archive)
+  reddened every assertion class in the success case, including both
+  ArrayMesh arrays.
+- **Requested-entry pin:** an archive holding two valid MAP entries
+  (square_room and portal_heights, which differ in sector/wall counts and
+  in whether portal groups exist at all) is loaded by name in both
+  directions, so a wrong-entry load cannot pass by coincidence.
+- The evidence model is now: DirectoryMount success, GrpMount success,
+  malformed serialized MAP, malformed archived MAP, and mount/name
+  failures all CI-synthetic; real E1L1 remains HUMAN confirmation only,
+  never CI truth.
 - **Route-integrity tripwire (standing):** after the equivalence cases,
   the scene corrupts the serialized PORTAL_HEIGHTS.MAP bytes on disk
   (version field → 99) and requires the production route to fail while

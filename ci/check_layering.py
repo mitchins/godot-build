@@ -63,13 +63,15 @@ for path in view_files:
 # route's core headers and must hand worlds to the view's presentation
 # seam; neither file may synthesize fixtures, validate separately,
 # touch assets/textures, or build Godot meshes itself (that would bypass
-# FauxBuildView — the source renders nothing).
+# FauxBuildView — the source renders nothing). Fixture synthesis (map_synth,
+# grp_synth) is test infrastructure: the production owner must mount and parse
+# real bytes, never manufacture them.
 source_files = [
     root / "extension/include/fauxbuild_godot/faux_structural_source.hpp",
     root / "extension/src/faux_structural_source.cpp",
 ]
 source_forbidden = re.compile(
-    r'\b(map_synth|map_validate|AssetSet|IndexedAtlas|ResourceSaver|read_art|read_palette|'
+    r'\b(map_synth|grp_synth|map_validate|AssetSet|IndexedAtlas|ResourceSaver|read_art|read_palette|'
     r'read_lookup|ArrayMesh|MeshInstance3D|memnew|add_surface_from_arrays|write_map)\b')
 for path in source_files:
     text = path.read_text(encoding="utf-8")

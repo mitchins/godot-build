@@ -11,8 +11,14 @@ extends Node
 #
 # Both routes are read at the ACTUAL Godot boundary
 # (MeshInstance3D.mesh -> ArrayMesh.surface_get_arrays()) and compared
-# array-for-array, not count-for-count. What differs for real content is
-# only DirectoryMount -> GrpMount; GRP mounting itself is proven by M2.
+# array-for-array, not count-for-count.
+#
+# The GRP cases below close the last real-content-only gap: the approved
+# M4 canonical builder (synth::build_grp) packs a serialized fixture into
+# a scratch archive, so present_grp's SUCCESS path -- the one the human
+# E1L1 gate uses -- runs in CI on original synthetic content. Real content
+# then differs from CI in no code path at all, only in which bytes are
+# mounted.
 #
 # The standing corruption case at the end is the route-integrity
 # tripwire: it corrupts the serialized MAP bytes after writing and proves
@@ -70,6 +76,10 @@ func _ready() -> void:
 	if failures == 0:
 		_test_error_paths()
 		_test_corrupted_serialized_map()
+	if failures == 0:
+		_test_grp_route("portal_heights")
+		_test_corrupted_grp_map()
+		_test_grp_requested_entry()
 
 	if failures == 0:
 		print("M5 production source route: OK")
@@ -276,3 +286,168 @@ func _test_corrupted_serialized_map() -> void:
 	for group in good:
 		check(direct_after.has(group) and direct_after[group].vertices == good[group].vertices,
 			"corrupt: direct route arrays should still match after byte corruption: " + group)
+
+
+func _test_grp_route(name: String) -> void:
+	# present_grp SUCCESS through the production owner. The archive entry
+	# name is an arbitrary VFS key: no behaviour anywhere keys off it.
+	var facts: Dictionary = FIXTURE_FACTS[name]
+	var entry_name := "SYNTH.MAP"
+
+	# Reference: the DirectoryMount production route, itself already proven
+	# array-equal to the direct fixture route above.
+	var vfs_name := harness.write_fixture_map(name, dir)
+	check(vfs_name != "", "grp: reference MAP write failed: " + harness.get_last_error())
+	if vfs_name == "":
+		return
+	check(source.present_dir(dir, vfs_name, view),
+		"grp: reference dir route failed: " + source.get_last_error())
+	var reference := capture("grp-reference")
+	var reference_groups: PackedStringArray = view.get_group_names()
+	var reference_sectors := source.get_sector_count()
+	var reference_walls := source.get_wall_count()
+	var reference_surfaces := source.get_surface_count()
+	var reference_triangles := source.get_triangle_count()
+	var reference_notes := source.get_note_count()
+	var reference_diags := source.get_diagnostic_count()
+
+	# The same fixture, packed into a synthetic GRP by the approved M4
+	# builder, loaded through the production GRP entry point.
+	var grp_path := harness.write_fixture_grp(
+		[{"fixture": name, "name": entry_name}], dir, "SYNTH.GRP")
+	check(grp_path != "", "grp: archive write failed: " + harness.get_last_error())
+	if grp_path == "":
+		return
+	check(source.present_grp(grp_path, entry_name, view),
+		"grp: production GRP route failed: " + source.get_last_error())
+	var packed := capture("grp")
+
+	check(source.get_last_error() == "", "grp: unexpected last_error after success")
+	check(source.get_source_description().begins_with("grp:"),
+		"grp: source description should name the GRP mount, got "
+		+ source.get_source_description())
+	check(source.get_map_name() == entry_name,
+		"grp: resolved map name should be the requested VFS entry, got "
+		+ source.get_map_name())
+
+	# Facts agree with the reference route AND the committed fixture spec.
+	check(source.get_sector_count() == reference_sectors,
+		"grp: sectors %d != dir route %d" % [source.get_sector_count(), reference_sectors])
+	check(source.get_sector_count() == facts.sectors,
+		"grp: sectors %d != fixture spec %d" % [source.get_sector_count(), facts.sectors])
+	check(source.get_wall_count() == reference_walls,
+		"grp: walls %d != dir route %d" % [source.get_wall_count(), reference_walls])
+	check(source.get_wall_count() == facts.walls,
+		"grp: walls %d != fixture spec %d" % [source.get_wall_count(), facts.walls])
+	check(source.get_surface_count() == reference_surfaces,
+		"grp: surfaces %d != dir route %d"
+		% [source.get_surface_count(), reference_surfaces])
+	check(source.get_triangle_count() == reference_triangles,
+		"grp: triangles %d != dir route %d"
+		% [source.get_triangle_count(), reference_triangles])
+	check(source.get_note_count() == reference_notes,
+		"grp: notes %d != dir route %d" % [source.get_note_count(), reference_notes])
+	check(source.get_diagnostic_count() == reference_diags,
+		"grp: diagnostics %d != dir route %d"
+		% [source.get_diagnostic_count(), reference_diags])
+
+	# Triangle count must also agree with what the boundary actually holds.
+	var boundary_triangles := 0
+	for group in packed:
+		boundary_triangles += packed[group].indices.size() / 3
+	check(source.get_triangle_count() == boundary_triangles,
+		"grp: triangles %d != boundary-derived %d"
+		% [source.get_triangle_count(), boundary_triangles])
+
+	# Group presence and the ACTUAL ArrayMesh arrays.
+	check(view.get_group_names() == reference_groups,
+		"grp: group names differ between mounts: "
+		+ str(view.get_group_names()) + " vs " + str(reference_groups))
+	check(not reference.is_empty(), "grp: reference capture empty")
+	for group in GROUPS:
+		check(reference.has(group) == packed.has(group),
+			"grp: " + group + " presence differs between dir and grp mounts")
+		if reference.has(group) and packed.has(group):
+			check(packed[group].vertices == reference[group].vertices,
+				"grp: " + group + " vertices differ between dir and grp mounts")
+			check(packed[group].indices == reference[group].indices,
+				"grp: " + group + " indices differ between dir and grp mounts")
+
+
+func _test_corrupted_grp_map() -> void:
+	# GRP route-integrity tripwire. Equivalence alone cannot distinguish
+	# consuming archive bytes from re-deriving a fixture by filename, so
+	# the GRP path gets its own corruption proof: a well-formed archive
+	# whose MAP payload is damaged must fail at the PARSE stage.
+	var good_path := harness.write_fixture_grp(
+		[{"fixture": "portal_heights", "name": "SYNTH.MAP"}], dir, "GOOD.GRP")
+	check(good_path != "", "grp-corrupt: good archive write failed: " + harness.get_last_error())
+	check(source.present_grp(good_path, "SYNTH.MAP", view),
+		"grp-corrupt: pre-corruption load failed: " + source.get_last_error())
+	var good := capture("grp-corrupt")
+	check(good.has("PortalUpper") and good.has("PortalLower"),
+		"grp-corrupt: portal_heights must present portal groups before corruption")
+	var good_surfaces := source.get_surface_count()
+	var good_description := source.get_source_description()
+
+	var bad_path := harness.write_fixture_grp(
+		[{"fixture": "portal_heights", "name": "SYNTH.MAP", "corrupt": true}], dir, "BAD.GRP")
+	check(bad_path != "", "grp-corrupt: bad archive write failed: " + harness.get_last_error())
+	check(not source.present_grp(bad_path, "SYNTH.MAP", view),
+		"grp-corrupt: production route must observe the corrupted MAP bytes inside the archive")
+	check("map parse" in source.get_last_error(),
+		"grp-corrupt: error should name the parse stage, got: " + source.get_last_error())
+
+	# A failed GRP load replaces nothing and rewrites no facts.
+	var still := capture("grp-corrupt")
+	check(still.size() == good.size(), "grp-corrupt: group set changed after failed load")
+	for group in good:
+		check(still.has(group), "grp-corrupt: " + group + " disappeared after failed load")
+		if still.has(group):
+			check(still[group].vertices == good[group].vertices and
+				still[group].indices == good[group].indices,
+				"grp-corrupt: failed load replaced the previous presentation: " + group)
+	check(source.get_surface_count() == good_surfaces,
+		"grp-corrupt: facts must keep describing the last successful load")
+	check(source.get_source_description() == good_description,
+		"grp-corrupt: source description must survive a failed load")
+
+
+func _test_grp_requested_entry() -> void:
+	# Two valid MAP entries in one archive: the REQUESTED VFS name must be
+	# the one loaded. portal_heights and square_room differ in sector/wall
+	# counts and in whether portal groups exist at all, so a wrong-entry
+	# load cannot pass by coincidence.
+	var path := harness.write_fixture_grp([
+		{"fixture": "square_room", "name": "OTHER.MAP"},
+		{"fixture": "portal_heights", "name": "SYNTH.MAP"},
+	], dir, "TWO.GRP")
+	check(path != "", "grp-entry: archive write failed: " + harness.get_last_error())
+	if path == "":
+		return
+
+	check(source.present_grp(path, "SYNTH.MAP", view),
+		"grp-entry: requested entry failed to load: " + source.get_last_error())
+	check(source.get_map_name() == "SYNTH.MAP",
+		"grp-entry: resolved name should be SYNTH.MAP, got " + source.get_map_name())
+	check(source.get_sector_count() == FIXTURE_FACTS["portal_heights"].sectors,
+		"grp-entry: SYNTH.MAP should load portal_heights, got %d sectors"
+		% source.get_sector_count())
+	check(source.get_wall_count() == FIXTURE_FACTS["portal_heights"].walls,
+		"grp-entry: SYNTH.MAP should load portal_heights, got %d walls"
+		% source.get_wall_count())
+	var portal_groups := capture("grp-entry")
+	check(portal_groups.has("PortalUpper"),
+		"grp-entry: portal_heights must present PortalUpper; wrong entry loaded?")
+
+	# The other entry, from the same archive, must load its own content.
+	check(source.present_grp(path, "OTHER.MAP", view),
+		"grp-entry: second entry failed to load: " + source.get_last_error())
+	check(source.get_map_name() == "OTHER.MAP",
+		"grp-entry: resolved name should be OTHER.MAP, got " + source.get_map_name())
+	check(source.get_sector_count() == FIXTURE_FACTS["square_room"].sectors,
+		"grp-entry: OTHER.MAP should load square_room, got %d sectors"
+		% source.get_sector_count())
+	var square_groups := capture("grp-entry")
+	check(not square_groups.has("PortalUpper"),
+		"grp-entry: square_room has no portals; the previous entry leaked through")

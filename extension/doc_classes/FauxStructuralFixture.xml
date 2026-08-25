@@ -55,6 +55,26 @@
 				</para>
 			</description>
 		</method>
+		<method name="write_fixture_grp">
+			<return type="String" />
+			<param index="0" name="entries" type="Array" />
+			<param index="1" name="directory" type="String" />
+			<param index="2" name="file_name" type="String" />
+			<description>
+				<para>
+					Packs committed fixtures into a synthetic GRP archive in [param directory]
+					using the approved M4 canonical builder, and returns the path written;
+					empty String with the last error set on failure. Each entry is a
+					Dictionary of [code]fixture[/code] (committed fixture name),
+					[code]name[/code] (VFS entry name) and optional [code]corrupt[/code]
+					(damages the serialized MAP payload while leaving the archive
+					well-formed). Test infrastructure: it exists so the production
+					[code]present_grp[/code] success path runs in CI on original synthetic
+					content. Archive entry names are arbitrary VFS keys — no route behaviour
+					is keyed off them.
+				</para>
+			</description>
+		</method>
 		<method name="get_last_error">
 			<return type="String" />
 			<description>
