@@ -417,7 +417,9 @@ everything derived from a map.
 Decision:
 1. **One conversion, in `fauxbuild::to_render_space` (core), nothing else.**
    `render.x = build.x * scale`, `render.y = -build.z * scale`,
-   `render.z = build.y * scale` (Build Z grows down; render Y up). The scale must be a
+   `render.z = build.y * scale` (Build Z grows down; render Y up).
+   **Amended 2026-08-25 — see the amendment below; rule 1's vertical term is
+   now `-build.z * scale / 16`.** The scale must be a
    power of two (default 2^-11: one 65536 grid square -> 32 render units,
    the M3 storey height 16384 -> 8) so every int32 Build coordinate maps to
    an exactly representable double and back — vertex bytes are bit-identical
@@ -454,6 +456,77 @@ Consequences: M5 slice 2 builds the ArrayMesh viewer directly from these
 surfaces; M6 slopes will extend, not replace, this derivation (flat-Z
 output order stays stable for unsloped sectors).
 
+
+#### D0016 amendment — Build vertical units are 16x the horizontal scale (proposed 2026-08-25)
+
+Status: **proposed.** D0016 rule 1 was accepted with an isotropic transform,
+so it is not being changed silently. Ratification is the human's, and the
+independent black-box confirmation below (Mapster32) has not been performed
+yet.
+
+Context: the M5 slice-3 human gate found that untouched E1L1 presents as a
+tall narrow tower — structurally coherent by counts and topology, but
+physically wrong. The hypothesis is that D0016 treats Build X/Y/Z units
+isotropically when Build Z is numerically 16x the horizontal scale for the
+same physical distance: 1024 horizontal units and 16384 vertical units
+describe the same extent.
+
+Published binary-format descriptions state the 16:1 relationship. That is a
+hypothesis, not evidence (AGENTS.md rule 2), so it was corroborated by our
+own black-box observation of legally owned content before being encoded —
+the same process that caught three wrong bit meanings in M3. No Build
+source, source port, or decompilation was consulted, and nothing about this
+decision depends on any.
+
+**Corroboration 1 — whole-world proportions.** Under the isotropic
+transform, E1L1's derived render AABB is 52.56 x 252.00 x 33.99: a level
+almost five times taller than its longest horizontal span. Dividing the
+vertical axis by 16 gives 52.56 x 15.75 x 33.99 — broad and shallow, which
+is what a level's footprint looks like.
+
+**Corroboration 2 — room proportions across six owned maps.** Median
+floor-to-ceiling delta against median longest wall span per sector:
+
+| map | n | median dZ | median span | dZ/span | /16 |
+|---|---|---|---|---|---|
+| E1L1 | 297 | 24576 | 1024 | 22.00 | 1.38 |
+| E1L2 | 254 | 16384 | 1280 | 16.00 | 1.00 |
+| E1L3 | 437 | 20480 | 1448 | 16.00 | 1.00 |
+| E1L4 | 529 | 22528 | 1619 | 13.71 | 0.86 |
+| E1L5 | 456 | 38912 | 1924 | 24.32 | 1.52 |
+| E1L6 | 326 | 26624 | 1267 | 19.80 | 1.24 |
+
+Isotropically, every room would be 14-24x taller than wide. After the 16:1
+correction they are 0.86-1.52 — roughly as tall as they are wide, which is
+what human-scale architecture looks like. The vertical values are also
+quantised in 1024-unit steps (16/20/22/24/26/38 x 1024) while horizontal
+spans are 1024-1924, consistent with a coarser vertical unit. These are
+aggregate statistics over legally owned content; no extracted bytes,
+coordinates, or hashes are committed.
+
+Decision (proposed):
+1. **One base render scale for X/Y; the vertical scale is derived from it as
+   `scale / 16`.** Both factors are powers of two, so D0016's exactness and
+   reversibility property is unchanged — each axis reverses with its own
+   inverse (2048 horizontal, 32768 vertical at the default scale).
+2. **The 16:1 relationship is a compatibility invariant, not user tuning.**
+   It is a compile-time constant (`kBuildVerticalUnitsPerHorizontal`), NOT an
+   independent `z_scale` option: there is deliberately nothing for a caller
+   to set wrong.
+3. **The transform stays single-sourced in `to_render_space`.** No consumer
+   applies a vertical correction of its own, and the human viewer must not
+   compensate through camera logic.
+4. MapData, topology, triangulation, surface counts, and winding are
+   untouched. Only render-space vertex Y values change.
+
+CI truth: the `metric_cube` fixture (1024 horizontal, 16384 vertical) must
+derive equal render extents on all three axes. It encodes generic format
+quantities only — nothing from any game's content.
+
+Outstanding for ratification: **HUMAN-ATTESTED** black-box confirmation that
+a 1024-horizontal / 16384-vertical room presents as roughly cubic in
+Mapster32, per the command in docs/MILESTONES.md. If that contradicts 16:1,
+this amendment is withdrawn.
 
 ### D0017 — Structural polygon triangulation pipeline (M5)
 

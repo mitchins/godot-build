@@ -642,9 +642,14 @@ StructuralVertex to_render_space(std::int32_t x, std::int32_t y, std::int32_t z,
     // int32 and 2^-k is exactly representable and reversible. Internal misuse
     // (non-power-of-two scale) is our own bug, not content -> FB_CHECK.
     FB_CHECK(scale_is_power_of_two(options.scale));
+    // Vertical scale is the horizontal one divided by the format's 16:1 unit
+    // ratio (D0016 amendment). 16 is a power of two, so the quotient is too
+    // and the exactness/reversibility contract is unchanged.
+    const double vertical_scale = options.scale / kBuildVerticalUnitsPerHorizontal;
+    FB_CHECK(scale_is_power_of_two(vertical_scale));
     StructuralVertex v;
     v.x = static_cast<double>(x) * options.scale;
-    v.y = -static_cast<double>(z) * options.scale;
+    v.y = -static_cast<double>(z) * vertical_scale;
     v.z = static_cast<double>(y) * options.scale;
     return v;
 }

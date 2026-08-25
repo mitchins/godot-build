@@ -134,6 +134,14 @@ func _ready() -> void:
 	_apply_presentation()
 	_frame_camera()
 
+	# Permanent metric diagnostic (D0016 amendment): the world's render-space
+	# extent, printed so vertical scale is measurable rather than judged by
+	# eye. A map that reads as a tower shows it here as a Y far larger than
+	# its horizontal extents.
+	var world_bounds := _bounds()
+	print("bounds size X/Y/Z: %.4f / %.4f / %.4f"
+		% [world_bounds.size.x, world_bounds.size.y, world_bounds.size.z])
+
 	if DisplayServer.get_name() == "headless":
 		_headless_probe()
 	if DisplayServer.get_name() != "headless":

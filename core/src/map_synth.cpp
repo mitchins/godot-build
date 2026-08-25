@@ -66,6 +66,29 @@ mapv7::MapData minimal_world() {
     return map;
 }
 
+// Metric-scale fixture (D0016 amendment, 2026-08-25). A room whose
+// horizontal extent is 1024 Build units and whose floor-to-ceiling delta is
+// 16384 Build units. Under the format's 16:1 vertical unit ratio those are
+// the SAME physical distance, so the derived shell must be a cube: equal
+// render extents on all three axes.
+//
+// This exists to pin exactly one property and prevent exactly one
+// regression -- isotropic axis scaling, which stretches every world into a
+// tower. The numbers are generic format quantities; nothing here is derived
+// from, or specific to, any game's content.
+mapv7::MapData metric_cube_world() {
+    mapv7::MapData map;
+    const std::int32_t side = 1024;    // horizontal extent, Build X/Y units
+    const std::int32_t height = 16384; // vertical extent, Build Z units
+    const std::int32_t xs[] = {0, side, side, 0};
+    const std::int32_t ys[] = {0, 0, side, side};
+    add_loop(map, xs, ys, 4);
+    // Build Z points down: the ceiling is the smaller (more negative) value.
+    map.sectors.push_back(make_sector(0, 4, 0, -height));
+    map.start = {side / 2, side / 2, 0, 0, 0};
+    return map;
+}
+
 mapv7::MapData square_room_world() {
     mapv7::MapData map = minimal_world();
     auto& sector = map.sectors[0];
@@ -279,7 +302,7 @@ std::vector<std::string> map_fixture_names() {
         "minimal",          "square_room", "two_sector_portal",   "non_convex",
         "multi_loop",       "double_hole", "portal_heights",      "portal_step_floor",
         "slope_metadata",   "masked_wall", "sprite_orientations", "max_reasonable_counts",
-        "asymmetric_probe",
+        "asymmetric_probe", "metric_cube",
     };
 }
 
@@ -287,6 +310,8 @@ Result<mapv7::MapData> map_fixture(const std::string& name) {
     mapv7::MapData map;
     if (name == "minimal") {
         map = minimal_world();
+    } else if (name == "metric_cube") {
+        map = metric_cube_world();
     } else if (name == "square_room") {
         map = square_room_world();
     } else if (name == "two_sector_portal") {

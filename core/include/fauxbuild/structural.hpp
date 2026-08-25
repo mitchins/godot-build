@@ -84,22 +84,37 @@ struct StructuralWorld {
     bool operator==(const StructuralWorld&) const = default;
 };
 
+// Build vertical (Z) coordinates are numerically 16x the horizontal (X/Y)
+// scale for the same physical extent: 1024 horizontal units and 16384
+// vertical units describe the same distance. Treating the three axes
+// isotropically stretches every world into a tower (D0016 amendment,
+// proposed 2026-08-25 — see docs/DECISIONS.md).
+//
+// This is a compatibility invariant of the format, NOT user tuning, so it is
+// a compile-time constant rather than an option: there is deliberately no
+// independent z_scale for a caller to get wrong. It is a power of two, so it
+// preserves the exactness/reversibility property below.
+inline constexpr double kBuildVerticalUnitsPerHorizontal = 16.0;
+
 struct StructuralOptions {
-    // Uniform render scale (D0016). Must be a power of two so every Build
-    // int32 coordinate maps to an exactly representable double and back —
-    // vertex bytes are then bit-identical across platforms and rebuilds.
-    // 2^-11: one 65536-unit grid square -> 32 render units, the M3 fixture
-    // storey height 16384 -> 8.
+    // Uniform HORIZONTAL render scale (D0016). Must be a power of two so
+    // every Build int32 coordinate maps to an exactly representable double
+    // and back — vertex bytes are then bit-identical across platforms and
+    // rebuilds. 2^-11: one 65536-unit grid square -> 32 render units. The
+    // vertical scale is derived from it, never set independently.
     double scale = 1.0 / 2048.0;
 };
 
 // THE Build-space -> render-space conversion (D0016; one place, tested; no
-// consumer may invent its own transform). Build Z points down, render Y up:
+// consumer may invent its own transform). Build Z points down, render Y up,
+// and Build Z is 16x the horizontal unit scale:
 //   render.x =  build.x * scale
-//   render.y = -build.z * scale
+//   render.y = -build.z * scale / 16
 //   render.z =  build.y * scale
-// With a power-of-two scale the mapping is exact for all int32 inputs and
-// reversible by multiplying with 1/scale and rounding toward zero.
+// So 1024 horizontal units and 16384 vertical units produce equal render
+// lengths. Both factors are powers of two, so the mapping stays exact for
+// all int32 inputs and reversible by multiplying with the matching inverse
+// and rounding toward zero.
 StructuralVertex to_render_space(std::int32_t x, std::int32_t y, std::int32_t z,
                                  const StructuralOptions& options = {});
 

@@ -1403,6 +1403,45 @@ seam slices 1–2 already proved.
   Both framing branches were exercised (the X-dominant one by
   `two_sector_portal`/`portal_heights` at 64x32; the Z-dominant one by
   temporarily forcing it, since no committed fixture is deeper than wide).
+- **Metric-scale defect found by the slice-3 human gate (2026-08-25).**
+  Untouched E1L1 presented as a tall narrow tower: structurally coherent by
+  counts and topology, physically wrong. Root cause was D0016 treating Build
+  X/Y/Z units isotropically when Build Z is numerically 16x the horizontal
+  scale for the same physical distance. Corrected to
+  `render.y = -build.z * scale / 16`, single-sourced in `to_render_space`;
+  both factors are powers of two, so exactness and reversibility are
+  unchanged. See the D0016 amendment (**proposed**, awaiting ratification and
+  the black-box confirmation below). Published format descriptions supplied
+  the hypothesis; two independent black-box measurements over legally owned
+  content supplied the evidence (aggregate statistics only — nothing
+  extracted, committed, or hashed).
+  - E1L1 render AABB **before** 52.5615 x **252.0000** x 33.9873 (a level
+    ~4.8x taller than its longest horizontal span); **after** 52.5615 x
+    **15.7500** x 33.9873. Only Y changed, by exactly 1/16.
+  - E1L1 invariants **unchanged**: 317 sectors, 1937 walls, 1936 surfaces,
+    5134 triangles, 0 diagnostics.
+  - `metric_cube` fixture (1024 horizontal / 16384 vertical) derives equal
+    render extents on all three axes: bounds 0.5000 / 0.5000 / 0.5000. This
+    is the CI regression pin and encodes generic format quantities only.
+  - Sabotage (restore isotropic Z): 6 core cases red including
+    `metric_cube`, and the slice-2 asymmetric consumer-boundary probe red on
+    all four corner constants. The probe's two scale factors are written out
+    literally from the format spec (2048 horizontal, 32768 vertical), never
+    read back from the implementation.
+- **HUMAN-ATTESTED, OUTSTANDING — black-box metric confirmation.** Generate
+  the fixture and open it in Mapster32:
+
+  ```sh
+  scons config=dev check
+  ./build/dev/fbtool gen-map --fixture metric_cube --out /tmp/METRIC.MAP
+  # then open /tmp/METRIC.MAP in Mapster32 and inspect the single sector
+  ```
+
+  Criterion: a room 1024 units across with a 16384-unit floor-to-ceiling
+  delta should read as roughly **equal physical dimensions**, not a 16x-tall
+  shaft. If it reads as a shaft, the 16:1 hypothesis is contradicted — stop,
+  and the D0016 amendment is withdrawn. This box is not tickable by the
+  agent.
 - **Error paths (CI, synthetic only):** missing MAP inside a valid
   directory mount, malformed MAP bytes, nonexistent directory,
   nonexistent GRP path, and a null view — each fails cleanly with the

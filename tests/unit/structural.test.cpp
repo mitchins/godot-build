@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <string>
@@ -143,20 +144,35 @@ StructuralWorld build_fixture(const std::string& name) {
 // ---------------------------------------------------------------------------
 
 TEST_CASE("coordinate conversion is exact, reversible, and centralized") {
-    // Build (X, Y, Z) -> render (X, -Z, Y) with the default 2^-11 scale:
-    // one grid square 65536 -> 32 render units, a 16384 storey -> 8.
+    // Build (X, Y, Z) -> render (X, -Z/16, Y) with the default 2^-11
+    // horizontal scale: one grid square 65536 -> 32 render units. Build Z is
+    // 16x the horizontal unit scale (D0016 amendment), so the vertical
+    // divisor is 2048 * 16 = 32768.
     const StructuralVertex v = to_render_space(kUnit, -2 * kUnit, 4096);
     CHECK(v.x == 32.0);
-    CHECK(v.y == -2.0);
+    CHECK(v.y == -0.125); // 4096 / 32768, not 4096 / 2048
     CHECK(v.z == -64.0);
 
-    // Exact round trip for adversarial int32 values (power-of-two scale).
+    // THE metric property (D0016 amendment): 1024 horizontal units and 16384
+    // vertical units are the SAME physical distance and must produce equal
+    // render lengths. This is the invariant that isotropic scaling breaks.
+    const StructuralVertex horizontal = to_render_space(1024, 1024, 0);
+    const StructuralVertex vertical = to_render_space(0, 0, 16384);
+    CHECK(horizontal.x == 0.5);
+    CHECK(horizontal.z == 0.5);
+    CHECK(vertical.y == -0.5);
+    CHECK(horizontal.x == -vertical.y);
+    CHECK(horizontal.z == -vertical.y);
+
+    // Exact round trip for adversarial int32 values. Each axis reverses with
+    // its own inverse; both are powers of two, so both are exact.
     const std::int32_t xs[] = {-2147483647 - 1, 2147483647, 0, -1, 65535};
     for (const std::int32_t x : xs) {
         for (const std::int32_t z : xs) {
-            const StructuralVertex r = to_render_space(x, 0, z);
+            const StructuralVertex r = to_render_space(x, x, z);
             CHECK(static_cast<std::int64_t>(r.x * 2048.0) == static_cast<std::int64_t>(x));
-            CHECK(static_cast<std::int64_t>(r.y * 2048.0) ==
+            CHECK(static_cast<std::int64_t>(r.z * 2048.0) == static_cast<std::int64_t>(x));
+            CHECK(static_cast<std::int64_t>(r.y * 32768.0) ==
                   static_cast<std::int64_t>(-static_cast<std::int64_t>(z)));
         }
     }
@@ -169,6 +185,47 @@ TEST_CASE("coordinate conversion is exact, reversible, and centralized") {
     auto world = build_structural_world(map.value(), bad);
     REQUIRE_FALSE(world.is_ok());
     CHECK(world.error().code == fauxbuild::ErrorCode::Unsupported);
+}
+
+TEST_CASE("metric_cube: 1024 horizontal and 16384 vertical are equal render lengths") {
+    // The regression pin for the D0016 amendment. This fixture authors a room
+    // 1024 Build units across and 16384 Build units tall -- the same physical
+    // distance under the format's 16:1 vertical unit ratio -- so its derived
+    // shell must measure equal on all three render axes. Isotropic scaling
+    // makes it 16x too tall, which is the defect this exists to catch.
+    const StructuralWorld world = build_fixture("metric_cube");
+    check_triangles_wellformed(world);
+    REQUIRE_FALSE(world.surfaces.empty());
+
+    double min_x = 0.0, max_x = 0.0, min_y = 0.0, max_y = 0.0, min_z = 0.0, max_z = 0.0;
+    bool first = true;
+    for (const auto& surface : world.surfaces) {
+        for (const auto& v : surface.vertices) {
+            if (first) {
+                min_x = max_x = v.x;
+                min_y = max_y = v.y;
+                min_z = max_z = v.z;
+                first = false;
+                continue;
+            }
+            min_x = std::min(min_x, v.x);
+            max_x = std::max(max_x, v.x);
+            min_y = std::min(min_y, v.y);
+            max_y = std::max(max_y, v.y);
+            min_z = std::min(min_z, v.z);
+            max_z = std::max(max_z, v.z);
+        }
+    }
+    const double extent_x = max_x - min_x;
+    const double extent_y = max_y - min_y;
+    const double extent_z = max_z - min_z;
+
+    // Spec-derived, not implementation-derived: 1024 * 2^-11 = 0.5.
+    CHECK(extent_x == 0.5);
+    CHECK(extent_z == 0.5);
+    CHECK(extent_y == 0.5); // 16384 / (2048 * 16)
+    CHECK(extent_y == extent_x);
+    CHECK(extent_y == extent_z);
 }
 
 // ---------------------------------------------------------------------------
@@ -200,7 +257,7 @@ TEST_CASE("square room: floor, ceiling, four solid walls, facing inwards") {
     // must face the ceiling plane and ceilings the floor plane, opposite to
     // each other, so back-face culling works for either convention.
     const double floor_y = -0.0;
-    const double ceiling_y = -16384.0 / 2048.0;
+    const double ceiling_y = -16384.0 / 32768.0; // vertical scale, D0016 amendment
     for (const auto& vertex : floor.vertices) {
         CHECK(vertex.y == floor_y);
     }
@@ -246,12 +303,13 @@ TEST_CASE("asymmetric_probe: render-space vertices are component-distinct") {
             CHECK(vertex.y != vertex.z);
         }
     }
-    // Floor/ceiling planes at the authored heights under (x, -z, y) * 2^-11.
+    // Floor/ceiling planes at the authored heights under (x, -z/16, y) with
+    // the 2^-11 horizontal scale: the vertical divisor is 2048 * 16 = 32768.
     for (const auto& vertex : world.surfaces[0].vertices) {
-        CHECK(vertex.y == -9000.0 / 2048.0);
+        CHECK(vertex.y == -9000.0 / 32768.0);
     }
     for (const auto& vertex : world.surfaces[1].vertices) {
-        CHECK(vertex.y == -3000.0 / 2048.0);
+        CHECK(vertex.y == -3000.0 / 32768.0);
     }
 }
 
@@ -303,12 +361,13 @@ TEST_CASE("portal_heights: one upper and one lower span outside the opening") {
         }
         return std::pair<double, double>{lo, hi};
     };
+    // Authored Build Z heights over the vertical scale 2048 * 16 = 32768.
     const auto [ulo, uhi] = y_extent(*upper);
-    CHECK(ulo == -2.0);
+    CHECK(ulo == -4096.0 / 32768.0);
     CHECK(uhi == 0.0);
     const auto [llo, lhi] = y_extent(*lower);
-    CHECK(llo == -8.0);
-    CHECK(lhi == -4.0);
+    CHECK(llo == -16384.0 / 32768.0);
+    CHECK(lhi == -8192.0 / 32768.0);
 
     // Portal order per wall: upper before lower.
     std::size_t upper_at = 0, lower_at = 0;
@@ -580,7 +639,7 @@ TEST_CASE("slope metadata is deferred with notes and flat base Z") {
     const StructuralSurface* ceiling = find_surface(world, SurfaceKind::Ceiling, 0, -1);
     REQUIRE(ceiling != nullptr);
     for (const auto& v : ceiling->vertices) {
-        CHECK(v.y == -16384.0 / 2048.0);
+        CHECK(v.y == -16384.0 / 32768.0);
     }
 }
 
