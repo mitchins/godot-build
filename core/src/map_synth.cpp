@@ -265,12 +265,22 @@ mapv7::MapData slope_metadata_world() {
 //   floor_rx  first wall along -X (px reversed), floorheinum +4096
 //   floor_neg first wall along +X, floorheinum  -4096
 //   ceiling_px first wall along +X, ceilingheinum +4096
-// Ordinary (non-inverted) room interval for every slope probe: Build Z grows
-// downward, so ceilingz < startz < floorz. Shared by all seven fixtures so
-// the 2x2 matrix cannot drift on anything but direction and winding.
-constexpr std::int32_t kProbeCeilingZ = 0;
-constexpr std::int32_t kProbeStartZ = 8192;
-constexpr std::int32_t kProbeFloorZ = 16384;
+// Shared geometry for every slope probe, so the 2x2 matrix cannot drift on
+// anything but first-wall direction and winding.
+//
+// Small footprint (1024 x 512, a 2:1 rectangle) and a tall room: at
+// heinum 4096 the surface tilts steeply enough across 1024 units to be
+// unmistakable by eye, and the 65536-unit interval leaves it room to tilt
+// without meeting the opposite plane. The experiment is a VISUAL one --
+// which way it goes, not how far -- so obviousness beats precision here.
+//
+// Ordinary (non-inverted) room: Build Z grows downward, so
+// ceilingz < startz < floorz, with the eye starting between the planes.
+constexpr std::int32_t kProbeWidth = 1024;
+constexpr std::int32_t kProbeHeight = 512;
+constexpr std::int32_t kProbeCeilingZ = -32768;
+constexpr std::int32_t kProbeStartZ = 0;
+constexpr std::int32_t kProbeFloorZ = 32768;
 
 mapv7::MapData slope_probe(const std::int32_t* xs, const std::int32_t* ys, bool ceiling_slope,
                            std::int16_t heinum) {
@@ -294,13 +304,13 @@ mapv7::MapData slope_probe(const std::int32_t* xs, const std::int32_t* ys, bool 
         sector.floorstat |= mapv7::kStatSloped;
         sector.floorheinum = heinum;
     }
-    map.start = {kUnit, kUnit / 2, kProbeStartZ, 512, 0};
+    map.start = {kProbeWidth / 2, kProbeHeight / 2, kProbeStartZ, 512, 0};
     return map;
 }
 
 mapv7::MapData slope_probe_floor_px_world() {
-    const std::int32_t xs[] = {0, 2 * kUnit, 2 * kUnit, 0};
-    const std::int32_t ys[] = {0, 0, kUnit, kUnit};
+    const std::int32_t xs[] = {0, kProbeWidth, kProbeWidth, 0};
+    const std::int32_t ys[] = {0, 0, kProbeHeight, kProbeHeight};
     return slope_probe(xs, ys, false, 4096);
 }
 
@@ -319,37 +329,37 @@ mapv7::MapData slope_probe_floor_px_world() {
 // for.
 mapv7::MapData slope_probe_floor_px_cw_world() {
     // First wall (0,U)->(2U,U): +X. Loop runs clockwise.
-    const std::int32_t xs[] = {0, 2 * kUnit, 2 * kUnit, 0};
-    const std::int32_t ys[] = {kUnit, kUnit, 0, 0};
+    const std::int32_t xs[] = {0, kProbeWidth, kProbeWidth, 0};
+    const std::int32_t ys[] = {kProbeHeight, kProbeHeight, 0, 0};
     return slope_probe(xs, ys, false, 4096);
 }
 mapv7::MapData slope_probe_floor_py_ccw_world() {
     // First wall (2U,0)->(2U,U): +Y. Loop runs counter-clockwise.
-    const std::int32_t xs[] = {2 * kUnit, 2 * kUnit, 0, 0};
-    const std::int32_t ys[] = {0, kUnit, kUnit, 0};
+    const std::int32_t xs[] = {kProbeWidth, kProbeWidth, 0, 0};
+    const std::int32_t ys[] = {0, kProbeHeight, kProbeHeight, 0};
     return slope_probe(xs, ys, false, 4096);
 }
 mapv7::MapData slope_probe_floor_py_world() {
-    const std::int32_t xs[] = {0, 0, 2 * kUnit, 2 * kUnit};
-    const std::int32_t ys[] = {0, kUnit, kUnit, 0};
+    const std::int32_t xs[] = {0, 0, kProbeWidth, kProbeWidth};
+    const std::int32_t ys[] = {0, kProbeHeight, kProbeHeight, 0};
     return slope_probe(xs, ys, false, 4096);
 }
 
 mapv7::MapData slope_probe_floor_rx_world() {
-    const std::int32_t xs[] = {2 * kUnit, 0, 0, 2 * kUnit};
-    const std::int32_t ys[] = {0, 0, kUnit, kUnit};
+    const std::int32_t xs[] = {kProbeWidth, 0, 0, kProbeWidth};
+    const std::int32_t ys[] = {0, 0, kProbeHeight, kProbeHeight};
     return slope_probe(xs, ys, false, 4096);
 }
 
 mapv7::MapData slope_probe_floor_neg_world() {
-    const std::int32_t xs[] = {0, 2 * kUnit, 2 * kUnit, 0};
-    const std::int32_t ys[] = {0, 0, kUnit, kUnit};
+    const std::int32_t xs[] = {0, kProbeWidth, kProbeWidth, 0};
+    const std::int32_t ys[] = {0, 0, kProbeHeight, kProbeHeight};
     return slope_probe(xs, ys, false, -4096);
 }
 
 mapv7::MapData slope_probe_ceiling_px_world() {
-    const std::int32_t xs[] = {0, 2 * kUnit, 2 * kUnit, 0};
-    const std::int32_t ys[] = {0, 0, kUnit, kUnit};
+    const std::int32_t xs[] = {0, kProbeWidth, kProbeWidth, 0};
+    const std::int32_t ys[] = {0, 0, kProbeHeight, kProbeHeight};
     return slope_probe(xs, ys, true, 4096);
 }
 

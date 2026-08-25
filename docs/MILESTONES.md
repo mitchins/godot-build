@@ -1679,6 +1679,25 @@ Delivered (provenance-safe, formula-independent):
   Negative-tested: restoring the inverted interval goes red, and moving
   `startz` outside the interval fails the invariant alone.
 
+  **Resized for a visual read 2026-08-25 (M32 scripting abandoned).** The
+  numeric-oracle route was spending its time on Mapster scripting lifecycle
+  rather than on the slope question, so the probes were rebuilt for an
+  unmistakable *visual* answer. The published provenance already establishes
+  that heinum 4096 is a 45° rise/run relationship, so the rise magnitude does
+  not need measuring — only direction and sign do. Shared geometry:
+
+      rectangle 1024 x 512      ceilingz -32768   startz 0   floorz 32768
+
+  Small footprint so a 45° tilt is steep and obvious across it; tall room so
+  the tilted plane never meets the opposite one (worst case ±16384 against
+  65536 of clearance). All seven share one footprint — X ∈ [0,1024],
+  Y ∈ [0,512] — and are visually identical in 2D: only wall order and winding
+  differ, which is the whole point, so identify them by filename.
+
+  **All seven spawn at the same point (512, 256, 0) with the same angle**, so
+  "the floor rises to my left / right / ahead / behind" is directly comparable
+  between probes without coordinates, scripting, or a height readout.
+
   Retained alongside: `slope_probe_floor_rx` (first wall −X, the reversal
   case — still useful as a direct reversal of `px`), `slope_probe_floor_neg`
   (heinum −4096), `slope_probe_ceiling_px`. A CI test pins the matrix's own
@@ -1736,41 +1755,50 @@ proprietary content):*
 ```sh
 scons config=dev check
 for f in slope_probe_floor_px slope_probe_floor_px_cw \
-         slope_probe_floor_py slope_probe_floor_py_ccw \
+         slope_probe_floor_py_ccw slope_probe_floor_py \
          slope_probe_floor_rx slope_probe_floor_neg slope_probe_ceiling_px; do
-  ./build/dev/fbtool gen-map --fixture "$f" --out "/tmp/${f^^}.MAP"
+  ./build/dev/fbtool gen-map --fixture "$f" \
+    --out "/tmp/$(echo "$f" | tr '[:lower:]' '[:upper:]').MAP"
 done
 # open each /tmp/*.MAP in Mapster32 (black box)
 ```
 
-**Prefer numeric measurement over appearance.** Where Mapster32 exposes a
-height/Z readout at a point, record the number; a visual impression of "it
-slopes that way" cannot distinguish the candidate axes at small heinum and
-cannot answer the rise question at all. Record the observable at the SAME
-four corners of the rectangle for every probe — (0,0), (2×65536,0),
-(2×65536,65536), (0,65536) in Build X/Y — so the probes are directly
-comparable.
+**Visual protocol (no M32 scripting, no height readout).** For each file:
+open it, enter 3D mode, and *without moving*, record which way the flagged
+surface tilts relative to your spawn facing — rises ahead / behind / left /
+right. Then note whether it tilts along the room's long axis or its short
+one. That is the entire observation; four words per probe.
 
-*Exact quantities to record,* per probe, at each of the four named corners:
-(1) which horizontal direction the surface height changes along
-(+X/−X/+Y/−Y); (2) **the axis question, now separable** — compare `px` with
-`py_ccw` (winding held CCW, first wall differs) and `px` with `px_cw` (first
-wall held +X, winding differs). If only the first comparison shows a change,
-the tilt is first-wall-relative; if only the second, it follows winding or
-the surface normal; if neither, it is world-axis-aligned; if both, it depends
-on both and none of the simple candidates hold. `rx` remains as the direct
-reversal of `px`, which flips both at once and should agree with whichever
-account the matrix establishes; (3) the sign: does +4096 raise or lower the
-surface along that direction (Build Z grows downward); (4) does `neg` flip
-exactly; (5) does the ceiling probe behave like the floor probe; (6) anchor:
-does the surface pass through the first point at its declared base Z; (7)
-**the rise**: the numeric Z difference across the known horizontal distance,
-which is what turns "4096 = 45°" from a description into an oracle.
+| record per probe | |
+|---|---|
+| high side | ahead / behind / left / right |
+| axis | long (1024) or short (512) |
+
+Read the four comparisons off the table afterwards:
+
+| compare | holds fixed | tells you |
+|---|---|---|
+| `px` vs `py_ccw` | winding (CCW) | does the FIRST WALL set the direction? |
+| `px` vs `px_cw` | first wall (+X) | does WINDING set it? |
+| `px` vs `rx` | neither (both flip) | consistency check against the two above |
+| `px` vs `neg` | everything but heinum sign | the sign convention |
+| `px` vs `ceiling_px` | everything but which surface | does the ceiling match or oppose the floor? |
+
+Only the first comparison changes → first-wall-relative. Only the second →
+winding or surface normal. Neither → world-axis-aligned. **Both → none of the
+simple candidates hold**, which is a result to report, not to resolve by
+picking the reading that looks familiar.
+
+*The four open questions,* and nothing more: (1) which direction the surface
+tilts relative to the first wall; (2) whether winding changes that
+relationship; (3) the heinum sign convention; (4) whether the ceiling uses
+the same or the opposite convention as the floor. The rise magnitude is NOT
+an open question — the published description already fixes 4096 as 45°
+rise/run, and that becomes an exact integer CI oracle once the direction and
+sign are attested.
 
 *Do not promote a formula until the observations distinguish the
-candidates.* If the matrix comes back ambiguous — e.g. both comparisons
-change — that is a result to report, not to resolve by picking the reading
-that looks familiar. Visual observations are
+candidates.* Visual observations are
 HUMAN-ATTESTED; once recorded, the numbers become exact integer CI oracles in
 the probe fixtures (e.g. heinum 4096 ⇒ z delta exactly equal to horizontal
 distance along the attested axis), and only then do the evaluator, the

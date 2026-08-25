@@ -815,7 +815,7 @@ TEST_CASE("slope probes build flat with deferral notes until the evaluator exist
         // Ordinary room: ceilingz 0, floorz 16384. Flat at the floor plane
         // until the evaluator exists; vertical scale 2048 * 16 = 32768.
         for (const auto& v : floor->vertices) {
-            CHECK(v.y == -16384.0 / 32768.0);
+            CHECK(v.y == -32768.0 / 32768.0); // floorz 32768, vertical scale 2048 * 16
         }
         CHECK((floor->appearance.raw_stat & fauxbuild::mapv7::kStatSloped) != 0);
     }
@@ -830,7 +830,7 @@ TEST_CASE("slope probes build flat with deferral notes until the evaluator exist
     const StructuralSurface* ceiling = find_surface(ceiling_world, SurfaceKind::Ceiling, 0, -1);
     REQUIRE(ceiling != nullptr);
     for (const auto& v : ceiling->vertices) {
-        CHECK(v.y == -0.0); // ceilingz 0
+        CHECK(v.y == 32768.0 / 32768.0); // ceilingz -32768; render Y is up
     }
 }
 
@@ -857,9 +857,9 @@ TEST_CASE("slope probe rooms are ordinary, not inverted") {
         CHECK(sector.ceilingz < start.z);
         CHECK(start.z < sector.floorz);
         // Identical across the whole set, so the matrix varies nothing else.
-        CHECK(sector.ceilingz == 0);
-        CHECK(start.z == 8192);
-        CHECK(sector.floorz == 16384);
+        CHECK(sector.ceilingz == -32768);
+        CHECK(start.z == 0);
+        CHECK(sector.floorz == 32768);
 
         // Exactly one surface is flagged, and the other side stays inert.
         const bool ceiling_flagged = (sector.ceilingstat & fauxbuild::mapv7::kStatSloped) != 0;
@@ -924,8 +924,8 @@ TEST_CASE("slope direction probes vary first-wall direction and winding independ
         // Everything else must be identical, or the matrix confounds again.
         REQUIRE(map.value().sectors.size() == 1);
         const auto& sector = map.value().sectors[0];
-        CHECK(sector.floorz == 16384);
-        CHECK(sector.ceilingz == 0);
+        CHECK(sector.floorz == 32768);
+        CHECK(sector.ceilingz == -32768);
         CHECK(sector.floorheinum == 4096);
         CHECK((sector.floorstat & fauxbuild::mapv7::kStatSloped) != 0);
         CHECK((sector.ceilingstat & fauxbuild::mapv7::kStatSloped) == 0);
