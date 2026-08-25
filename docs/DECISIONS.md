@@ -420,12 +420,15 @@ Decision:
    `render.z = build.y * scale` (Build Z grows down; render Y up).
    **Amended 2026-08-25 — see the amendment below; rule 1's vertical term is
    now `-build.z * scale / 16`.** The scale must be a
-   power of two (default 2^-11: one 65536 grid square -> 32 render units,
-   the M3 storey height 16384 -> 8) so every int32 Build coordinate maps to
-   an exactly representable double and back — vertex bytes are bit-identical
-   across platforms and rebuilds, and the reverse mapping is a multiply and
-   a truncation. Non-power-of-two scales are rejected with a structured
-   error (external contract), not FB_CHECK. No consumer may invent its own
+   power of two (default 2^-11: one 65536 grid square -> 32 render units;
+   under the amendment a 16384-unit storey maps to 0.5, not 8) so every int32
+   Build coordinate maps to an exactly representable double and back — vertex
+   bytes are bit-identical across platforms and rebuilds, and the reverse
+   mapping is a multiply and a truncation, per axis with that axis's own
+   inverse. Non-power-of-two scales are rejected with a structured error
+   (external contract), not FB_CHECK — including a conforming horizontal
+   scale whose derived vertical scale (scale / 16) is not itself an exactly
+   reversible power of two. No consumer may invent its own
    transform; the M5 slice-2 adapter feeds these vertices to Godot verbatim.
 2. **Derived geometry is disposable.** StructuralWorld is a pure function of
    (MapData, options): same map -> identical surfaces, vertices, indices,

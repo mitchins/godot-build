@@ -185,6 +185,23 @@ TEST_CASE("coordinate conversion is exact, reversible, and centralized") {
     auto world = build_structural_world(map.value(), bad);
     REQUIRE_FALSE(world.is_ok());
     CHECK(world.error().code == fauxbuild::ErrorCode::Unsupported);
+
+    // ...and so is a horizontal scale that is itself a conforming power of
+    // two but whose DERIVED vertical scale is not. 2^-1020 / 16 is subnormal,
+    // so exact reversibility is lost. This must be a structured error, not an
+    // FB_CHECK abort: it is a caller's option value, not our own bug.
+    // ldexp(1, -1020) is a power of two by construction, so the horizontal
+    // scale itself conforms; only the derived vertical one does not.
+    StructuralOptions too_small;
+    too_small.scale = std::ldexp(1.0, -1020);
+    auto shrunk = build_structural_world(map.value(), too_small);
+    REQUIRE_FALSE(shrunk.is_ok());
+    CHECK(shrunk.error().code == fauxbuild::ErrorCode::Unsupported);
+
+    // The default scale is comfortably inside the usable range.
+    StructuralOptions ok_options;
+    auto fine = build_structural_world(map.value(), ok_options);
+    CHECK(fine.is_ok());
 }
 
 TEST_CASE("metric_cube: 1024 horizontal and 16384 vertical are equal render lengths") {

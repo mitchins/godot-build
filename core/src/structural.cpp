@@ -661,6 +661,18 @@ Result<StructuralWorld> build_structural_world(const mapv7::MapData& map,
             {"structural", 0, "options", ErrorCode::Unsupported,
              "render scale must be a power of two (D0016); got a non-conforming value"});
     }
+    // The DERIVED vertical scale must satisfy the same contract. It is not
+    // implied by the horizontal one: scale = 2^-1020 is a conforming power of
+    // two whose sixteenth is subnormal, and the exactness/reversibility
+    // property does not survive that. This is a caller's option value, so it
+    // is an external contract violation (structured error), never an
+    // FB_CHECK — the assertion in to_render_space guards our own bugs only.
+    if (!scale_is_power_of_two(options.scale / kBuildVerticalUnitsPerHorizontal)) {
+        return Result<StructuralWorld>::err(
+            {"structural", 0, "options", ErrorCode::Unsupported,
+             "render scale is too small: the derived vertical scale (scale / 16, D0016 "
+             "amendment) is not an exactly reversible power of two"});
+    }
 
     // Precondition: validated topology. Reuse the M3 validator's vocabulary;
     // surface its first error verbatim so real-map failures stay actionable.

@@ -98,6 +98,19 @@
 				<para>Nonfatal diagnostic count of the last successful derivation (reporting only).</para>
 			</description>
 		</method>
+		<method name="get_start_position">
+			<return type="Vector3" />
+			<description>
+				<para>
+					The map's own parsed start position for the last successful load,
+					converted through the single core transform ([code]to_render_space[/code])
+					like every other coordinate — never a second transform. Diagnostic state
+					only, never authority: the human viewer uses it to aim its overview and to
+					place its start-position camera. The start ANGLE is deliberately not
+					exposed; Build angle semantics are not M5's.
+				</para>
+			</description>
+		</method>
 		<method name="get_last_error">
 			<return type="String" />
 			<description>
