@@ -265,12 +265,28 @@ mapv7::MapData slope_metadata_world() {
 //   floor_rx  first wall along -X (px reversed), floorheinum +4096
 //   floor_neg first wall along +X, floorheinum  -4096
 //   ceiling_px first wall along +X, ceilingheinum +4096
+// Ordinary (non-inverted) room interval for every slope probe: Build Z grows
+// downward, so ceilingz < startz < floorz. Shared by all seven fixtures so
+// the 2x2 matrix cannot drift on anything but direction and winding.
+constexpr std::int32_t kProbeCeilingZ = 0;
+constexpr std::int32_t kProbeStartZ = 8192;
+constexpr std::int32_t kProbeFloorZ = 16384;
+
 mapv7::MapData slope_probe(const std::int32_t* xs, const std::int32_t* ys, bool ceiling_slope,
                            std::int16_t heinum) {
     mapv7::MapData map;
     add_loop(map, xs, ys, 4);
-    map.sectors.push_back(make_sector(0, 4));
+    // Build Z grows downward, so an ordinary room has ceilingz < floorz --
+    // which is what real content consistently shows. The first version of
+    // these probes inherited the M3 default interval (floorz 0, ceilingz
+    // 16384), an INVERTED room: representable, and fine for the geometry
+    // tests that use it, but useless as a behavioural probe for which way a
+    // surface tilts. Every probe now uses an ordinary room with the eye
+    // between the planes.
+    map.sectors.push_back(make_sector(0, 4, kProbeFloorZ, kProbeCeilingZ));
     auto& sector = map.sectors[0];
+    // Exactly one surface is flagged; the other keeps stat 0 / heinum 0, so
+    // the flagged side is the only variable.
     if (ceiling_slope) {
         sector.ceilingstat |= mapv7::kStatSloped;
         sector.ceilingheinum = heinum;
@@ -278,7 +294,7 @@ mapv7::MapData slope_probe(const std::int32_t* xs, const std::int32_t* ys, bool 
         sector.floorstat |= mapv7::kStatSloped;
         sector.floorheinum = heinum;
     }
-    map.start = {kUnit, kUnit / 2, 4096, 512, 0};
+    map.start = {kUnit, kUnit / 2, kProbeStartZ, 512, 0};
     return map;
 }
 

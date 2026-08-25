@@ -1656,6 +1656,29 @@ Delivered (provenance-safe, formula-independent):
   | first wall **+X** | `slope_probe_floor_px` | `slope_probe_floor_px_cw` |
   | first wall **+Y** | `slope_probe_floor_py_ccw` | `slope_probe_floor_py` |
 
+  **Amended again 2026-08-25 — inverted probe room corrected.** The first
+  Mapster run confirmed the written MAP really carried `floorstat = 0x0002`
+  and `floorheinum = 4096`, but the probe room itself was INVERTED: it
+  inherited the M3 default interval (floorz 0, ceilingz 16384) while Build Z
+  grows downward and real content consistently has ceilingz < floorz. The
+  slope fields were right and the probe was still useless — a behavioural
+  experiment run inside an upside-down room answers nothing about which way
+  a surface tilts. Every probe now uses an ordinary room:
+
+      ceilingz = 0      startz = 8192      floorz = 16384
+
+  Set once in the shared `slope_probe` helper, so the 2×2 cannot drift on
+  anything but direction and winding: XY dimensions, wall order, winding,
+  stat, heinum, picnums and tags are untouched. Floor probes keep
+  `floorstat = 0x0002` with heinum ±4096 and `ceilingstat/ceilingheinum = 0`;
+  the ceiling probe is the mirror image. A fixture-scoped invariant pins
+  `ceilingz < startz < floorz` plus the exact values and the
+  exactly-one-flagged-surface property. **This is deliberately NOT promoted
+  into MAP validation** — inverted intervals are representable, occur in
+  other fixtures on purpose, and remain a note rather than an error.
+  Negative-tested: restoring the inverted interval goes red, and moving
+  `startz` outside the interval fails the invariant alone.
+
   Retained alongside: `slope_probe_floor_rx` (first wall −X, the reversal
   case — still useful as a direct reversal of `px`), `slope_probe_floor_neg`
   (heinum −4096), `slope_probe_ceiling_px`. A CI test pins the matrix's own

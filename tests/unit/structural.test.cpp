@@ -812,8 +812,10 @@ TEST_CASE("slope probes build flat with deferral notes until the evaluator exist
         CHECK(slope_notes == 1); // floor flagged, ceiling not
         const StructuralSurface* floor = find_surface(world, SurfaceKind::Floor, 0, -1);
         REQUIRE(floor != nullptr);
+        // Ordinary room: ceilingz 0, floorz 16384. Flat at the floor plane
+        // until the evaluator exists; vertical scale 2048 * 16 = 32768.
         for (const auto& v : floor->vertices) {
-            CHECK(v.y == 0.0);
+            CHECK(v.y == -16384.0 / 32768.0);
         }
         CHECK((floor->appearance.raw_stat & fauxbuild::mapv7::kStatSloped) != 0);
     }
@@ -828,7 +830,50 @@ TEST_CASE("slope probes build flat with deferral notes until the evaluator exist
     const StructuralSurface* ceiling = find_surface(ceiling_world, SurfaceKind::Ceiling, 0, -1);
     REQUIRE(ceiling != nullptr);
     for (const auto& v : ceiling->vertices) {
-        CHECK(v.y == -16384.0 / 32768.0);
+        CHECK(v.y == -0.0); // ceilingz 0
+    }
+}
+
+TEST_CASE("slope probe rooms are ordinary, not inverted") {
+    // The first Mapster run showed the written MAP carried the intended
+    // floorstat/floorheinum, but the room itself was inverted (ceilingz
+    // 16384 > floorz 0). Build Z grows downward and real content
+    // consistently has ceilingz < floorz, so an inverted room is a useless
+    // behavioural probe however correct its slope fields are.
+    //
+    // This invariant is scoped to the EXPERIMENT FIXTURES only. Inverted
+    // intervals are representable and are exercised elsewhere on purpose;
+    // this is deliberately not promoted into MAP validation.
+    const char* probes[] = {"slope_probe_floor_px",  "slope_probe_floor_px_cw",
+                            "slope_probe_floor_py",  "slope_probe_floor_py_ccw",
+                            "slope_probe_floor_rx",  "slope_probe_floor_neg",
+                            "slope_probe_ceiling_px"};
+    for (const char* name : probes) {
+        auto map = map_fixture(name);
+        REQUIRE(map.is_ok());
+        REQUIRE(map.value().sectors.size() == 1);
+        const auto& sector = map.value().sectors[0];
+        const auto& start = map.value().start;
+        CHECK(sector.ceilingz < start.z);
+        CHECK(start.z < sector.floorz);
+        // Identical across the whole set, so the matrix varies nothing else.
+        CHECK(sector.ceilingz == 0);
+        CHECK(start.z == 8192);
+        CHECK(sector.floorz == 16384);
+
+        // Exactly one surface is flagged, and the other side stays inert.
+        const bool ceiling_flagged = (sector.ceilingstat & fauxbuild::mapv7::kStatSloped) != 0;
+        const bool floor_flagged = (sector.floorstat & fauxbuild::mapv7::kStatSloped) != 0;
+        CHECK(ceiling_flagged != floor_flagged);
+        if (ceiling_flagged) {
+            CHECK(sector.floorheinum == 0);
+            CHECK(sector.floorstat == 0);
+            CHECK(sector.ceilingheinum == 4096);
+        } else {
+            CHECK(sector.ceilingheinum == 0);
+            CHECK(sector.ceilingstat == 0);
+            CHECK((sector.floorheinum == 4096 || sector.floorheinum == -4096));
+        }
     }
 }
 
@@ -879,8 +924,8 @@ TEST_CASE("slope direction probes vary first-wall direction and winding independ
         // Everything else must be identical, or the matrix confounds again.
         REQUIRE(map.value().sectors.size() == 1);
         const auto& sector = map.value().sectors[0];
-        CHECK(sector.floorz == 0);
-        CHECK(sector.ceilingz == 16384);
+        CHECK(sector.floorz == 16384);
+        CHECK(sector.ceilingz == 0);
         CHECK(sector.floorheinum == 4096);
         CHECK((sector.floorstat & fauxbuild::mapv7::kStatSloped) != 0);
         CHECK((sector.ceilingstat & fauxbuild::mapv7::kStatSloped) == 0);

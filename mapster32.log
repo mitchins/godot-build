@@ -1,0 +1,47 @@
+Mapster32 r9598-25afea98f
+Built Sep  9 2021 12:02:18, clang 7.0.2, 64-bit 
+Application parameters: /tmp/SLOPE_PROBE_FLOOR_PX.MAP -usecwd -gamegrp /Users/mitchellcurrie/Projects/godot-build/fauxbuild/local_reference/duke/DUKE3D.GRP -mx /tmp/fauxbuild_slope_probe.m32 
+CPU: VirtualApple
+Initializing SDL 2.0.16
+Using "cocoa" video driver
+Using /Users/mitchellcurrie/Downloads/eduke32/Mapster32.app/Contents/Resources/ for game data
+Using /Users/mitchellcurrie/Projects/godot-build/fauxbuild/ for game data
+Executing "m32_settings.cfg"
+Searching for game data...
+Found no recognized game data!
+Using "/Users/mitchellcurrie/Projects/godot-build/fauxbuild/local_reference/duke/DUKE3D.GRP" as main game data file.
+Loading "m32help.hlp"
+No game controllers found
+Initialized 128.0M cache
+Loaded V7 map /tmp/SLOPE_PROBE_FLOOR_PX.MAP successfully
+Setting video mode 640x480 (8-bpp windowed)
+Refresh rate: 72.00Hz
+OpenGL information
+ Apple Apple M4 Max 2.1 Metal - 90.5
+Loading sounds from "GAME.CON"
+warning: duplicate sound #261, overwriting
+Loaded 290 sound definitions.
+Initializing sound... Initializing sound: SDL COREAUDIO driver on LG ULTRAWIDE: 44.1 KHz stereo with 32 voices
+ 
+--- Compiling: /tmp/fauxbuild_slope_probe.m32 (576 bytes)
+  Defined State   0 `dump_slope'.
+ 
+Compiled code info: (size=58*4 bytes)
+  0/65400 user labels, 2/65536 indirect constants,
+  8/939 user variables, 0/233 user arrays
+  1 states, 0/19 defined events
+L21: F00=0
+L22: F10=0
+L23: F11=0
+L24: F01=0
+L25: C00=16384
+L26: C10=16384
+L27: C11=16384
+L28: C01=16384
+do state dump_slope
+M32 script execution interrupted.
+M32 script execution interrupted.
+M32 script execution interrupted.
+M32 script execution interrupted.
+M32 script execution interrupted.
+Wrote m32_settings.cfg
