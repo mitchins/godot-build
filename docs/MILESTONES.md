@@ -1591,7 +1591,6 @@ What the milestone actually established, beyond the deliverable:
 M6 (slopes, indexed textures, UV/flags, sprites) is next and is where the
 shell stops looking like a CAD model.
 
-
 Next milestone work was not started.
 ## M6 — Slopes, indexed textures, flags, and sprites — NOT_STARTED
 
