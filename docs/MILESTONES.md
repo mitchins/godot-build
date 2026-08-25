@@ -993,7 +993,7 @@ checklist above.
 **M4 ACCEPTED 2026-08-24.** All six gate items satisfied; see the gate
 checklist above for the evidence and class of each.
 
-## M5 — Static structural world viewer — IN_PROGRESS (slices 1–2 ACCEPTED; slice 3 next)
+## M5 — Static structural world viewer — ACCEPTED 2026-08-25
 
 Gate summary: structural fixtures render with correct topology; holes/non-convex sectors render;
 no persistent Godot scene becomes authority; local E1L1 loads as recognizable 3D shell (HUMAN-ATTESTED);
@@ -1290,9 +1290,306 @@ no stale presentation survives; damaging or freeing generated nodes does not
 make them authoritative. PR #6 merged with zero unresolved threads and all four
 CI jobs green on head `2920b4d`.
 
-M5 remains IN_PROGRESS. Slice 3 — real E1L1 presentation — is next and is the
-milestone's payoff: existing loader → existing derivation → existing view, with
-no new subsystems.
+M5 remains IN_PROGRESS. Slice 3 delivered at checkpoint below; awaiting
+the HUMAN-ATTESTED real-world gate.
+
+### Slice 3 — real-content entry path (delivered 2026-08-25, checkpoint)
+
+Wiring only — no new geometry, rendering semantics, parser, or derivation
+code. The slice proves an untouched Build MAP loaded through the real
+content path reaches the same StructuralWorld and the same presentation
+seam slices 1–2 already proved.
+
+- **Production source owner:** `FauxStructuralSource` (registered
+  RefCounted; the one legitimate GDScript-facing content entry point).
+  `present_grp(grp_path, map_name, view)` and `present_dir(dir_path,
+  map_name, view)` both run the identical core chain —
+  `GrpMount`/`DirectoryMount` → `Vfs` → `read_map` →
+  `build_structural_world` → `FauxBuildView.present_world` — differing
+  only in the mount constructor. No extraction, no third direct-filesystem
+  MAP path (DirectoryMount already covers loose files), no new GRP writer
+  (the approved M4 builder `synth::build_grp` already exists and is what
+  the CI GRP cases use), no fbtool helper duplication. The view itself gained nothing: still a pure
+  StructuralWorld consumer with `structural.hpp` as its only core header.
+- **Transactionality:** the complete new world is derived before the view
+  is touched; a failure anywhere returns false with a stage-tagged
+  structured `last_error` (mount / vfs lookup / map parse / structural
+  derivation / view), leaves the previous presentation intact, and keeps
+  the reporting facts describing the last successful load. Facts are
+  diagnostic state only (source description, resolved map name,
+  sector/wall/surface/triangle/note/diagnostic counts) — MapData is never
+  exposed as script-authoritative state, and no generated mesh or scene
+  ever leaves the view as output.
+- **Synthetic CI drives the identical production route (D0009):** the new
+  `structural_source_test` scene serializes five committed fixtures
+  (square_room, non_convex, multi_loop, two_sector_portal, portal_heights)
+  with `FauxStructuralFixture.write_fixture_map` (the core canonical
+  `write_map`, disk output from test infrastructure only) into a scratch
+  directory outside the repo, re-loads them through the production
+  `FauxStructuralSource.present_dir`, and compares the ACTUAL boundary
+  arrays (`MeshInstance3D.mesh` → `ArrayMesh.surface_get_arrays()`)
+  group-for-group, array-for-array, against the direct fixture route —
+  plus group presence, sector/wall counts against the fixture specs, and
+  surface/triangle/note/diagnostic facts against boundary-derived values.
+- **GrpMount success runs in CI too (D0009 hole closed 2026-08-25).** The
+  slice-3 report claimed no GRP writer existed and left `present_grp`'s
+  success path covered only by its missing-archive error. That premise was
+  wrong: `fauxbuild::synth::build_grp` — the canonical builder for
+  arbitrary named payloads — has existed since M4 slice 4 and is
+  round-trip unit-tested. (The M5 slice-3 task brief asserted the same
+  false premise; the agent inherited it.) The scene now packs a serialized
+  fixture into a scratch archive with
+  `FauxStructuralFixture.write_fixture_grp` (test infrastructure only) and
+  loads it through the production `present_grp`, comparing against the
+  DirectoryMount route on sector/wall/surface/triangle/note/diagnostic
+  counts, group presence, and the ACTUAL `surface_get_arrays()` vertex and
+  index arrays. Archive entry names (`SYNTH.MAP`, `OTHER.MAP`) are
+  arbitrary VFS keys: no route behaviour is keyed off a name, and no
+  content, expectation, or branch is tied to any real map. **Real content
+  now differs from CI in no code path at all — only in which bytes are
+  mounted.**
+- **GRP byte-consumption tripwire (standing):** equivalence alone cannot
+  distinguish consuming archive bytes from re-deriving a fixture, so the
+  GRP path has its own corruption case — a well-formed archive whose MAP
+  payload is damaged must fail at the parse stage, replace no
+  presentation, and rewrite no facts. Negative-tested with a realistic
+  bypass (a byte cache keyed by map name): every equivalence case and the
+  requested-entry pin still passed, and only the corruption gates went
+  red. A second sabotage (packing the wrong fixture into the archive)
+  reddened every assertion class in the success case, including both
+  ArrayMesh arrays.
+- **Requested-entry pin:** an archive holding two valid MAP entries
+  (square_room and portal_heights, which differ in sector/wall counts and
+  in whether portal groups exist at all) is loaded by name in both
+  directions, so a wrong-entry load cannot pass by coincidence.
+- The evidence model is now: DirectoryMount success, GrpMount success,
+  malformed serialized MAP, malformed archived MAP, and mount/name
+  failures all CI-synthetic; real E1L1 remains HUMAN confirmation only,
+  never CI truth.
+- **Route-integrity tripwire (standing):** after the equivalence cases,
+  the scene corrupts the serialized PORTAL_HEIGHTS.MAP bytes on disk
+  (version field → 99) and requires the production route to fail while
+  the direct fixture route still succeeds — proving the mounted MAP
+  bytes/mount/parser are genuinely consumed, not re-derived. The same
+  case asserts the failed load replaces nothing (previous arrays
+  unchanged, facts still describe the last success).
+- **Human-viewer usability patch (2026-08-25, presentation only).** No core,
+  view, or packing change; the five-group structure and every boundary array
+  are untouched. Framing now derives from the horizontal X/Z footprint and
+  pulls back along the MINOR horizontal axis with a smaller component along
+  the dominant one, so a long map spans the view instead of receding down
+  it; elevation is a moderate rise above the AABB centre, never its vertical
+  extreme. Clip planes and fly speed scale with the world (the stock
+  4000-unit far plane and fixed 10 units/s are unusable at real-map scale).
+  Nothing consults Build angle or start-pose semantics — only the generated
+  meshes' bounds. A readability palette (neutral greys for structure,
+  restrained amber/rust for the portal bands, dark neutral background) is
+  applied as a `material_override` in the human scene, leaving
+  `FauxBuildView`'s own diagnostic materials untouched; **colours are
+  non-contractual and no test asserts one.** Ceilings start hidden so the
+  shell reads as an open model; `C` toggles them and `1`-`5` toggle the five
+  groups — visibility only, never mesh contents. Sector-identity colouring
+  was deliberately skipped: the accepted batched packing carries no sector
+  identity, and M6 owns surface appearance.
+- **Framing/toggle gate:** the viewer's headless probe prints raw
+  observations and makes no judgement; `ci/check_scene.py` decides, so a
+  broken viewer cannot report itself healthy. It requires finite eye/centre/
+  forward/size, camera-to-bounds alignment > 0.999, a start above the centre,
+  usable clip planes that reach the framed geometry, positive traversal
+  speed, ceilings starting hidden and round-tripping false→true→false, and an
+  unchanged mesh instance id and vertex/index hash across the toggle. Six
+  negative tests observed red: aim, non-finite framing, far plane too small,
+  toggle rebuilding the mesh, ceilings visible by default, probe removed.
+  Both framing branches were exercised (the X-dominant one by
+  `two_sector_portal`/`portal_heights` at 64x32; the Z-dominant one by
+  temporarily forcing it, since no committed fixture is deeper than wide).
+- **Metric-scale defect found by the slice-3 human gate (2026-08-25).**
+  Untouched E1L1 presented as a tall narrow tower: structurally coherent by
+  counts and topology, physically wrong. Root cause was D0016 treating Build
+  X/Y/Z units isotropically when Build Z is numerically 16x the horizontal
+  scale for the same physical distance. Corrected to
+  `render.y = -build.z * scale / 16`, single-sourced in `to_render_space`;
+  both factors are powers of two, so exactness and reversibility are
+  unchanged. See the D0016 amendment (**proposed**, awaiting ratification and
+  the black-box confirmation below). Published format descriptions supplied
+  the hypothesis; two independent black-box measurements over legally owned
+  content supplied the evidence (aggregate statistics only — nothing
+  extracted, committed, or hashed).
+  - E1L1 render AABB **before** 52.5615 x **252.0000** x 33.9873 (a level
+    ~4.8x taller than its longest horizontal span); **after** 52.5615 x
+    **15.7500** x 33.9873. Only Y changed, by exactly 1/16.
+  - E1L1 invariants **unchanged**: 317 sectors, 1937 walls, 1936 surfaces,
+    5134 triangles, 0 diagnostics.
+  - `metric_cube` fixture (1024 horizontal / 16384 vertical) derives equal
+    render extents on all three axes: bounds 0.5000 / 0.5000 / 0.5000. This
+    is the CI regression pin and encodes generic format quantities only.
+  - Sabotage (restore isotropic Z): 6 core cases red including
+    `metric_cube`, and the slice-2 asymmetric consumer-boundary probe red on
+    all four corner constants. The probe's two scale factors are written out
+    literally from the format spec (2048 horizontal, 32768 vertical), never
+    read back from the implementation.
+- **HUMAN-ATTESTED PASS 2026-08-25 — black-box metric confirmation.** By
+  mitchellcurrie: `metric_cube` opened in Mapster32 presents approximately
+  cubically, confirming the 16:1 vertical unit ratio. **The D0016 amendment
+  is ACCEPTED.** The command that produced the artifact:
+
+  ```sh
+  scons config=dev check
+  ./build/dev/fbtool gen-map --fixture metric_cube --out /tmp/METRIC.MAP
+  # then open /tmp/METRIC.MAP in Mapster32 and inspect the single sector
+  ```
+
+  Criterion applied: a room 1024 units across with a 16384-unit
+  floor-to-ceiling delta reads as roughly **equal physical dimensions**, not
+  a 16x-tall shaft. This is the corroboration a reader can reproduce without
+  owning any proprietary content — the two measurements above depend on
+  legally owned maps, this one does not.
+- **Two camera modes, two independent observations (presentation only).**
+  `O` — architectural overview: the whole shell framed from the world AABB,
+  *aimed at* the start position for real content (a level's AABB centre is
+  usually solid rock) and at the AABB centre for synthetic fixtures. This is
+  the default and answers "does the static world look coherent?".
+  `P` — authored start position: the camera is placed **exactly** at
+  `to_render_space(map.start.x, .y, .z)`. No floor snapping, no
+  ground-level correction, no capsule height. The MAP's start z is part of
+  the authored pose; forcing it onto a floor plane would destroy
+  information, and the queries that could justify a correction (floor Z at
+  an XY, clearance, slope) belong to M7/M8, not M5. This answers the
+  separate question "does the authored start lie inside plausible
+  architecture?".
+  The Build start **angle is not interpreted** in either mode; `P` faces a
+  generic horizontal direction. Distance, elevation, clip planes and
+  traversal speed come from the whole-world AABB throughout. Geometry,
+  derivation, packing and the metric are untouched;
+  `FauxStructuralSource.get_start_position()` is diagnostic state, never
+  authority.
+  *Note on an earlier report:* the overview was described as making the
+  viewer "focus on the start pose". It aims at it from a distance; it never
+  placed the camera there. `P` is what actually tests the authored pose, and
+  until it existed that observation had not been made.
+- **Start-pose camera gate (CI, synthetic).** Driven with committed content
+  through the same source route real content uses: `fbtool gen-map` writes
+  `multi_loop` (start Build 8192/8192/4096, off-centre on every axis) into a
+  scratch directory, and the viewer is run in `--dir` mode. The expected aim
+  point is spec-derived — `(8192/2048, -4096/32768, 8192/2048)` — never read
+  back from the implementation, and the gate refuses to pass if the
+  fixture's start and AABB centre ever coincide, since it could then no
+  longer tell the two focus modes apart. Three sabotages observed red:
+  source mode ignoring the start pose, the start pose getting its own
+  isotropic transform (`axis 1 is -2.0, expected -0.125`), and fixture mode
+  wrongly adopting the start pose. The gate additionally requires `P` to land
+  on the authored point exactly; sabotaging it with a floor snap goes red
+  (`axis 1 is 0.0, expected -0.125`), as does a `P` that silently does
+  nothing.
+- **Dev evidence (legally owned content, aggregate only, not a gate):** in
+  all six owned maps the authored start pose lies inside its own sector's
+  vertical interval. Five of the six sit exactly 10240 Build units above
+  their floor (0.3125 render), consistent with an authored eye-height
+  offset; E1L1 is the outlier at 32992 (1.01 render), in a start sector that
+  is itself unusually tall (99328 Build / 3.03 render). Recorded so the `P`
+  observation is judged against a known baseline rather than an
+  expectation.
+- **Error paths (CI, synthetic only):** missing MAP inside a valid
+  directory mount, malformed MAP bytes, nonexistent directory,
+  nonexistent GRP path, and a null view — each fails cleanly with the
+  expected stage tag; none crash, none damage state.
+- **Human viewer opened for real content (the only place it may enter):**
+  `structural_view_human` now takes `--fixture NAME` (default synthetic
+  mode), or `--grp PATH --map VFS_NAME` / `--dir PATH --map VFS_NAME`.
+  `--map` is required for source modes; `--grp`+`--dir`, fixture+source,
+  dangling values, option-like values, and unknown arguments are usage
+  errors (exit 2). No Duke names are known or defaulted. Before the shell
+  becomes inspectable it prints the generic facts (source, map, sectors,
+  walls, structural surfaces, triangles, notes, diagnostics, groups) —
+  nothing content-specific is hardcoded; divergence against the
+  established 1936/5134/0 invariants is judged by the human. Fly camera
+  and AABB framing unchanged; still flat untextured diagnostic materials,
+  render-all, no collision/physics.
+- **Static tripwire:** the layering guard now pins the source owner both
+  ways — `faux_structural_source.cpp` MUST include `map_io.hpp`,
+  `vfs.hpp`, and `structural.hpp` and MUST hand worlds to
+  `FauxBuildView.present_world`; neither source file may reference
+  fixture synthesis, separate validation, assets/textures, scene
+  persistence, or Godot mesh construction (a source that renders bypasses
+  the view). The existing FauxBuildView guard is unchanged.
+- **Scene gate:** `ci/check_scene.py` runs the route scene + its
+  `--grp` refusal (exit 2 contract), and exercises the human viewer's
+  source-mode argument contracts headless (four exit-2 usage cases and a
+  graceful exit-1 missing-GRP failure). All prior gates (M1 sample, M4
+  atlas boundary/preview/human + refusal, M5 slice-2 boundary + refusal +
+  human synthetic) unchanged and green.
+- **Sabotage evidence** (each observed red on a verified build, then
+  reverted): a hidden bypass that re-derived MapData from the in-memory
+  fixture while the static guard stayed green still passed every
+  equivalence case and was caught ONLY by the standing corruption
+  tripwire (the mounted bytes were never read) — the guard's
+  `map_synth`-token tripwire catches the naive include form; loading
+  another mount MAP instead of the requested name (array + fact + resolved
+  name mismatches); constructing meshes in the source instead of calling
+  the view seam (static gate red on both pins); pre-clearing the
+  presentation before derivation (failed load left an empty shell —
+  "group set changed after failed load"); and removing the slice-2 test's
+  `--grp` refusal (scene gate red, "exit 0, expected 2").
+- Real E1L1 presentation was the HUMAN gate (**attested below, 2026-08-25**);
+  textures/slopes/sprites/visibility remain M6+. The invariants it was
+  written against (317 sectors / 1937 walls / 1936 surfaces / 5134
+  triangles / 0 diagnostics; notes ≈321 are expected deferrals, not errors)
+  were stated here BEFORE the gate ran and are asserted by no CI test —
+  that ordering is what makes the attestation evidence rather than a
+  description of whatever happened.
+
+**Slice 3 — HUMAN-ATTESTED PASS 2026-08-25** by mitchellcurrie. Untouched
+E1L1 loads through `DUKE3D.GRP` → `GrpMount` → VFS → MAP v7 →
+`StructuralWorld` → `FauxBuildView`: **317 sectors / 1937 walls / 1936
+structural surfaces / 5134 triangles / 0 diagnostics**. No extraction, no
+conversion, no generated authority, and nothing proprietary in the repo or
+CI.
+
+Three things the gate established that counts alone could not:
+
+- The corrected 16:1 Build vertical metric was independently corroborated in
+  Mapster32 against the **original synthetic `metric_cube`** — evidence a
+  reader can reproduce without owning any proprietary content.
+- Free-camera inspection shows a coherent static architectural shell, not
+  merely a topologically valid one. The metric defect was invisible to every
+  count and every automated check; it took a human looking at the thing.
+- The authored start XYZ places the camera inside a plausible playable
+  volume, with **no floor snapping and no map-specific correction** — which
+  is what makes it evidence rather than a result engineered to look right.
+
+
+**M5 — ACCEPTED 2026-08-25** by mitchellcurrie. A static structural world
+derived from authoritative MAP topology, presented through Godot, and
+inspectable on untouched real content. All three slices accepted; D0016 (as
+amended), D0017 and D0018 all accepted.
+
+What the milestone actually established, beyond the deliverable:
+
+- **Separating validation from triangulation.** The bespoke ear clipper was
+  correct where it succeeded but too narrow for real content (33/2450
+  sectors failed). Adopting earcut for triangulation while keeping our exact
+  predicates for validation and the area oracle for verification preserved
+  both the fail-closed guarantee and the robustness. Neither library nor
+  hand-rolled code could have done both.
+- **The boundary is what the consumer reads.** Slice 2's test reads
+  `ArrayMesh.surface_get_arrays()`, not an internal cache — verified by
+  sabotaging the packing and the expected side identically, leaving only
+  spec-derived constants failing.
+- **Equivalence cannot prove byte consumption.** A route that re-derives a
+  fixture instead of reading mounted bytes passes every array comparison.
+  Only corruption tripwires catch it; both mount kinds carry one.
+- **Counts can be right while the world is wrong.** The 16:1 vertical metric
+  defect passed every automated check and every count. It took a human
+  looking at the shell. The corrected transform changed no count on E1L1 —
+  only Y, by exactly 1/16.
+- **Evidence classes stayed unmixed.** Synthetic CI carries the entire
+  automated burden; real content differs in no code path, only in which
+  bytes are mounted. The one piece of evidence a reader can reproduce
+  without owning proprietary content — Mapster32 on `metric_cube` — is what
+  ratified the metric, not the measurements over owned maps.
+
+M6 (slopes, indexed textures, UV/flags, sprites) is next and is where the
+shell stops looking like a CAD model.
 
 Next milestone work was not started.
 ## M6 — Slopes, indexed textures, flags, and sprites — NOT_STARTED

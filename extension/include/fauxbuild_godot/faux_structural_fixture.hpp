@@ -1,6 +1,7 @@
 #pragma once
 
 #include <godot_cpp/classes/ref_counted.hpp>
+#include <godot_cpp/variant/array.hpp>
 #include <godot_cpp/variant/packed_int32_array.hpp>
 #include <godot_cpp/variant/packed_string_array.hpp>
 #include <godot_cpp/variant/packed_vector3_array.hpp>
@@ -39,6 +40,29 @@ class FauxStructuralFixture : public godot::RefCounted {
     // to `view` through its C++ production seam.
     bool present(const godot::String& name, FauxBuildView* view);
     godot::String get_last_error() const;
+
+    // Serialize the named committed fixture through the core canonical MAP
+    // writer into `directory` (test-infrastructure disk output; the only
+    // thing this harness ever writes). Returns the normalized VFS name of
+    // the written file (e.g. "SQUARE_ROOM.MAP"), or an empty String with
+    // last_error set on failure. The production source route (slice 3)
+    // re-loads exactly these bytes through a directory mount.
+    godot::String write_fixture_map(const godot::String& name, const godot::String& directory);
+
+    // Build a synthetic GRP archive in `directory` from committed fixtures,
+    // using the approved M4 canonical builder (fauxbuild::synth::build_grp).
+    // `entries` is an Array of Dictionaries:
+    //
+    //     {"fixture": <committed fixture name>,
+    //      "name":    <VFS entry name, e.g. "SYNTH.MAP">,
+    //      "corrupt": <optional bool; damages the serialized MAP bytes>}
+    //
+    // The archive names are arbitrary VFS keys: nothing in the route keys
+    // behaviour off them. `corrupt` exists so the GRP route can prove it
+    // consumes archive bytes rather than re-deriving a fixture by name.
+    // Returns the absolute path written, or "" with last_error set.
+    godot::String write_fixture_grp(const godot::Array& entries, const godot::String& directory,
+                                    const godot::String& file_name);
 
     // The EXPECTED side of the consumer-boundary test: vertices and indices
     // derived directly from the retained StructuralWorld by this harness's

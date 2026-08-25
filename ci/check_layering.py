@@ -57,6 +57,37 @@ for path in view_files:
             violations.append(f"{path.relative_to(root)}:{lineno}: FauxBuildView must not "
                               f"reference world production: {line.strip()}")
 
+# M5 slice 3 source-owner guard: pin that the real-content route
+# (mount -> VFS -> MAP reader -> structural derivation -> view seam) lives
+# in FauxStructuralSource, and only there. The .cpp must include the
+# route's core headers and must hand worlds to the view's presentation
+# seam; neither file may synthesize fixtures, validate separately,
+# touch assets/textures, or build Godot meshes itself (that would bypass
+# FauxBuildView — the source renders nothing). Fixture synthesis (map_synth,
+# grp_synth) is test infrastructure: the production owner must mount and parse
+# real bytes, never manufacture them.
+source_files = [
+    root / "extension/include/fauxbuild_godot/faux_structural_source.hpp",
+    root / "extension/src/faux_structural_source.cpp",
+]
+source_forbidden = re.compile(
+    r'\b(map_synth|grp_synth|map_validate|AssetSet|IndexedAtlas|ResourceSaver|read_art|read_palette|'
+    r'read_lookup|ArrayMesh|MeshInstance3D|memnew|add_surface_from_arrays|write_map)\b')
+for path in source_files:
+    text = path.read_text(encoding="utf-8")
+    for lineno, line in enumerate(text.splitlines(), 1):
+        if source_forbidden.search(line):
+            violations.append(f"{path.relative_to(root)}:{lineno}: FauxStructuralSource must "
+                              f"not do this (production route owner only): {line.strip()}")
+source_cpp = (root / "extension/src/faux_structural_source.cpp").read_text(encoding="utf-8")
+for required in ("fauxbuild/map_io.hpp", "fauxbuild/vfs.hpp", "fauxbuild/structural.hpp"):
+    if f'#include "{required}"' not in source_cpp:
+        violations.append(f"extension/src/faux_structural_source.cpp: missing required core "
+                          f"include '{required}' (the production route must live here)")
+if "present_world(" not in source_cpp:
+    violations.append("extension/src/faux_structural_source.cpp: must hand worlds to "
+                      "FauxBuildView.present_world (the view seam), not present on its own")
+
 if violations:
     print("layering check FAILED:")
     for v in violations:
@@ -64,4 +95,5 @@ if violations:
     sys.exit(1)
 
 print("layering check: core/ contains no Godot references; atlas payload is indexed; "
-      "FauxBuildView consumes StructuralWorld only")
+      "FauxBuildView consumes StructuralWorld only; the content route lives in "
+      "FauxStructuralSource")

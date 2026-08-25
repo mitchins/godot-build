@@ -16,16 +16,26 @@ mechanism with no authority, and its output is checked against the exact
 expected polygon area before any surface is emitted. Degenerate derived
 surfaces are nonfatal diagnostics (D0018).
 
-**Slice 2 (Godot structural viewer) delivered at checkpoint 2026-08-25,
-awaiting review.** `FauxBuildView.present_world(const StructuralWorld&)` is
-the production seam (C++-only, not ClassDB-bound): the view packs the
-accepted surfaces into five diagnostic ArrayMesh groups — a copier/packer
-that never re-derives, reorders, or transforms geometry. The
-`FauxStructuralFixture` harness owns the synthetic fixture → world → view
-path for scenes; the view has no map/fixture loading. The scene gate reads
-the actual `MeshInstance3D.mesh -> ArrayMesh.surface_get_arrays()` arrays,
-and the layering guard pins the view to `structural.hpp` alone. Real E1L1
-presentation is slice 3; textures/slopes/sprites/visibility are M6+.
+**Slice 2 ACCEPTED 2026-08-25** — `FauxBuildView.present_world(const
+StructuralWorld&)` is the production seam (C++-only, not ClassDB-bound):
+the view packs accepted surfaces into five diagnostic ArrayMesh groups — a
+copier/packer that never re-derives, reorders, or transforms geometry. The
+boundary test reads the actual `MeshInstance3D.mesh ->
+ArrayMesh.surface_get_arrays()` arrays; the layering guard pins the view to
+`structural.hpp` alone.
+
+**Slice 3 (real-content entry path) delivered at checkpoint 2026-08-25,
+awaiting the HUMAN-ATTESTED real-world E1L1 gate.** `FauxStructuralSource`
+is the production content owner: `present_grp`/`present_dir` run mount →
+Vfs → MAP parser → `build_structural_world` → the view's C++ seam, failing
+transactionally with stage-tagged errors. Synthetic CI drives the identical
+route (`structural_source_test`: canonical write_map → scratch directory →
+DirectoryMount → parser → source owner), compares boundary arrays against
+the direct fixture route, and carries a standing corruption tripwire proving
+the serialized bytes are consumed. The human viewer is the only place real
+content may enter (`--grp|--dir` + required `--map`) and prints generic
+facts for the human to compare against 317/1937/1936/5134/0. Until the human
+attests, M5 stays IN_PROGRESS. Textures/slopes/sprites/visibility are M6+.
 
 M4 (ART, palette, lookup, tile tooling and the indexed atlas) was **ACCEPTED
 2026-08-24**: all six gate items met, D0013/D0014/D0015 ratified, and two

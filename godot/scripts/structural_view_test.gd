@@ -30,12 +30,13 @@ func check(cond: bool, what: String) -> void:
 func _ready() -> void:
 	# This scene asserts committed-fixture constants unconditionally and can
 	# only run against synthetic content. Refuse real-content arguments the
-	# way the M4 boundary test refuses --grp (real E1L1 is slice 3).
+	# way the M4 boundary test refuses --grp (real content enters through
+	# the human viewer only, never a CI scene).
+
 	for a in OS.get_cmdline_user_args():
 		if a == "--grp" or a == "--map" or a == "--dir":
 			push_error("structural_view_test.gd is the CI consumer-boundary test and "
-				+ "only runs against committed synthetic fixtures. Real content arrives "
-				+ "with slice 3.")
+				+ "only runs against committed synthetic fixtures.")
 			get_tree().quit(2)
 			return
 
@@ -184,19 +185,24 @@ func _test_asymmetric_transform_probe() -> void:
 		return
 	# Direct boundary read (NOT via actual_arrays) against constants derived
 	# from the committed fixture spec: Build x 1000..11000, y 2000..7000,
-	# ceiling z 3000 / floor z 9000, render space (x, -z, y) * 2^-11. Every
-	# component is distinct, so a second transform, axis swap, or sign flip
+	# ceiling z 3000 / floor z 9000, render space (x, -z/16, y) with the
+	# 2^-11 horizontal scale. The two scale factors are written out literally
+	# from the format spec (horizontal 2048; vertical 2048 * 16 = 32768,
+	# because Build Z is 16x the horizontal unit scale -- D0016 amendment),
+	# NOT read back from the implementation. Every component is distinct, so a
+	# second transform, an axis swap, a sign flip, or isotropic Z scaling
 	# fails here even if every helper on the expected side lies. All values
 	# are exactly representable in float32, so equality is exact.
 	var arrays: Array = inst.mesh.surface_get_arrays(0)
 	var verts: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
 	check(verts.size() == 4, "asymmetric_probe floor: 4 corners, got %d" % verts.size())
 	var s := 1.0 / 2048.0
+	var vs := 1.0 / 32768.0
 	var want := PackedVector3Array([
-		Vector3(1000.0 * s, -9000.0 * s, 2000.0 * s),
-		Vector3(11000.0 * s, -9000.0 * s, 2000.0 * s),
-		Vector3(11000.0 * s, -9000.0 * s, 7000.0 * s),
-		Vector3(1000.0 * s, -9000.0 * s, 7000.0 * s),
+		Vector3(1000.0 * s, -9000.0 * vs, 2000.0 * s),
+		Vector3(11000.0 * s, -9000.0 * vs, 2000.0 * s),
+		Vector3(11000.0 * s, -9000.0 * vs, 7000.0 * s),
+		Vector3(1000.0 * s, -9000.0 * vs, 7000.0 * s),
 	])
 	for w in want:
 		check(verts.has(w), "asymmetric_probe: floor corner %s not verbatim at the boundary" % w)

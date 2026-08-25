@@ -417,13 +417,18 @@ everything derived from a map.
 Decision:
 1. **One conversion, in `fauxbuild::to_render_space` (core), nothing else.**
    `render.x = build.x * scale`, `render.y = -build.z * scale`,
-   `render.z = build.y * scale` (Build Z grows down; render Y up). The scale must be a
-   power of two (default 2^-11: one 65536 grid square -> 32 render units,
-   the M3 storey height 16384 -> 8) so every int32 Build coordinate maps to
-   an exactly representable double and back — vertex bytes are bit-identical
-   across platforms and rebuilds, and the reverse mapping is a multiply and
-   a truncation. Non-power-of-two scales are rejected with a structured
-   error (external contract), not FB_CHECK. No consumer may invent its own
+   `render.z = build.y * scale` (Build Z grows down; render Y up).
+   **Amended 2026-08-25 — see the amendment below; rule 1's vertical term is
+   now `-build.z * scale / 16`.** The scale must be a
+   power of two (default 2^-11: one 65536 grid square -> 32 render units;
+   under the amendment a 16384-unit storey maps to 0.5, not 8) so every int32
+   Build coordinate maps to an exactly representable double and back — vertex
+   bytes are bit-identical across platforms and rebuilds, and the reverse
+   mapping is a multiply and a truncation, per axis with that axis's own
+   inverse. Non-power-of-two scales are rejected with a structured error
+   (external contract), not FB_CHECK — including a conforming horizontal
+   scale whose derived vertical scale (scale / 16) is not itself an exactly
+   reversible power of two. No consumer may invent its own
    transform; the M5 slice-2 adapter feeds these vertices to Godot verbatim.
 2. **Derived geometry is disposable.** StructuralWorld is a pure function of
    (MapData, options): same map -> identical surfaces, vertices, indices,
@@ -454,6 +459,92 @@ Consequences: M5 slice 2 builds the ArrayMesh viewer directly from these
 surfaces; M6 slopes will extend, not replace, this derivation (flat-Z
 output order stays stable for unsloped sectors).
 
+
+#### D0016 amendment — Build vertical units are 16x the horizontal scale
+
+Status: **accepted — human ratification 2026-08-25**, on Mapster32 black-box
+observation of the `metric_cube` fixture: a room 1024 units across with a
+16384-unit floor-to-ceiling delta presents approximately cubically, not as a
+16x-tall shaft. D0016 rule 1's vertical term is amended accordingly.
+
+That attestation is the independent corroboration the amendment was held
+open for. The published 16:1 description supplied the hypothesis; our own
+black-box observations supplied the evidence — first the two measurements
+below over legally owned content, then the Mapster32 confirmation on
+original synthetic content, which is the one a reader can reproduce without
+owning anything.
+
+Context: the M5 slice-3 human gate found that untouched E1L1 presents as a
+tall narrow tower — structurally coherent by counts and topology, but
+physically wrong. The hypothesis is that D0016 treats Build X/Y/Z units
+isotropically when Build Z is numerically 16x the horizontal scale for the
+same physical distance: 1024 horizontal units and 16384 vertical units
+describe the same extent.
+
+Published binary-format descriptions state the 16:1 relationship. That is a
+hypothesis, not evidence (AGENTS.md rule 2), so it was corroborated by our
+own black-box observation of legally owned content before being encoded —
+the same process that caught three wrong bit meanings in M3. No Build
+source, source port, or decompilation was consulted, and nothing about this
+decision depends on any.
+
+**Corroboration 1 — whole-world proportions.** Under the isotropic
+transform, E1L1's derived render AABB is 52.56 x 252.00 x 33.99: a level
+almost five times taller than its longest horizontal span. Dividing the
+vertical axis by 16 gives 52.56 x 15.75 x 33.99 — broad and shallow, which
+is what a level's footprint looks like.
+
+**Corroboration 2 — room proportions across six owned maps.** Median
+floor-to-ceiling delta against median longest wall span per sector:
+
+| map | n | median dZ | median span | dZ/span | /16 |
+|---|---|---|---|---|---|
+| E1L1 | 297 | 24576 | 1024 | 22.00 | 1.38 |
+| E1L2 | 254 | 16384 | 1280 | 16.00 | 1.00 |
+| E1L3 | 437 | 20480 | 1448 | 16.00 | 1.00 |
+| E1L4 | 529 | 22528 | 1619 | 13.71 | 0.86 |
+| E1L5 | 456 | 38912 | 1924 | 24.32 | 1.52 |
+| E1L6 | 326 | 26624 | 1267 | 19.80 | 1.24 |
+
+Isotropically, every room would be 14-24x taller than wide. After the 16:1
+correction they are 0.86-1.52 — roughly as tall as they are wide, which is
+what human-scale architecture looks like. The vertical values are also
+quantised in 1024-unit steps (16/20/22/24/26/38 x 1024) while horizontal
+spans are 1024-1924, consistent with a coarser vertical unit. These are
+aggregate statistics over legally owned content; no extracted bytes,
+coordinates, or hashes are committed.
+
+Decision (proposed):
+1. **One base render scale for X/Y; the vertical scale is derived from it as
+   `scale / 16`.** Both factors are powers of two, so D0016's exactness and
+   reversibility property is unchanged — each axis reverses with its own
+   inverse (2048 horizontal, 32768 vertical at the default scale).
+2. **The 16:1 relationship is a compatibility invariant, not user tuning.**
+   It is a compile-time constant (`kBuildVerticalUnitsPerHorizontal`), NOT an
+   independent `z_scale` option: there is deliberately nothing for a caller
+   to set wrong.
+3. **The transform stays single-sourced in `to_render_space`.** No consumer
+   applies a vertical correction of its own, and the human viewer must not
+   compensate through camera logic.
+4. MapData, topology, triangulation, surface counts, and winding are
+   untouched. Only render-space vertex Y values change.
+
+CI truth: the `metric_cube` fixture (1024 horizontal, 16384 vertical) must
+derive equal render extents on all three axes. It encodes generic format
+quantities only — nothing from any game's content.
+
+**HUMAN-ATTESTED PASS 2026-08-25** by mitchellcurrie: `metric_cube` opened
+in Mapster32 presents approximately cubically, confirming 16:1. The
+`metric_cube` CI test is the standing regression pin.
+
+Follow-on (accepted with this amendment): the human viewer's real-content
+mode aims its initial view at the map's own parsed start position, converted
+through `to_render_space` like every other coordinate — never a second
+transform, and never the start ANGLE, whose semantics are not M5's. Synthetic
+fixture mode keeps the AABB centre; distance, elevation, clip planes and
+traversal speed come from the whole-world AABB in both modes. This is
+presentation, not authority: no geometry, derivation, packing or metric
+changes.
 
 ### D0017 — Structural polygon triangulation pipeline (M5)
 
