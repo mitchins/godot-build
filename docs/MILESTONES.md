@@ -993,7 +993,7 @@ checklist above.
 **M4 ACCEPTED 2026-08-24.** All six gate items satisfied; see the gate
 checklist above for the evidence and class of each.
 
-## M5 — Static structural world viewer — IN_PROGRESS (slices 1–2 ACCEPTED; slice 3 next)
+## M5 — Static structural world viewer — IN_PROGRESS (slices 1–2 ACCEPTED; slice 3 delivered at checkpoint, awaiting HUMAN-ATTESTED real-world gate)
 
 Gate summary: structural fixtures render with correct topology; holes/non-convex sectors render;
 no persistent Godot scene becomes authority; local E1L1 loads as recognizable 3D shell (HUMAN-ATTESTED);
@@ -1290,9 +1290,103 @@ no stale presentation survives; damaging or freeing generated nodes does not
 make them authoritative. PR #6 merged with zero unresolved threads and all four
 CI jobs green on head `2920b4d`.
 
-M5 remains IN_PROGRESS. Slice 3 — real E1L1 presentation — is next and is the
-milestone's payoff: existing loader → existing derivation → existing view, with
-no new subsystems.
+M5 remains IN_PROGRESS. Slice 3 delivered at checkpoint below; awaiting
+the HUMAN-ATTESTED real-world gate.
+
+### Slice 3 — real-content entry path (delivered 2026-08-25, checkpoint)
+
+Wiring only — no new geometry, rendering semantics, parser, or derivation
+code. The slice proves an untouched Build MAP loaded through the real
+content path reaches the same StructuralWorld and the same presentation
+seam slices 1–2 already proved.
+
+- **Production source owner:** `FauxStructuralSource` (registered
+  RefCounted; the one legitimate GDScript-facing content entry point).
+  `present_grp(grp_path, map_name, view)` and `present_dir(dir_path,
+  map_name, view)` both run the identical core chain —
+  `GrpMount`/`DirectoryMount` → `Vfs` → `read_map` →
+  `build_structural_world` → `FauxBuildView.present_world` — differing
+  only in the mount constructor. No extraction, no third direct-filesystem
+  MAP path (DirectoryMount already covers loose files), no GRP writer, no
+  fbtool helper duplication. The view itself gained nothing: still a pure
+  StructuralWorld consumer with `structural.hpp` as its only core header.
+- **Transactionality:** the complete new world is derived before the view
+  is touched; a failure anywhere returns false with a stage-tagged
+  structured `last_error` (mount / vfs lookup / map parse / structural
+  derivation / view), leaves the previous presentation intact, and keeps
+  the reporting facts describing the last successful load. Facts are
+  diagnostic state only (source description, resolved map name,
+  sector/wall/surface/triangle/note/diagnostic counts) — MapData is never
+  exposed as script-authoritative state, and no generated mesh or scene
+  ever leaves the view as output.
+- **Synthetic CI drives the identical production route (D0009):** the new
+  `structural_source_test` scene serializes five committed fixtures
+  (square_room, non_convex, multi_loop, two_sector_portal, portal_heights)
+  with `FauxStructuralFixture.write_fixture_map` (the core canonical
+  `write_map`, disk output from test infrastructure only) into a scratch
+  directory outside the repo, re-loads them through the production
+  `FauxStructuralSource.present_dir`, and compares the ACTUAL boundary
+  arrays (`MeshInstance3D.mesh` → `ArrayMesh.surface_get_arrays()`)
+  group-for-group, array-for-array, against the direct fixture route —
+  plus group presence, sector/wall counts against the fixture specs, and
+  surface/triangle/note/diagnostic facts against boundary-derived values.
+  What differs for the human real-content gate is only DirectoryMount →
+  GrpMount; GRP mounting is proven by M2 and by `present_grp`'s
+  missing-archive error path.
+- **Route-integrity tripwire (standing):** after the equivalence cases,
+  the scene corrupts the serialized PORTAL_HEIGHTS.MAP bytes on disk
+  (version field → 99) and requires the production route to fail while
+  the direct fixture route still succeeds — proving the mounted MAP
+  bytes/mount/parser are genuinely consumed, not re-derived. The same
+  case asserts the failed load replaces nothing (previous arrays
+  unchanged, facts still describe the last success).
+- **Error paths (CI, synthetic only):** missing MAP inside a valid
+  directory mount, malformed MAP bytes, nonexistent directory,
+  nonexistent GRP path, and a null view — each fails cleanly with the
+  expected stage tag; none crash, none damage state.
+- **Human viewer opened for real content (the only place it may enter):**
+  `structural_view_human` now takes `--fixture NAME` (default synthetic
+  mode), or `--grp PATH --map VFS_NAME` / `--dir PATH --map VFS_NAME`.
+  `--map` is required for source modes; `--grp`+`--dir`, fixture+source,
+  dangling values, option-like values, and unknown arguments are usage
+  errors (exit 2). No Duke names are known or defaulted. Before the shell
+  becomes inspectable it prints the generic facts (source, map, sectors,
+  walls, structural surfaces, triangles, notes, diagnostics, groups) —
+  nothing content-specific is hardcoded; divergence against the
+  established 1936/5134/0 invariants is judged by the human. Fly camera
+  and AABB framing unchanged; still flat untextured diagnostic materials,
+  render-all, no collision/physics.
+- **Static tripwire:** the layering guard now pins the source owner both
+  ways — `faux_structural_source.cpp` MUST include `map_io.hpp`,
+  `vfs.hpp`, and `structural.hpp` and MUST hand worlds to
+  `FauxBuildView.present_world`; neither source file may reference
+  fixture synthesis, separate validation, assets/textures, scene
+  persistence, or Godot mesh construction (a source that renders bypasses
+  the view). The existing FauxBuildView guard is unchanged.
+- **Scene gate:** `ci/check_scene.py` runs the route scene + its
+  `--grp` refusal (exit 2 contract), and exercises the human viewer's
+  source-mode argument contracts headless (four exit-2 usage cases and a
+  graceful exit-1 missing-GRP failure). All prior gates (M1 sample, M4
+  atlas boundary/preview/human + refusal, M5 slice-2 boundary + refusal +
+  human synthetic) unchanged and green.
+- **Sabotage evidence** (each observed red on a verified build, then
+  reverted): a hidden bypass that re-derived MapData from the in-memory
+  fixture while the static guard stayed green still passed every
+  equivalence case and was caught ONLY by the standing corruption
+  tripwire (the mounted bytes were never read) — the guard's
+  `map_synth`-token tripwire catches the naive include form; loading
+  another mount MAP instead of the requested name (array + fact + resolved
+  name mismatches); constructing meshes in the source instead of calling
+  the view seam (static gate red on both pins); pre-clearing the
+  presentation before derivation (failed load left an empty shell —
+  "group set changed after failed load"); and removing the slice-2 test's
+  `--grp` refusal (scene gate red, "exit 0, expected 2").
+- Real E1L1 presentation is the pending HUMAN gate; textures/slopes/
+  sprites/visibility remain M6+. The expected human invariants
+  (317 sectors / 1937 walls / 1936 surfaces / 5134 triangles /
+  0 diagnostics; notes ≈321 are expected deferrals, not errors) are
+  documented here as evidence class HUMAN-ATTESTED-pending, asserted by
+  no CI test.
 
 Next milestone work was not started.
 ## M6 — Slopes, indexed textures, flags, and sprites — NOT_STARTED

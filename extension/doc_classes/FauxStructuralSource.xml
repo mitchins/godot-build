@@ -1,0 +1,112 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="FauxStructuralSource" inherits="RefCounted" version="4.7">
+	<brief_description>
+		Production real-content entry point: mounts a GRP or loose directory, reads a MAP
+		through the VFS, derives the structural world, and presents it to a [FauxBuildView].
+	</brief_description>
+	<description>
+		<para>
+			[b]Source-side operation only, never rendering.[/b] This class owns the one
+			legitimate GDScript-facing real-content route: core mount (GRP archive or loose
+			directory) → VFS lookup of the MAP name → core MAP reader → core structural
+			derivation → [code]StructuralWorld[/code] → the view's C++ presentation seam. The
+			view stays a pure consumer; generated meshes stay disposable presentation.
+		</para>
+		<para>
+			Failure is transactional: a load that fails anywhere returns [code]false[/code],
+			records a stage-tagged structured error in [method get_last_error], leaves the
+			previously presented world untouched, and does not update the reporting facts —
+			they keep describing the last successful load. MapData is never retained or exposed
+			as script-authoritative state.
+		</para>
+	</description>
+	<methods>
+		<method name="present_grp">
+			<return type="bool" />
+			<param index="0" name="grp_path" type="String" />
+			<param index="1" name="map_name" type="String" />
+			<param index="2" name="view" type="FauxBuildView" />
+			<description>
+				<para>
+					Mounts the GRP archive at [param grp_path] in place (no extraction) and
+					presents the MAP found under the VFS name [param map_name] to [param view].
+				</para>
+			</description>
+		</method>
+		<method name="present_dir">
+			<return type="bool" />
+			<param index="0" name="dir_path" type="String" />
+			<param index="1" name="map_name" type="String" />
+			<param index="2" name="view" type="FauxBuildView" />
+			<description>
+				<para>
+					Mounts the loose directory at [param dir_path] and presents the MAP found
+					under the (case-insensitively matched) VFS name [param map_name] to
+					[param view].
+				</para>
+			</description>
+		</method>
+		<method name="get_source_description">
+			<return type="String" />
+			<description>
+				<para>
+					Mount description of the last successful load, e.g. [code]grp:/path/to/archive.grp[/code].
+				</para>
+			</description>
+		</method>
+		<method name="get_map_name">
+			<return type="String" />
+			<description>
+				<para>
+					Normalized VFS name that was read by the last successful load.
+				</para>
+			</description>
+		</method>
+		<method name="get_sector_count">
+			<return type="int" />
+			<description>
+				<para>Sector count of the last successfully loaded map (reporting only).</para>
+			</description>
+		</method>
+		<method name="get_wall_count">
+			<return type="int" />
+			<description>
+				<para>Wall count of the last successfully loaded map (reporting only).</para>
+			</description>
+		</method>
+		<method name="get_surface_count">
+			<return type="int" />
+			<description>
+				<para>Structural surface count of the last successful derivation (reporting only).</para>
+			</description>
+		</method>
+		<method name="get_triangle_count">
+			<return type="int" />
+			<description>
+				<para>Triangle count of the last successful derivation (reporting only).</para>
+			</description>
+		</method>
+		<method name="get_note_count">
+			<return type="int" />
+			<description>
+				<para>Deferral-note count of the last successful derivation (reporting only).</para>
+			</description>
+		</method>
+		<method name="get_diagnostic_count">
+			<return type="int" />
+			<description>
+				<para>Nonfatal diagnostic count of the last successful derivation (reporting only).</para>
+			</description>
+		</method>
+		<method name="get_last_error">
+			<return type="String" />
+			<description>
+				<para>
+					Human-readable description of the most recent failure, prefixed with the
+					failed stage (mount, vfs lookup, map parse, structural derivation, view);
+					empty after a successful load.
+				</para>
+			</description>
+		</method>
+	</methods>
+</class>

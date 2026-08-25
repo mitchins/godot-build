@@ -1,11 +1,23 @@
 extends Node3D
 
-# Human synthetic structural viewer (M5 slice 2). Deliberately separate from
-# the fixture-constant CI scene (structural_view_test.gd): this harness makes
-# the structural fixtures visually understandable and stays open for
-# interactive inspection. Committed synthetic fixtures only -- it has no
-# real-content loading capability at all (that is slice 3), and refuses to be
-# pointed at any.
+# Human structural viewer (M5 slices 2-3). Deliberately separate from the
+# fixture-constant CI scene (structural_view_test.gd) and from the
+# production-route CI scene (structural_source_test.gd): this harness is
+# what a human inspects, and (since slice 3) it is the ONLY place real
+# content may enter.
+#
+# Modes:
+#   --fixture NAME              committed synthetic fixture (default)
+#   --dir PATH --map VFS_NAME   loose directory source
+#   --grp PATH --map VFS_NAME   GRP archive source (mounted in place, no
+#                               extraction) through the production
+#                               FauxStructuralSource route
+#
+# The real modes print the generic source facts (sectors, walls,
+# structural surfaces, triangles, notes, diagnostics, groups) before the
+# shell becomes inspectable. No expected content values are hardcoded:
+# divergence is judged by the human against independently established
+# numbers.
 #
 # Presentation: perspective camera with direct transform fly controls. No
 # CharacterBody3D, no collision, no physics. Camera framing derives an AABB
@@ -13,36 +25,67 @@ extends Node3D
 # world authority.
 
 const GROUPS := ["Floors", "Ceilings", "SolidWalls", "PortalUpper", "PortalLower"]
+const KINDS := [0, 1, 2, 3, 4]
 const SPEED := 10.0
 const FAST_MULT := 4.0
 const LOOK_SENSITIVITY := 0.0022
+const USAGE := "usage: [--fixture NAME] | [--grp PATH | --dir PATH] --map VFS_NAME"
 
 var view: FauxBuildView
-var harness: FauxStructuralFixture
 var camera: Camera3D
 var fixture_name := "square_room"
+var fixture_given := false
+var grp_path := ""
+var dir_path := ""
+var map_name := ""
 
 
-func _ready() -> void:
+func _usage_error(message: String) -> void:
+	push_error("structural-view: " + message + " (" + USAGE + ")")
+	get_tree().quit(2)
+
+
+func _parse_args() -> bool:
 	var args := OS.get_cmdline_user_args()
 	var i := 0
 	while i < args.size():
-		if args[i] == "--fixture" and i + 1 < args.size():
-			fixture_name = args[i + 1]
-			i += 2
-		elif args[i] == "--grp" or args[i] == "--map" or args[i] == "--dir":
-			push_error("structural_view_human.gd presents committed synthetic fixtures "
-				+ "only; proprietary content is out of scope for the M5 slice-2 viewer.")
-			get_tree().quit(2)
-			return
-		else:
-			i += 1
+		var a := args[i]
+		if a != "--fixture" and a != "--grp" and a != "--dir" and a != "--map":
+			_usage_error("unknown argument '%s'" % a)
+			return false
+		if i + 1 >= args.size() or args[i + 1].begins_with("--"):
+			_usage_error("%s needs a value" % a)
+			return false
+		var value: String = args[i + 1]
+		match a:
+			"--fixture":
+				fixture_name = value
+				fixture_given = true
+			"--grp":
+				grp_path = value
+			"--dir":
+				dir_path = value
+			"--map":
+				map_name = value
+		i += 2
 
-	harness = FauxStructuralFixture.new()
-	if not harness.get_fixture_names().has(fixture_name):
-		push_error("structural-view: unknown fixture '%s' (have: %s)"
-			% [fixture_name, ", ".join(harness.get_fixture_names())])
-		get_tree().quit(1)
+	if grp_path != "" and dir_path != "":
+		_usage_error("--grp and --dir are alternative source modes; give only one")
+		return false
+	if fixture_given and (grp_path != "" or dir_path != ""):
+		_usage_error("--fixture is the synthetic mode; do not combine it with --grp/--dir")
+		return false
+	if map_name != "" and grp_path == "" and dir_path == "":
+		_usage_error("--map requires --grp or --dir")
+		return false
+	if (grp_path != "" or dir_path != "") and map_name == "":
+		_usage_error("source mode requires --map (the MAP's VFS name inside the source)")
+		return false
+	return true
+
+
+func _ready() -> void:
+	if not _parse_args():
 		return
 
 	view = FauxBuildView.new()
@@ -52,19 +95,75 @@ func _ready() -> void:
 	add_child(camera)
 	camera.current = true
 
-	if not harness.present(fixture_name, view):
-		push_error("structural-view: fixture failed to present: " + harness.get_last_error())
-		get_tree().quit(1)
-		return
+	if grp_path != "" or dir_path != "":
+		if not _present_source():
+			return
+	else:
+		if not _present_fixture():
+			return
 
 	_frame_camera()
 
 	if DisplayServer.get_name() != "headless":
 		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
-	print("structural-view: ready for inspection (%s; %d notes, %d diagnostics)"
-		% [fixture_name, harness.get_note_count(), harness.get_diagnostic_count()])
 	print("structural-view: WASD move, Q/E down/up, Shift fast, mouse look, "
 		+ "Escape releases the mouse, click recaptures")
+
+
+func _present_source() -> bool:
+	var source := FauxStructuralSource.new()
+	var ok := false
+	if grp_path != "":
+		ok = source.present_grp(grp_path, map_name, view)
+	else:
+		ok = source.present_dir(dir_path, map_name, view)
+	if not ok:
+		push_error("structural-view: source failed to load/present: " + source.get_last_error())
+		get_tree().quit(1)
+		return false
+
+	print("structural-view source: %s" % source.get_source_description())
+	print("map: %s" % source.get_map_name())
+	print("sectors: %d" % source.get_sector_count())
+	print("walls: %d" % source.get_wall_count())
+	print("structural surfaces: %d" % source.get_surface_count())
+	print("triangles: %d" % source.get_triangle_count())
+	print("notes: %d" % source.get_note_count())
+	print("diagnostics: %d" % source.get_diagnostic_count())
+	print("groups: %s" % ", ".join(view.get_group_names()))
+	print("structural-view: ready for inspection (%s:%s; %d notes, %d diagnostics)"
+		% [source.get_source_description(), source.get_map_name(),
+			source.get_note_count(), source.get_diagnostic_count()])
+	return true
+
+
+func _present_fixture() -> bool:
+	var harness := FauxStructuralFixture.new()
+	if not harness.get_fixture_names().has(fixture_name):
+		push_error("structural-view: unknown fixture '%s' (have: %s)"
+			% [fixture_name, ", ".join(harness.get_fixture_names())])
+		get_tree().quit(1)
+		return false
+	if not harness.present(fixture_name, view):
+		push_error("structural-view: fixture failed to present: " + harness.get_last_error())
+		get_tree().quit(1)
+		return false
+
+	var surfaces := 0
+	var triangles := 0
+	for k in KINDS:
+		surfaces += harness.expected_surface_count(k)
+		triangles += harness.expected_indices(k).size() / 3
+	print("structural-view source: fixture:%s" % fixture_name)
+	print("map: -")
+	print("structural surfaces: %d" % surfaces)
+	print("triangles: %d" % triangles)
+	print("notes: %d" % harness.get_note_count())
+	print("diagnostics: %d" % harness.get_diagnostic_count())
+	print("groups: %s" % ", ".join(view.get_group_names()))
+	print("structural-view: ready for inspection (%s; %d notes, %d diagnostics)"
+		% [fixture_name, harness.get_note_count(), harness.get_diagnostic_count()])
+	return true
 
 
 func _frame_camera() -> void:

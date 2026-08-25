@@ -40,6 +40,14 @@ class FauxStructuralFixture : public godot::RefCounted {
     bool present(const godot::String& name, FauxBuildView* view);
     godot::String get_last_error() const;
 
+    // Serialize the named committed fixture through the core canonical MAP
+    // writer into `directory` (test-infrastructure disk output; the only
+    // thing this harness ever writes). Returns the normalized VFS name of
+    // the written file (e.g. "SQUARE_ROOM.MAP"), or an empty String with
+    // last_error set on failure. The production source route (slice 3)
+    // re-loads exactly these bytes through a directory mount.
+    godot::String write_fixture_map(const godot::String& name, const godot::String& directory);
+
     // The EXPECTED side of the consumer-boundary test: vertices and indices
     // derived directly from the retained StructuralWorld by this harness's
     // own packing — deliberately independent of FauxBuildView's packing, so

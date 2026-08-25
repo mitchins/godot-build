@@ -30,12 +30,13 @@ func check(cond: bool, what: String) -> void:
 func _ready() -> void:
 	# This scene asserts committed-fixture constants unconditionally and can
 	# only run against synthetic content. Refuse real-content arguments the
-	# way the M4 boundary test refuses --grp (real E1L1 is slice 3).
+	# way the M4 boundary test refuses --grp (real content enters through
+	# the human viewer only, never a CI scene).
+
 	for a in OS.get_cmdline_user_args():
 		if a == "--grp" or a == "--map" or a == "--dir":
 			push_error("structural_view_test.gd is the CI consumer-boundary test and "
-				+ "only runs against committed synthetic fixtures. Real content arrives "
-				+ "with slice 3.")
+				+ "only runs against committed synthetic fixtures.")
 			get_tree().quit(2)
 			return
 

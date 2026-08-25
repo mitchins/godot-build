@@ -27,6 +27,14 @@ Becomes binding at M5/M10 (first binding content at M5 slice 1). Rules fixed by 
   scene gate reads the actual `MeshInstance3D.mesh` →
   `ArrayMesh.surface_get_arrays()` arrays to prove it. Textures, UVs and
   lighting semantics are M6; visibility is M10.
+- Real-content entry seam (M5 slice 3, proven): `FauxStructuralSource` owns
+  source-side operation only — GRP path or loose directory (core mounts, no
+  extraction) → VFS lookup of the MAP name → core MAP reader → core
+  structural derivation → `FauxBuildView.present_world`. The source never
+  renders, never exposes MapData as script-authoritative state, and fails
+  transactionally (stage-tagged errors; a failed load replaces nothing).
+  The source path is never authority: generated Godot state remains
+  disposable and re-presenting from the source recreates the shell.
 - One authoritative slope evaluator feeds floor/ceiling rendering, grounding, clearance,
   hitscan, sprite placement, movers (plan §8.3). Until M6, sloped-flag sectors render flat
   at their base Z with an explicit deferral note (M5 allowance).

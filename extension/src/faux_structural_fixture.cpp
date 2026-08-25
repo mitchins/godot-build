@@ -3,8 +3,12 @@
 #include <godot_cpp/core/class_db.hpp>
 #include <godot_cpp/variant/vector3.hpp>
 
+#include <cctype>
 #include <cstdint>
+#include <filesystem>
+#include <fstream>
 #include <memory>
+#include <string>
 #include <utility>
 
 #include "fauxbuild/map_synth.hpp"
@@ -18,6 +22,8 @@ void FauxStructuralFixture::_bind_methods() {
                          &FauxStructuralFixture::get_fixture_names);
     ClassDB::bind_method(godot::D_METHOD("present", "name", "view"),
                          &FauxStructuralFixture::present);
+    ClassDB::bind_method(godot::D_METHOD("write_fixture_map", "name", "directory"),
+                         &FauxStructuralFixture::write_fixture_map);
     ClassDB::bind_method(godot::D_METHOD("get_last_error"), &FauxStructuralFixture::get_last_error);
     ClassDB::bind_method(godot::D_METHOD("expected_surface_count", "kind"),
                          &FauxStructuralFixture::expected_surface_count);
@@ -98,6 +104,48 @@ bool kind_from_int(std::int32_t kind, fauxbuild::SurfaceKind* out) {
 }
 
 } // namespace
+
+godot::String FauxStructuralFixture::write_fixture_map(const godot::String& name,
+                                                       const godot::String& directory) {
+    last_error_ = "";
+    const std::string fixture = name.utf8().get_data();
+    const std::string dir = directory.utf8().get_data();
+    if (fixture.empty() || dir.empty()) {
+        last_error_ = "write_fixture_map needs a fixture name and an output directory";
+        return "";
+    }
+
+    auto bytes = fauxbuild::synth::serialize_map_fixture(fixture);
+    if (!bytes.is_ok()) {
+        last_error_ = "fixture '" + name + "': " + bytes.error().to_string().c_str();
+        return "";
+    }
+
+    // The on-disk filename is the normalized VFS key, so the production
+    // route can look the file up by the returned name through a plain
+    // directory mount.
+    std::string upper;
+    upper.reserve(fixture.size());
+    for (const char c : fixture) {
+        upper.push_back(static_cast<char>(std::toupper(static_cast<unsigned char>(c))));
+    }
+    const std::string vfs_name = upper + ".MAP";
+    const std::filesystem::path out = std::filesystem::path(dir) / vfs_name;
+
+    std::ofstream stream(out, std::ios::binary | std::ios::trunc);
+    if (!stream) {
+        last_error_ = "cannot open '" + godot::String(out.string().c_str()) + "' for writing";
+        return "";
+    }
+    stream.write(reinterpret_cast<const char*>(bytes.value().data()),
+                 static_cast<std::streamsize>(bytes.value().size()));
+    stream.close();
+    if (!stream) {
+        last_error_ = "failed writing '" + godot::String(out.string().c_str()) + "'";
+        return "";
+    }
+    return vfs_name.c_str();
+}
 
 std::int32_t FauxStructuralFixture::expected_surface_count(std::int32_t kind) const {
     fauxbuild::SurfaceKind surface_kind;

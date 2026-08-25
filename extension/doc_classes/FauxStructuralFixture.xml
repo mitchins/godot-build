@@ -41,6 +41,20 @@
 				</para>
 			</description>
 		</method>
+		<method name="write_fixture_map">
+			<return type="String" />
+			<param index="0" name="name" type="String" />
+			<param index="1" name="directory" type="String" />
+			<description>
+				<para>
+					Serializes the named committed fixture through the core canonical MAP
+					writer into [param directory] and returns the normalized VFS name of the
+					written file (e.g. [code]SQUARE_ROOM.MAP[/code]); empty String with the
+					last error set on failure. Test infrastructure: the production source
+					route re-loads exactly these bytes through a directory mount.
+				</para>
+			</description>
+		</method>
 		<method name="get_last_error">
 			<return type="String" />
 			<description>

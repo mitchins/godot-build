@@ -303,6 +303,7 @@ if os.path.exists(godot_cpp_sconstruct):
         f'{bdir}/extension/src/faux_asset_set.cpp',
         f'{bdir}/extension/src/faux_atlas_preview.cpp',
         f'{bdir}/extension/src/faux_structural_fixture.cpp',
+        f'{bdir}/extension/src/faux_structural_source.cpp',
         f'{bdir}/extension/src/register_extension.cpp',
     ]
 

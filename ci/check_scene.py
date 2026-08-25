@@ -133,10 +133,66 @@ def main() -> int:
               f"(exit {struct_guarded.returncode}, expected 2)", file=sys.stderr)
         return 1
 
+    # M5 slice 3: the production source route. The scene serializes
+    # committed fixtures into a scratch directory with the canonical MAP
+    # writer, re-loads them through the production source owner
+    # (DirectoryMount -> VFS -> parser -> derivation -> view seam), and
+    # compares the ACTUAL boundary arrays against the direct synthetic
+    # route. Its standing corruption case proves the mounted MAP bytes
+    # are genuinely consumed. Real content differs only by the mount kind
+    # (GrpMount, proven since M2) and stays with the human viewer.
+    source_scene = run_godot(
+        godot, ["res://scenes/structural_source_test.tscn", "--quit-after", "3", "--"])
+    output = source_scene.stdout + source_scene.stderr
+    if source_scene.returncode != 0 or "M5 production source route: OK" not in output:
+        print(f"scene-check FAILED: production source route (exit "
+              f"{source_scene.returncode})", file=sys.stderr)
+        print(output[-3000:], file=sys.stderr)
+        return 1
+
+    # ...and it must refuse real-content arguments like every CI scene.
+    source_guarded = run_godot(
+        godot, ["res://scenes/structural_source_test.tscn", "--quit-after", "3", "--",
+                "--grp", "/nonexistent.grp"])
+    if source_guarded.returncode != 2 or "refuses real-content arguments" \
+            not in (source_guarded.stdout + source_guarded.stderr):
+        print(f"scene-check FAILED: the CI source-route test did not refuse --grp "
+              f"(exit {source_guarded.returncode}, expected 2)", file=sys.stderr)
+        return 1
+
+    # The human viewer is the one place real content may enter, so its
+    # source-mode argument contract is now load-bearing: mode conflicts,
+    # missing --map, and dangling values are usage errors (exit 2), and a
+    # missing source fails cleanly (exit 1) instead of crashing.
+    for args, label in [
+        (["--grp", "/nonexistent.grp"], "source without --map"),
+        (["--grp", "/nonexistent.grp", "--dir", "/nonexistent/dir"], "two source modes"),
+        (["--dir", "/nonexistent/dir", "--map"], "dangling --map value"),
+        (["--bogus"], "unknown option"),
+    ]:
+        r = run_godot(
+            godot, ["res://scenes/structural_view_human.tscn", "--quit-after", "3", "--"]
+            + args, timeout=120)
+        if r.returncode != 2:
+            print(f"scene-check FAILED: human viewer usage contract ({label}): exit "
+                  f"{r.returncode}, expected 2", file=sys.stderr)
+            print((r.stdout + r.stderr)[-1500:], file=sys.stderr)
+            return 1
+    graceful = run_godot(
+        godot, ["res://scenes/structural_view_human.tscn", "--quit-after", "3", "--",
+                "--grp", "/nonexistent.grp", "--map", "X.MAP"], timeout=120)
+    graceful_output = graceful.stdout + graceful.stderr
+    if graceful.returncode != 1 or "source failed to load/present" not in graceful_output:
+        print(f"scene-check FAILED: human viewer graceful source failure (exit "
+              f"{graceful.returncode}, expected 1)", file=sys.stderr)
+        print(graceful_output[-1500:], file=sys.stderr)
+        return 1
+
     print("scene-check: sample scene ran with the extension live")
     print("scene-check: atlas consumer boundary + preview verified")
     print("scene-check: human atlas harness runs and the CI test refuses real content")
     print("scene-check: structural consumer boundary verified; human viewer runs")
+    print("scene-check: production source route verified; human viewer source modes hold")
     return 0
 
 
