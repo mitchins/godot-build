@@ -6,6 +6,8 @@
 #include <godot_cpp/classes/ref.hpp>
 #include <godot_cpp/classes/standard_material3d.hpp>
 #include <godot_cpp/core/class_db.hpp>
+#include <godot_cpp/core/object.hpp>
+#include <godot_cpp/core/object_id.hpp>
 #include <godot_cpp/variant/array.hpp>
 #include <godot_cpp/variant/color.hpp>
 #include <godot_cpp/variant/packed_int32_array.hpp>
@@ -63,10 +65,24 @@ void FauxBuildView::_bind_methods() {
     ClassDB::bind_method(godot::D_METHOD("get_group_names"), &FauxBuildView::get_group_names);
 }
 
+godot::MeshInstance3D* FauxBuildView::resolve_group(godot::ObjectID id) {
+    if (!id.is_valid()) {
+        return nullptr;
+    }
+    godot::Object* object = godot::ObjectDB::get_instance(static_cast<uint64_t>(id));
+    if (object == nullptr) {
+        return nullptr; // freed externally since we generated it
+    }
+    return godot::Object::cast_to<godot::MeshInstance3D>(object);
+}
+
 godot::PackedStringArray FauxBuildView::get_group_names() const {
     godot::PackedStringArray names;
-    for (const auto* child : groups_) {
-        names.push_back(child->get_name());
+    for (const godot::ObjectID id : group_ids_) {
+        godot::MeshInstance3D* child = resolve_group(id);
+        if (child != nullptr) {
+            names.push_back(child->get_name()); // dead entries are simply absent
+        }
     }
     return names;
 }
@@ -76,13 +92,26 @@ void FauxBuildView::discard_presentation() {
     // can take their names) and free them. A mesh edited, replaced, or
     // damaged externally dies with its instance here; a rebuild never reads
     // presentation state back.
-    for (godot::MeshInstance3D* child : groups_) {
-        if (child != nullptr) {
-            remove_child(child);
-            child->queue_free();
+    for (const godot::ObjectID id : group_ids_) {
+        godot::MeshInstance3D* child = resolve_group(id);
+        if (child == nullptr) {
+            continue; // already freed externally; nothing to tear down
         }
+        if (child->is_queued_for_deletion()) {
+            // Deletion is already scheduled. Detaching is still required so a
+            // fresh group can take the name this frame, but queue_free again
+            // would be a double free.
+            if (child->get_parent() == this) {
+                remove_child(child);
+            }
+            continue;
+        }
+        if (child->get_parent() == this) {
+            remove_child(child); // only detach what is still ours
+        }
+        child->queue_free();
     }
-    groups_.clear();
+    group_ids_.clear();
 }
 
 bool FauxBuildView::present_world(const fauxbuild::StructuralWorld& world) {
@@ -158,7 +187,7 @@ bool FauxBuildView::present_world(const fauxbuild::StructuralWorld& world) {
         instance->set_mesh(mesh);
         instance->set_material_override(material);
         add_child(instance);
-        groups_.push_back(instance);
+        group_ids_.push_back(godot::ObjectID(instance->get_instance_id()));
     }
 
     has_world_ = true;

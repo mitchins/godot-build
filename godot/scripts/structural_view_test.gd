@@ -51,6 +51,8 @@ func _ready() -> void:
 	_test_stale_kind_groups()
 	_test_rebuild_round_trip()
 	_test_presentation_is_disposable()
+	await _test_external_free_lifecycle("Floors")
+	await _test_external_free_lifecycle("PortalUpper")
 
 	if failures == 0:
 		print("M5 structural consumer boundary: OK")
@@ -282,3 +284,55 @@ func _test_presentation_is_disposable() -> void:
 	check_group("Ceilings", KIND_CEILING, "disposable (after damage + re-present)")
 	var probe := actual_arrays("Floors")
 	check(probe.vertices.size() > 0, "disposable: Floors mesh must be reconstructed, not empty")
+
+
+# Externally freed groups must not leave dereferenceable stale tracking.
+# Tracking used raw MeshInstance3D*, so a group queue_free()'d by anyone else
+# and reaped across a frame boundary left a dangling pointer that
+# get_group_names() and the next discard_presentation() dereferenced --
+# reproduced as SIGSEGV before the fix. Run for a floor and a non-floor group
+# so nothing here is accidentally name-specific.
+func _test_external_free_lifecycle(group_name: String) -> void:
+	var context := "external-free(%s)" % group_name
+	present_fixture("portal_heights", context)
+	var victim := view.get_node_or_null(group_name)
+	check(victim != null, "%s: group missing before free" % context)
+	if victim == null:
+		return
+
+	# A: free it externally and let deletion actually complete.
+	victim.queue_free()
+	await get_tree().process_frame
+	await get_tree().process_frame
+	check(not is_instance_valid(victim), "%s: victim should be freed" % context)
+
+	# get_group_names() must not touch the dead entry, and must not report it.
+	var names: PackedStringArray = view.get_group_names()
+	check(not names.has(group_name),
+		"%s: freed group still listed at the boundary" % context)
+	for other in ["Floors", "Ceilings", "SolidWalls", "PortalUpper", "PortalLower"]:
+		if other != group_name:
+			check(names.has(other), "%s: %s should survive the free" % [context, other])
+
+	# B: re-present the same world -- the group must be reconstructed, and the
+	# real boundary arrays must match, read straight off the mesh.
+	present_fixture("portal_heights", context + " rebuild")
+	check(view.get_group_names().has(group_name),
+		"%s: group not reconstructed after external free" % context)
+	var inst := view.get_node_or_null(group_name)
+	check(inst != null, "%s: node missing after rebuild" % context)
+	if inst == null:
+		return
+	var mesh = inst.mesh
+	check(mesh != null and mesh is ArrayMesh and mesh.get_surface_count() == 1,
+		"%s: expected one ArrayMesh surface after rebuild" % context)
+	if mesh == null or not (mesh is ArrayMesh) or mesh.get_surface_count() != 1:
+		return
+	var arrays: Array = mesh.surface_get_arrays(0)
+	var verts: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+	var idx: PackedInt32Array = arrays[Mesh.ARRAY_INDEX]
+	var kind := KIND_FLOOR if group_name == "Floors" else KIND_PORTAL_UPPER
+	check(verts == harness.expected_vertices(kind),
+		"%s: rebuilt vertices differ at the boundary" % context)
+	check(idx == harness.expected_indices(kind),
+		"%s: rebuilt indices differ at the boundary" % context)

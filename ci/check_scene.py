@@ -76,9 +76,15 @@ def main() -> int:
     guarded = run_godot(
         godot, ["res://scenes/atlas_preview.tscn", "--quit-after", "3", "--",
                 "--grp", "/nonexistent.grp"])
-    if "only runs against the synthetic fixture" not in (guarded.stdout + guarded.stderr):
-        print("scene-check FAILED: the CI boundary test accepted --grp",
-              file=sys.stderr)
+    # Both halves are required. Matching only the message would pass a scene
+    # that printed the refusal and then ran anyway, or exited 0 -- the refusal
+    # is a *status* contract, not a log line (CodeRabbit, PR #6; the M4 gate
+    # had the same weakness as the M5 one and is fixed here to keep a single
+    # standard).
+    if guarded.returncode != 2 or \
+            "only runs against the synthetic fixture" not in (guarded.stdout + guarded.stderr):
+        print(f"scene-check FAILED: the CI boundary test did not refuse --grp "
+              f"(exit {guarded.returncode}, expected 2)", file=sys.stderr)
         return 1
 
     # M5 slice 2: the structural consumer boundary. The scene reads what
@@ -87,7 +93,11 @@ def main() -> int:
     # harness packed independently of the view. Fixture-only by
     # construction; real content is slice 3.
     struct_scene = run_godot(
-        godot, ["res://scenes/structural_view_test.tscn", "--quit-after", "3", "--"])
+        # 30 frames, not 3: the lifecycle regressions deliberately await frame
+        # boundaries so external queue_free() actually completes before the
+        # boundary is re-read. A budget too small to reach the awaits would
+        # make the scene look silent rather than failing.
+        godot, ["res://scenes/structural_view_test.tscn", "--quit-after", "30", "--"])
     output = struct_scene.stdout + struct_scene.stderr
     if struct_scene.returncode != 0 or "M5 structural consumer boundary: OK" not in output:
         print(f"scene-check FAILED: structural consumer boundary (exit "
@@ -117,10 +127,10 @@ def main() -> int:
     struct_guarded = run_godot(
         godot, ["res://scenes/structural_view_test.tscn", "--quit-after", "3", "--",
                 "--grp", "/nonexistent.grp"])
-    if "only runs against committed synthetic fixtures" \
+    if struct_guarded.returncode != 2 or "only runs against committed synthetic fixtures" \
             not in (struct_guarded.stdout + struct_guarded.stderr):
-        print("scene-check FAILED: the CI structural test accepted --grp",
-              file=sys.stderr)
+        print(f"scene-check FAILED: the CI structural test did not refuse --grp "
+              f"(exit {struct_guarded.returncode}, expected 2)", file=sys.stderr)
         return 1
 
     print("scene-check: sample scene ran with the extension live")

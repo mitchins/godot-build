@@ -2,6 +2,7 @@
 
 #include <godot_cpp/classes/mesh_instance3d.hpp>
 #include <godot_cpp/classes/node3d.hpp>
+#include <godot_cpp/core/object_id.hpp>
 #include <godot_cpp/variant/packed_string_array.hpp>
 
 #include <vector>
@@ -47,7 +48,17 @@ class FauxBuildView : public godot::Node3D {
   private:
     void discard_presentation();
 
-    std::vector<godot::MeshInstance3D*> groups_;
+    // Stable Godot object identities, not raw pointers. A generated group can
+    // be freed externally at any time; a raw MeshInstance3D* left behind is
+    // dereferenced by get_group_names() and by the next discard_presentation()
+    // (reproduced: SIGSEGV after queue_free + a frame boundary). ObjectID
+    // survives the object's death and can be validated before every access.
+    // ObjectDB use stays confined to extension/ -- core gains no dependency.
+    std::vector<godot::ObjectID> group_ids_;
+
+    // Resolve a tracked id to a live node, or nullptr if it has been freed or
+    // is no longer ours. Never returns a dangling pointer.
+    static godot::MeshInstance3D* resolve_group(godot::ObjectID id);
     bool has_world_ = false;
 };
 
