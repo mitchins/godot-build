@@ -995,6 +995,15 @@ checklist above for the evidence and class of each.
 
 ## M5 — Static structural world viewer — ACCEPTED 2026-08-25
 
+> **Reading note on E1L1 figures in this section.** Every surface and triangle
+> count below is M5's **flat-preview** result — 1936 surfaces / 5134 triangles.
+> It was correct for M5 and is not restated here as current: slopes did not
+> exist yet, so none of those triangles was degenerate in the world M5 built.
+> M6.1's slope-aware wall spans made 23 of them degenerate by giving spans a
+> shape that can close, and the **current accepted baseline is 317 / 1937 /
+> 1929 / 5111 / 0, notes 252** (see M6 slice 1). Both figures are true of their
+> own milestone; neither supersedes the other as history.
+
 Gate summary: structural fixtures render with correct topology; holes/non-convex sectors render;
 no persistent Godot scene becomes authority; local E1L1 loads as recognizable 3D shell (HUMAN-ATTESTED);
 diagnostics instead of crashes. Allowed shortcuts: untextured diagnostic materials,
@@ -1592,7 +1601,7 @@ M6 (slopes, indexed textures, UV/flags, sprites) is next and is where the
 shell stops looking like a CAD model.
 
 Next milestone work was not started.
-## M6 — Slopes, indexed textures, flags, and sprites — IN_PROGRESS (slice 1: appearance contract + slope evaluator landed 2026-08-25)
+## M6 — Slopes, indexed textures, flags, and sprites — IN_PROGRESS (slice 1 ACCEPTED 2026-08-26; slice 2 not started)
 
 Gate summary: slope query and render share one function; UV/sprite-flag/palette-shade matrix
 fixtures pass; local E1L1 immediately recognizable; unsupported features listed explicitly.
@@ -1606,7 +1615,21 @@ where M6 first gives those bits behavioural weight. M3 also established that
 leftover in real content (n=4,900 surfaces) — slope evaluation must honour the
 flag, not the heinum alone.
 
-### Slice 1 — slope authority + appearance contract (checkpoint 2026-08-25)
+### Slice 1 — slope authority + appearance contract — ACCEPTED 2026-08-26
+
+**Slice 1 ACCEPTED 2026-08-26** by mitchellcurrie, with the slope-aware E1L1
+baseline accepted as **317 sectors / 1937 walls / 1929 surfaces / 5111
+triangles / 0 diagnostics / 252 notes**.
+
+That baseline supersedes M5's for current work but does **not** rewrite M5's
+history: M5's flat-preview attestation of 1936 surfaces / 5134 triangles was
+correct for M5. Slopes did not exist then, so those triangles were not
+degenerate in the world M5 built — the wedge rule made 23 of them degenerate
+by giving spans a shape that could close. Both figures are true of their own
+milestone.
+
+M6.2 (textures, UVs, flags, sprites) has not started.
+
 
 Delivered (provenance-safe, formula-independent):
 
@@ -1706,7 +1729,20 @@ heinum stays perfectly flat); E shared authority (every sloped vertex
 re-derives through `surface_z_at`, plus a static tripwire pinning `heinum` to
 the one evaluator region); F wall seam (wall endpoints sit exactly on the
 sloped planes at the same XY, including the neighbour's planes across a
-portal); G E1L1 topology unchanged.
+portal); G E1L1 topology.
+
+**Gate G as originally written — "E1L1 topology unchanged" — turned out to
+rest on an invalid assumption, and review caught it.** The premise was that
+slope moves vertices and therefore cannot change how many surfaces a world
+has. That holds for floors and ceilings, but not for wall spans: an evaluated
+plane can close a span at one endpoint or along its whole length. Emitting a
+quad regardless produced zero-area triangles, so the "unchanged" count was
+itself counting degenerate geometry. The gate is now: **E1L1 derives
+317 / 1937 / 1929 / 5111 / 0, notes 252** — sectors, walls, floors, ceilings,
+solid spans and diagnostics unchanged, with only degenerate portal geometry
+gone. See the wall-span section below for the enumerated spans. M5's
+flat-preview result of 1936 / 5134 remains historically correct: slopes did
+not exist then, and those triangles were not degenerate in that world.
 
 Negative-tested, each observed red: omitting the flag check (stale-heinum
 fixture red); reversing the signed perpendicular (ramp sign tests red); using
@@ -1761,7 +1797,7 @@ compiled — a failed build is not a failed test.
   guarantees cross-platform bit identity because division and sqrt are used.
   It does not, and nothing now claims it. binary64 is documented as the chosen
   deterministic numeric lane for the supported toolchains, and the claim is
-  backed by a 14-case corpus — axis-aligned, 3/4/5, irrational-length, both
+  backed by a 15-case corpus — axis-aligned, 3/4/5, irrational-length, both
   heinum signs, both sides of the hinge, points exactly on the rounding half
   boundary and either side of it, a one-unit hinge, and a point on the hinge —
   pinned to integers derived independently in Python from the documented
@@ -1829,17 +1865,33 @@ meaningful evidence that the sign-conversion bug is gone: the same aggregates
 were produced independently by the earlier exact-integer conversion path and
 by the current magnitude-plus-sign one.
 
-E1L1 holds 317/1937/1936/5134/0, and its note count fell 321 → 252 — exactly
-the 69 slope-deferral notes removed. E1L6's 2 diagnostics are the
+E1L1's note count fell 321 → 252 — exactly the 69 slope-deferral notes that
+slope support retired. Its surface and triangle counts were 1936 / 5134 at
+this point in the slice and moved to **1929 / 5111** once the wall-span wedge
+rule landed (below); the accepted slope-aware baseline is
+**317 / 1937 / 1929 / 5111 / 0, notes 252**. E1L6's 2 diagnostics are the
 pre-existing zero-area sector, confirmed by building the same map on the
 parent commit and getting the identical 1917/4894/2. **287 stale-heinum
 planes in E1L4 alone** is why gate D is load-bearing rather than theoretical.
 
-The superseded provenance STOP and the abandoned Mapster protocol are kept
-below as the record of how the question was actually settled.
+---
 
-**STOPPED — slope evaluator not implemented (slice brief §3).** The exact
-evaluation equation is not provenance-safe in the repository:
+## SUPERSEDED HISTORICAL RECORD — M6.1 provenance STOP (2026-08-25)
+
+> **Everything from here to the end of this M6 slice-1 section is HISTORY, not
+> instructions.** It records the state of knowledge *before* the evaluator
+> landed, and every claim in it about what is unimplemented, pending, or
+> unresolved is **obsolete**. The evaluator was delivered and accepted on
+> 2026-08-26; the binding description is above and in AGENTS.md. The Mapster
+> black-box experiment described below was **abandoned**, its probe fixtures
+> **removed**, and nothing here should be acted on. It is kept because how a
+> question was settled — including a stop that turned out to be unnecessary —
+> is evidence about the process, and deleting it would hide that the
+> implementation waited for provenance rather than guessing.
+
+**[HISTORICAL] STOPPED — slope evaluator not implemented (slice brief §3).**
+At the time of writing, the exact evaluation equation was not provenance-safe
+in the repository:
 
 - *Published, approved (PROVENANCE row 9):* heinum is "rise/run; 0 =
   parallel to floor, 4096 = 45 degrees"; sector stat bit 0x0002 = sloped
