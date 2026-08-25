@@ -45,16 +45,31 @@ Becomes binding at M5/M10 (first binding content at M5 slice 1). Rules fixed by 
 - One authoritative slope evaluator feeds floor/ceiling rendering, grounding, clearance,
   hitscan, sprite placement, movers (plan §8.3). **M6 slice 1 checkpoint (2026-08-25): the
   evaluator is deliberately NOT implemented.** The approved published description fixes the
-  heinum scale (rise/run, 0 = flat, 4096 = 45°) and the slope flag (sector stat 0x0002), but
-  not the tilt axis/direction, the sign convention, or the evaluation equation — implementing
-  those from memory would violate the clean-room rules. Sloped-flag sectors therefore still
-  render flat at their base Z with the explicit deferral note (M5 allowance, carried); a
-  nonzero heinum with the flag clear remains an ignored leftover. Resolution awaits the
-  human black-box Mapster32 experiment on the original `slope_probe_*` fixtures recorded in
-  MILESTONES.md. When the evaluator lands: structural geometry places every sloped
-  floor/ceiling vertex — and every wall endpoint adjacent to a sloped surface — through the
-  same Build-space evaluation, converting to render space only afterwards; a static tripwire
-  pins the evaluator as the sole slope call site.
+  heinum scale (rise/run, 0 = flat, 4096 = 45°) and the slope flag (sector stat 0x0002).
+  **The evaluator landed in M6 slice 1.** The sector's FIRST WALL A->B is the hinge; the
+  plane passes through it at the surface's base floorz/ceilingz and tilts about it:
+
+      perp = cross(B-A, P-A) / |B-A|
+      z(P) = base_z + perp * heinum / 256
+
+  The /256 is derived, not chosen: 4096 is a 45° rise/run, 45° means physical rise equals
+  physical run, and under the ratified 16:1 metric (D0016 amendment) a run of d Build XY
+  units is 16d Build Z units. The sign is the 2D cross product of the directed first wall
+  with (P-A) — the current documented compatibility convention; winding is not an additional
+  factor. Geometry honours stat 0x0002, never the heinum alone: a nonzero heinum with the
+  flag clear is an ignored leftover.
+
+  Structural geometry places every sloped floor/ceiling vertex — and every wall endpoint
+  adjacent to a sloped surface, including the neighbour's planes across a portal — through
+  that one evaluation, converting to render space only afterwards. A static tripwire pins it
+  as the sole slope call site. A span that slope closes at one endpoint is emitted as a
+  triangular wedge; one closed at both endpoints is omitted; no zero-area triangle reaches a
+  consumer.
+
+  A flagged plane whose hinge has zero length has no defined slope plane: it is never
+  flattened as a substitute (D0019). A `slope_hinge_degenerate` diagnostic is recorded, the
+  geometry depending on that plane is omitted, and independently derivable geometry — an
+  ordinary flat ceiling above an undefined sloped floor, say — is retained.
 - Appearance data contract (M6 slice 1, delivered): every emitted StructuralSurface carries
   raw MAP appearance facts verbatim — picnum, overpicnum (walls), the raw stat word
   (floorstat/ceilingstat or wall cstat), shade, pal, x/y panning, x/y repeat (walls). No UVs,

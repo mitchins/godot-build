@@ -1636,93 +1636,19 @@ Delivered (provenance-safe, formula-independent):
   indexed shader. Documented in RENDERING_CONTRACT.md; the accepted
   `present_world(StructuralWorld)` signature is unchanged, and no Godot,
   texture, UV, shader, or sprite work landed (§14).
-- **Original slope probe fixtures** (§4). One 2×1 rectangular sector each,
-  floorz 0 / ceilingz 16384, slope bit set on exactly one surface. They
-  encode NO formula — CI pins only the provenance-safe facts (valid map, flat
-  base Z, exactly one deferral note, raw slope bit readable on the emitted
-  surface). They exist to be opened in Mapster32 by the human.
-
-  **Amended 2026-08-25 — confound removed.** The original `px`/`py`/`rx`
-  trio was built by reversing loops, and reversing a loop necessarily flips
-  BOTH the first wall's direction and the polygon's winding. A tilt
-  difference between those probes was therefore attributable to either
-  factor, which is precisely the question the run exists to answer. The
-  direction probes are now a true 2×2 holding one factor fixed while the
-  other varies (measured, not assumed — identical |shoelace|, so the
-  rectangle, base Z, stat and heinum are unchanged across all four):
-
-  | | CCW | CW |
-  |---|---|---|
-  | first wall **+X** | `slope_probe_floor_px` | `slope_probe_floor_px_cw` |
-  | first wall **+Y** | `slope_probe_floor_py_ccw` | `slope_probe_floor_py` |
-
-  **Amended again 2026-08-25 — inverted probe room corrected.** The first
-  Mapster run confirmed the written MAP really carried `floorstat = 0x0002`
-  and `floorheinum = 4096`, but the probe room itself was INVERTED: it
-  inherited the M3 default interval (floorz 0, ceilingz 16384) while Build Z
-  grows downward and real content consistently has ceilingz < floorz. The
-  slope fields were right and the probe was still useless — a behavioural
-  experiment run inside an upside-down room answers nothing about which way
-  a surface tilts. Every probe now uses an ordinary room:
-
-      ceilingz = 0      startz = 8192      floorz = 16384
-
-  Set once in the shared `slope_probe` helper, so the 2×2 cannot drift on
-  anything but direction and winding: XY dimensions, wall order, winding,
-  stat, heinum, picnums and tags are untouched. Floor probes keep
-  `floorstat = 0x0002` with heinum ±4096 and `ceilingstat/ceilingheinum = 0`;
-  the ceiling probe is the mirror image. A fixture-scoped invariant pins
-  `ceilingz < startz < floorz` plus the exact values and the
-  exactly-one-flagged-surface property. **This is deliberately NOT promoted
-  into MAP validation** — inverted intervals are representable, occur in
-  other fixtures on purpose, and remain a note rather than an error.
-  Negative-tested: restoring the inverted interval goes red, and moving
-  `startz` outside the interval fails the invariant alone.
-
-  **Resized for a visual read 2026-08-25 (M32 scripting abandoned).** The
-  numeric-oracle route was spending its time on Mapster scripting lifecycle
-  rather than on the slope question, so the probes were rebuilt for an
-  unmistakable *visual* answer. The published provenance already establishes
-  that heinum 4096 is a 45° rise/run relationship, so the rise magnitude does
-  not need measuring — only direction and sign do. Shared geometry:
-
-      rectangle 1024 x 512      ceilingz -32768   startz 0   floorz 32768
-
-  Small footprint so a 45° tilt is steep and obvious across it; tall room so
-  the tilted plane never meets the opposite one (worst case ±16384 against
-  65536 of clearance). All seven share one footprint — X ∈ [0,1024],
-  Y ∈ [0,512] — and are visually identical in 2D: only wall order and winding
-  differ, which is the whole point, so identify them by filename.
-
-  **All seven spawn at the same point (512, 256, 0) with the same angle**, so
-  "the floor rises to my left / right / ahead / behind" is directly comparable
-  between probes without coordinates, scripting, or a height readout.
-
-  Retained alongside: `slope_probe_floor_rx` (first wall −X, the reversal
-  case — still useful as a direct reversal of `px`), `slope_probe_floor_neg`
-  (heinum −4096), `slope_probe_ceiling_px`. A CI test pins the matrix's own
-  shape — first-wall direction, winding sign, and that every other field is
-  identical — so it cannot silently re-confound. Negative-tested: rebuilding
-  `px_cw` with `px`'s winding goes red.
-- **Raw sector visibility preserved** (amendment, 2026-08-25).
-  `StructuralWorld::sector_appearance` is a `StructuralSectorAppearance`
-  table with exactly one entry per SOURCE sector in source order, carrying
-  `visibility` copied verbatim from `MapData.sectors[i].visibility`. The
-  table is filled before the emission loop, so it is total: a sector that
-  emits no surface still occupies its index, and `surface.sector` indexes it
-  directly. It is sector-scoped and deliberately NOT duplicated into
-  `SurfaceAppearance`. **M6 preserves the raw value; M10 owns its
-  behavioural and render interpretation.** Nothing interprets it, no
-  visibility traversal or determination exists, and no asset/atlas
-  dependency is implied.
-  It exists now because the M6.2 seam consumes a `StructuralWorld` and
-  nothing else: a sector-scoped shading input with no route through that type
-  would have been unreachable when M10 needed it, and the seam only gets
-  harder to widen as milestones accumulate on it. Consumer test reads the
-  emitted table against the source records with **distinct** per-sector
-  values, so neither a right-length table nor a broadcast copy passes;
-  negative-tested both ways (zeroed copy, and one sector's value broadcast to
-  all).
+- **Slope probe fixtures and the Mapster black-box experiment: RETIRED
+  2026-08-26.** Seven `slope_probe_*` fixtures and their matrix-only tests
+  existed solely to feed a human black-box experiment that was abandoned in
+  favour of the provenance-backed ramp contract below. They gated no
+  production behaviour once the evaluator landed — the ramp oracles, the
+  deterministic corpus, wide-Z, the degenerate-hinge case and the wall-seam
+  and wedge tests cover it — so keeping them preserved experiment
+  archaeology, not evidence. Removed with their fixtures, dispatch entries and
+  the shared probe helper. The reasoning that led to them is worth one line:
+  the first probe set could not separate first-wall direction from winding
+  because reversing a loop flips both, and a later revision was still run
+  inside an inverted room. Both were caught by review before any conclusion
+  was drawn from them.
 
 **SLOPE EVALUATOR LANDED 2026-08-25 — Mapster experiment abandoned.** The
 black-box route was retired in favour of a minimal provenance-backed ramp
@@ -1836,16 +1762,55 @@ compiled — a failed build is not a failed test.
   very nearly cancel). Fixed by converting the magnitude and reapplying the
   sign.
 
+**Wall spans that slope closes (2026-08-26) — and an E1L1 baseline
+correction.** An evaluated slope can close a span at one endpoint. The derived
+shape is then a triangular WEDGE:
+
+| endpoints | emitted |
+|---|---|
+| open at both | quad, two triangles |
+| closed at exactly one | wedge, one triangle |
+| closed at both | nothing |
+
+Both failure modes are real and opposite: emitting a quad anyway staples a
+zero-area triangle onto it, and dropping the span entirely throws away valid
+geometry. Applied identically to SolidWall, PortalUpper and PortalLower.
+
+Covered by `portal_slope_collapse`: a sloped central sector with three flat
+neighbours whose BASE intervals are all open, so every case is produced by
+slope evaluation rather than the flat decision. Its wall 0 stays an ordinary
+quad; walls 1 and 3 run perpendicular to the hinge from opposite sides and
+give upper and lower wedges closing at opposite endpoints; wall 2 runs
+PARALLEL to the hinge, so both endpoints share a perpendicular distance and
+its spans are omitted. Which endpoint closed is derived from the evaluator in
+the test, not read off the emitted vertices. Negative-tested: restoring
+unconditional quad emission trips the zero-area gate (`dot(n, n) > 0.0` →
+`0 > 0`).
+
+**This changed E1L1, and the previous baseline was the thing that was wrong.**
+1936 → 1929 surfaces, 5134 → 5111 triangles. Enumerated exactly: **7 portal
+spans closed at both endpoints** (sector[108] wall[499], sector[110]
+wall[507], sector[127] wall[591], sector[263] walls[1442..1444], sector[269]
+wall[1499]) and **9 spans closed at one endpoint**, now wedges. 7 × 2 + 9 = 23
+triangles, and 5134 − 23 = 5111 exactly. So the accepted baseline had been
+counting **23 zero-area triangles** — 14 from wholly degenerate spans, 9 from
+spans carrying one degenerate face. Sector/wall counts, floors, ceilings,
+solid spans and diagnostics are all unchanged; only degenerate portal geometry
+went. The baseline is corrected rather than defended.
+
 *Real-content scan (dev evidence, aggregate only):*
 
 | map | sloped planes | stale heinum | max \|z−base\| | max negative Δz | surfaces | tris | diags |
 |---|---|---|---|---|---|---|---|
-| E1L1 | 69 | 22 | 24576 | 15360 | 1936 | 5134 | 0 |
-| E1L2 | 67 | 7 | 44544 | 24576 | 1726 | 4686 | 0 |
-| E1L3 | 252 | 57 | 40960 | 40960 | 3085 | 8348 | 0 |
-| E1L4 | 278 | 287 | 60407 | 60407 | 3468 | 9312 | 0 |
-| E1L5 | 302 | 49 | 152056 | 152056 | 3106 | 8854 | 0 |
-| E1L6 | 206 | 27 | 78200 | 78200 | 1917 | 4894 | 2 |
+| E1L1 | 69 | 22 | 24576 | 15360 | 1929 | 5111 | 0 |
+| E1L2 | 67 | 7 | 44544 | 24576 | 1709 | 4649 | 0 |
+| E1L3 | 252 | 57 | 40960 | 40960 | 3026 | 8190 | 0 |
+| E1L4 | 278 | 287 | 60407 | 60407 | 3435 | 9189 | 0 |
+| E1L5 | 302 | 49 | 152056 | 152056 | 3078 | 8723 | 0 |
+| E1L6 | 206 | 27 | 78200 | 78200 | 1845 | 4741 | 2 |
+
+Surface and triangle counts are post-wedge-rule; every map shed degenerate
+portal geometry it had previously been counting.
 
 Every map exercises substantial NEGATIVE deltas, which is why the scan is
 meaningful evidence that the sign-conversion bug is gone: the same aggregates
@@ -1886,19 +1851,6 @@ unknown tilt direction, int64 arithmetic widened before multiply, explicit
 rounding at the divide (NUMERICS requires the rounding policy be named and
 tested — itself an open black-box item).
 
-*Candidate synthetic Mapster experiment (HUMAN-ATTESTED; needs no
-proprietary content):*
-
-```sh
-scons config=dev check
-for f in slope_probe_floor_px slope_probe_floor_px_cw \
-         slope_probe_floor_py_ccw slope_probe_floor_py \
-         slope_probe_floor_rx slope_probe_floor_neg slope_probe_ceiling_px; do
-  ./build/dev/fbtool gen-map --fixture "$f" \
-    --out "/tmp/$(echo "$f" | tr '[:lower:]' '[:upper:]').MAP"
-done
-# open each /tmp/*.MAP in Mapster32 (black box)
-```
 
 **Visual protocol (no M32 scripting, no height readout).** For each file:
 open it, enter 3D mode, and *without moving*, record which way the flagged

@@ -28,3 +28,10 @@ godot/bin/fauxbuild.gdextension.uid
 # Python bytecode (ci/ scripts are imported by tests/fuzz/gen_manifest.py)
 __pycache__/
 *.pyc
+
+# Mapster32 writes its configuration and log into the working directory when
+# invoked from the repository root during black-box inspection. Machine state,
+# never FauxBuild source.
+mapster32.cfg
+mapster32.log
+m32_settings.cfg

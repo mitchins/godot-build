@@ -248,44 +248,11 @@ mapv7::MapData slope_metadata_world() {
 }
 
 // M6 slice 1 slope probes (PROVENANCE STOP 2026-08-25). The approved
-// published description establishes heinum as rise/run with 4096 = 45
-// degrees and the sector slope bit (stat 0x0002), but NOT which horizontal
-// direction the surface tilts along, the sign convention, or the exact
-// evaluation equation. These ORIGINAL fixtures are the inputs to the
-// black-box Mapster32 experiment that settles axis/sign/anchor; they encode
-// no formula and assert no sloped geometry. Until the evaluator exists they
-// derive flat at their base Z with the ordinary deferral note.
-//
-// All probes are one 2x1 rectangular sector (floorz 0, ceilingz 16384) whose
-// FIRST wall (wallptr; the published anchor for base heights) runs in a
-// controlled direction, so the experiments can separate world-axis tilt from
-// first-wall-relative tilt and read the sign:
-//   floor_px  first wall along +X, floorheinum  +4096
-//   floor_py  first wall along +Y, floorheinum  +4096
-//   floor_rx  first wall along -X (px reversed), floorheinum +4096
-//   floor_neg first wall along +X, floorheinum  -4096
-//   ceiling_px first wall along +X, ceilingheinum +4096
-// Shared geometry for every slope probe, so the 2x2 matrix cannot drift on
-// anything but first-wall direction and winding.
-//
-// Small footprint (1024 x 512, a 2:1 rectangle) and a tall room: at
-// heinum 4096 the surface tilts steeply enough across 1024 units to be
-// unmistakable by eye, and the 65536-unit interval leaves it room to tilt
-// without meeting the opposite plane. The experiment is a VISUAL one --
-// which way it goes, not how far -- so obviousness beats precision here.
-//
-// Ordinary (non-inverted) room: Build Z grows downward, so
-// ceilingz < startz < floorz, with the eye starting between the planes.
+
 // Ramp fixture geometry (M6.1 slope oracles).
 constexpr std::int32_t kRampRun = 1024;
 constexpr std::int32_t kRampFloorZ = 32768;
 constexpr std::int32_t kRampCeilingZ = -32768;
-
-constexpr std::int32_t kProbeWidth = 1024;
-constexpr std::int32_t kProbeHeight = 512;
-constexpr std::int32_t kProbeCeilingZ = -32768;
-constexpr std::int32_t kProbeStartZ = 0;
-constexpr std::int32_t kProbeFloorZ = 32768;
 
 // M6.1 ramp fixtures: the authoritative slope oracles. A right triangle whose
 // first wall A->B IS the hinge, with the third corner C exactly 1024 units
@@ -298,6 +265,62 @@ constexpr std::int32_t kProbeFloorZ = 32768;
 // 1024 * 4096 / 256 = 16384 Build Z units -- equal physical rise and run
 // under the 16:1 metric. Every quantity here is derived from the published
 // definition, not from the implementation.
+// Wall-span collapse coverage (M6.1 residual). A central sloped sector with
+// three flat neighbours, arranged so that evaluated slope heights close a
+// portal span at one endpoint, at the other, or along its whole length --
+// while the BASE interval says the span is open, so each case is genuinely
+// produced by slope evaluation rather than by the flat decision.
+//
+// Sector 0 is 1024x1024 with its first wall (0,0)->(1024,0) as the hinge, a
+// ceiling sloping down away from it and a floor sloping up. Its wall 1
+// (perpendicular to the hinge) and wall 3 (also perpendicular, opposite side)
+// have endpoints at different perpendicular distances, so their spans close at
+// one end. Its wall 2 runs PARALLEL to the hinge, so both endpoints share a
+// perpendicular distance and its span closes along its whole length.
+mapv7::MapData portal_slope_collapse_world() {
+    mapv7::MapData map;
+    const std::int32_t u = 1024;
+    const std::int32_t ax[] = {0, u, u, 0};
+    const std::int32_t ay[] = {0, 0, u, u};
+    add_loop(map, ax, ay, 4); // sector 0, walls 0..3
+    const std::int32_t bx[] = {u, 2 * u, 2 * u, u};
+    const std::int32_t by[] = {0, 0, u, u};
+    add_loop(map, bx, by, 4); // sector 1 (east), walls 4..7
+    const std::int32_t cx[] = {0, u, u, 0};
+    const std::int32_t cy[] = {u, u, 2 * u, 2 * u};
+    add_loop(map, cx, cy, 4); // sector 2 (north), walls 8..11
+    const std::int32_t dx[] = {-u, 0, 0, -u};
+    const std::int32_t dy[] = {0, 0, u, u};
+    add_loop(map, dx, dy, 4); // sector 3 (west), walls 12..15
+
+    map.walls[1].nextwall = 7; // (u,0)->(u,u) shared with sector 1
+    map.walls[1].nextsector = 1;
+    map.walls[7].nextwall = 1;
+    map.walls[7].nextsector = 0;
+    map.walls[2].nextwall = 8; // (u,u)->(0,u) shared with sector 2
+    map.walls[2].nextsector = 2;
+    map.walls[8].nextwall = 2;
+    map.walls[8].nextsector = 0;
+    map.walls[3].nextwall = 13; // (0,u)->(0,0) shared with sector 3
+    map.walls[3].nextsector = 3;
+    map.walls[13].nextwall = 3;
+    map.walls[13].nextsector = 0;
+
+    // Central sector: both planes sloped about the first wall.
+    map.sectors.push_back(make_sector(0, 4, 32768, -16384));
+    map.sectors[0].ceilingstat |= mapv7::kStatSloped;
+    map.sectors[0].ceilingheinum = 4096;
+    map.sectors[0].floorstat |= mapv7::kStatSloped;
+    map.sectors[0].floorheinum = -4096;
+    // Flat neighbours whose planes sit inside the central sector's base
+    // interval, so every span below is open on the flat decision.
+    for (int i = 0; i < 3; ++i) {
+        map.sectors.push_back(make_sector(static_cast<std::int16_t>(4 + 4 * i), 4, 16384, 0));
+    }
+    map.start = {u / 2, u / 2, 8192, 0, 0};
+    return map;
+}
+
 mapv7::MapData ramp_world(bool ceiling_slope, std::int16_t heinum) {
     mapv7::MapData map;
     const std::int32_t xs[] = {0, kRampRun, 0};
@@ -374,87 +397,6 @@ mapv7::MapData ramp_stale_heinum_world() {
     return map;
 }
 
-mapv7::MapData slope_probe(const std::int32_t* xs, const std::int32_t* ys, bool ceiling_slope,
-                           std::int16_t heinum) {
-    mapv7::MapData map;
-    add_loop(map, xs, ys, 4);
-    // Build Z grows downward, so an ordinary room has ceilingz < floorz --
-    // which is what real content consistently shows. The first version of
-    // these probes inherited the M3 default interval (floorz 0, ceilingz
-    // 16384), an INVERTED room: representable, and fine for the geometry
-    // tests that use it, but useless as a behavioural probe for which way a
-    // surface tilts. Every probe now uses an ordinary room with the eye
-    // between the planes.
-    map.sectors.push_back(make_sector(0, 4, kProbeFloorZ, kProbeCeilingZ));
-    auto& sector = map.sectors[0];
-    // Exactly one surface is flagged; the other keeps stat 0 / heinum 0, so
-    // the flagged side is the only variable.
-    if (ceiling_slope) {
-        sector.ceilingstat |= mapv7::kStatSloped;
-        sector.ceilingheinum = heinum;
-    } else {
-        sector.floorstat |= mapv7::kStatSloped;
-        sector.floorheinum = heinum;
-    }
-    map.start = {kProbeWidth / 2, kProbeHeight / 2, kProbeStartZ, 512, 0};
-    return map;
-}
-
-mapv7::MapData slope_probe_floor_px_world() {
-    const std::int32_t xs[] = {0, kProbeWidth, kProbeWidth, 0};
-    const std::int32_t ys[] = {0, 0, kProbeHeight, kProbeHeight};
-    return slope_probe(xs, ys, false, 4096);
-}
-
-// The slope direction matrix is a true 2x2: first-wall direction (+X/+Y)
-// crossed with polygon winding (CCW/CW), same rectangle, same base Z, same
-// stat and heinum. Reversing a loop necessarily flips BOTH, so the original
-// px/py/rx trio could not attribute an observed difference to one or the
-// other. These four can:
-//
-//                 CCW                     CW
-//   first +X      slope_probe_floor_px    slope_probe_floor_px_cw
-//   first +Y      slope_probe_floor_py_ccw slope_probe_floor_py
-//
-// They still encode NO formula. Whether the tilt follows the first wall, a
-// world axis, or the surface normal is exactly what the black-box run is
-// for.
-mapv7::MapData slope_probe_floor_px_cw_world() {
-    // First wall (0,U)->(2U,U): +X. Loop runs clockwise.
-    const std::int32_t xs[] = {0, kProbeWidth, kProbeWidth, 0};
-    const std::int32_t ys[] = {kProbeHeight, kProbeHeight, 0, 0};
-    return slope_probe(xs, ys, false, 4096);
-}
-mapv7::MapData slope_probe_floor_py_ccw_world() {
-    // First wall (2U,0)->(2U,U): +Y. Loop runs counter-clockwise.
-    const std::int32_t xs[] = {kProbeWidth, kProbeWidth, 0, 0};
-    const std::int32_t ys[] = {0, kProbeHeight, kProbeHeight, 0};
-    return slope_probe(xs, ys, false, 4096);
-}
-mapv7::MapData slope_probe_floor_py_world() {
-    const std::int32_t xs[] = {0, 0, kProbeWidth, kProbeWidth};
-    const std::int32_t ys[] = {0, kProbeHeight, kProbeHeight, 0};
-    return slope_probe(xs, ys, false, 4096);
-}
-
-mapv7::MapData slope_probe_floor_rx_world() {
-    const std::int32_t xs[] = {kProbeWidth, 0, 0, kProbeWidth};
-    const std::int32_t ys[] = {0, 0, kProbeHeight, kProbeHeight};
-    return slope_probe(xs, ys, false, 4096);
-}
-
-mapv7::MapData slope_probe_floor_neg_world() {
-    const std::int32_t xs[] = {0, kProbeWidth, kProbeWidth, 0};
-    const std::int32_t ys[] = {0, 0, kProbeHeight, kProbeHeight};
-    return slope_probe(xs, ys, false, -4096);
-}
-
-mapv7::MapData slope_probe_ceiling_px_world() {
-    const std::int32_t xs[] = {0, kProbeWidth, kProbeWidth, 0};
-    const std::int32_t ys[] = {0, 0, kProbeHeight, kProbeHeight};
-    return slope_probe(xs, ys, true, 4096);
-}
-
 mapv7::MapData masked_wall_world() {
     mapv7::MapData map = two_sector_portal_world();
     // Masking flag on both sides of the shared edge. 0x0002 was used here
@@ -507,27 +449,10 @@ mapv7::MapData max_reasonable_counts_world() {
 
 std::vector<std::string> map_fixture_names() {
     return {
-        "minimal",
-        "square_room",
-        "two_sector_portal",
-        "non_convex",
-        "multi_loop",
-        "double_hole",
-        "portal_heights",
-        "portal_step_floor",
-        "slope_metadata",
-        "masked_wall",
-        "sprite_orientations",
-        "max_reasonable_counts",
-        "asymmetric_probe",
-        "metric_cube",
-        "slope_probe_floor_px",
-        "slope_probe_floor_px_cw",
-        "slope_probe_floor_py",
-        "slope_probe_floor_py_ccw",
-        "slope_probe_floor_rx",
-        "slope_probe_floor_neg",
-        "slope_probe_ceiling_px",
+        "minimal",          "square_room", "two_sector_portal",   "non_convex",
+        "multi_loop",       "double_hole", "portal_heights",      "portal_step_floor",
+        "slope_metadata",   "masked_wall", "sprite_orientations", "max_reasonable_counts",
+        "asymmetric_probe", "metric_cube",
     };
 }
 
@@ -535,6 +460,8 @@ Result<mapv7::MapData> map_fixture(const std::string& name) {
     mapv7::MapData map;
     if (name == "minimal") {
         map = minimal_world();
+    } else if (name == "portal_slope_collapse") {
+        map = portal_slope_collapse_world();
     } else if (name == "slope_wide_z_pos") {
         map = slope_wide_z_pos_world();
     } else if (name == "slope_wide_z_neg") {
@@ -575,20 +502,6 @@ Result<mapv7::MapData> map_fixture(const std::string& name) {
         map = max_reasonable_counts_world();
     } else if (name == "asymmetric_probe") {
         map = asymmetric_probe_world();
-    } else if (name == "slope_probe_floor_px") {
-        map = slope_probe_floor_px_world();
-    } else if (name == "slope_probe_floor_px_cw") {
-        map = slope_probe_floor_px_cw_world();
-    } else if (name == "slope_probe_floor_py_ccw") {
-        map = slope_probe_floor_py_ccw_world();
-    } else if (name == "slope_probe_floor_py") {
-        map = slope_probe_floor_py_world();
-    } else if (name == "slope_probe_floor_rx") {
-        map = slope_probe_floor_rx_world();
-    } else if (name == "slope_probe_floor_neg") {
-        map = slope_probe_floor_neg_world();
-    } else if (name == "slope_probe_ceiling_px") {
-        map = slope_probe_ceiling_px_world();
     } else {
         return Result<mapv7::MapData>::err(
             {"synth", 0, "fixture", ErrorCode::InvalidName, "unknown fixture " + name});

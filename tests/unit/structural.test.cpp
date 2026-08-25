@@ -818,6 +818,106 @@ TEST_CASE("derived slope Z wider than int32 reaches render space unnarrowed") {
     CHECK(lowest == -97656.25);
 }
 
+TEST_CASE("slope-collapsed wall spans become wedges, not zero-area quads") {
+    // Evaluated slope heights can close a span at one endpoint. The derived
+    // shape is then a triangular WEDGE. Emitting a quad anyway staples a
+    // zero-area triangle onto it; discarding the span entirely throws away
+    // real geometry. Both are wrong, in opposite directions.
+    //
+    //   open at A and B       -> quad, two triangles
+    //   closed at exactly one -> wedge, one triangle
+    //   closed at both        -> omitted
+    //
+    // The fixture's BASE intervals are all open, so every case below is
+    // produced by slope evaluation and not by the flat decision.
+    auto map = map_fixture("portal_slope_collapse");
+    REQUIRE(map.is_ok());
+    const StructuralWorld world = build_fixture("portal_slope_collapse");
+
+    // The zero-area gate: every emitted triangle, in every surface.
+    check_triangles_wellformed(world);
+
+    auto span_for = [&](SurfaceKind kind, std::int16_t wall) -> const StructuralSurface* {
+        for (const auto& surface : world.surfaces) {
+            if (surface.kind == kind && surface.sector == 0 && surface.wall == wall) {
+                return &surface;
+            }
+        }
+        return nullptr;
+    };
+    auto plane_z = [&](SurfacePlane plane, std::int16_t sector, std::int32_t x, std::int32_t y) {
+        return surface_z_at(map.value(), sector, plane, x, y);
+    };
+
+    // Wall 0 is solid and its span is open at both ends: an ordinary quad.
+    const StructuralSurface* solid = span_for(SurfaceKind::SolidWall, 0);
+    REQUIRE(solid != nullptr);
+    CHECK(solid->vertices.size() == 4);
+    CHECK(solid->indices.size() == 6);
+
+    // Walls 1 and 3 run perpendicular to the hinge from opposite sides, so
+    // their spans close at opposite endpoints. Between them they cover both.
+    int closed_at_a = 0;
+    int closed_at_b = 0;
+    for (const std::int16_t wall : {std::int16_t{1}, std::int16_t{3}}) {
+        const auto& near_wall = map.value().walls[static_cast<std::size_t>(wall)];
+        const auto& far_wall = map.value().walls[static_cast<std::size_t>(near_wall.point2)];
+        const std::int16_t neighbour = near_wall.nextsector;
+        REQUIRE(neighbour >= 0);
+
+        for (const SurfaceKind kind : {SurfaceKind::PortalUpper, SurfaceKind::PortalLower}) {
+            const StructuralSurface* span = span_for(kind, wall);
+            REQUIRE(span != nullptr);
+            // A wedge: three vertices, exactly one triangle.
+            CHECK(span->vertices.size() == 3);
+            CHECK(span->indices.size() == 3);
+
+            // Which endpoint closed, derived from the evaluator rather than
+            // read off the emitted vertices.
+            const SurfacePlane plane =
+                kind == SurfaceKind::PortalUpper ? SurfacePlane::Ceiling : SurfacePlane::Floor;
+            const std::int64_t own_a = plane_z(plane, 0, near_wall.x, near_wall.y);
+            const std::int64_t own_b = plane_z(plane, 0, far_wall.x, far_wall.y);
+            const std::int64_t other_a = plane_z(plane, neighbour, near_wall.x, near_wall.y);
+            const std::int64_t other_b = plane_z(plane, neighbour, far_wall.x, far_wall.y);
+            const std::int64_t bound_a = kind == SurfaceKind::PortalUpper
+                                             ? std::max(own_a, other_a)
+                                             : std::min(own_a, other_a);
+            const std::int64_t bound_b = kind == SurfaceKind::PortalUpper
+                                             ? std::max(own_b, other_b)
+                                             : std::min(own_b, other_b);
+            const bool a_closed = own_a == bound_a;
+            const bool b_closed = own_b == bound_b;
+            CHECK(a_closed != b_closed); // exactly one, or it would not be a wedge
+            if (a_closed) {
+                ++closed_at_a;
+            } else {
+                ++closed_at_b;
+            }
+        }
+    }
+    CHECK(closed_at_a == 2); // upper and lower on one wall
+    CHECK(closed_at_b == 2); // upper and lower on the other
+
+    // Wall 2 runs PARALLEL to the hinge, so both endpoints sit at the same
+    // perpendicular distance and the span closes along its whole length.
+    // Omitted entirely -- not emitted as a pair of zero-area triangles.
+    CHECK(span_for(SurfaceKind::PortalUpper, 2) == nullptr);
+    CHECK(span_for(SurfaceKind::PortalLower, 2) == nullptr);
+}
+
+TEST_CASE("no emitted triangle anywhere has zero area") {
+    // The blunt version of the same guarantee, across every fixture that
+    // slopes: a degenerate triangle must never reach a consumer.
+    for (const char* name : {"portal_slope_collapse", "ramp_floor_pos", "ramp_floor_neg",
+                             "ramp_ceiling", "slope_wide_z_pos", "two_sector_portal",
+                             "portal_heights", "portal_step_floor", "multi_loop"}) {
+        const StructuralWorld world = build_fixture(name);
+        INFO("fixture: " << name);
+        check_triangles_wellformed(world);
+    }
+}
+
 TEST_CASE("an undefined slope plane omits only what depends on it") {
     // D0019 (accepted). A flagged plane whose first-wall hinge has zero length
     // has no defined slope plane. It is never flattened as a substitute and it
@@ -1091,143 +1191,6 @@ TEST_CASE("heinum without the slope flag stays perfectly flat") {
     for (const auto& v : ceiling->vertices) {
         CHECK(v.y == -16384.0 / 32768.0);
     }
-}
-
-TEST_CASE("slope probe fixtures evaluate through the one authority") {
-    // The direction/winding matrix survives the evaluator landing: these
-    // fixtures now genuinely slope, and every vertex agrees with
-    // surface_z_at. Their diagnostic value is unchanged.
-    const char* floor_probes[] = {"slope_probe_floor_px", "slope_probe_floor_px_cw",
-                                  "slope_probe_floor_py", "slope_probe_floor_py_ccw",
-                                  "slope_probe_floor_rx", "slope_probe_floor_neg"};
-    for (const char* name : floor_probes) {
-        auto map = map_fixture(name);
-        REQUIRE(map.is_ok());
-        const StructuralWorld world = build_fixture(name);
-        check_triangles_wellformed(world);
-        CHECK(world.diagnostics.empty());
-        const StructuralSurface* floor = find_surface(world, SurfaceKind::Floor, 0, -1);
-        REQUIRE(floor != nullptr);
-        CHECK((floor->appearance.raw_stat & fauxbuild::mapv7::kStatSloped) != 0);
-        for (const auto& v : floor->vertices) {
-            const auto bx = static_cast<std::int32_t>(std::llround(v.x * 2048.0));
-            const auto by = static_cast<std::int32_t>(std::llround(v.z * 2048.0));
-            const std::int64_t z = surface_z_at(map.value(), 0, SurfacePlane::Floor, bx, by);
-            CHECK(v.y == to_render_space(bx, by, static_cast<std::int32_t>(z)).y);
-        }
-    }
-    const StructuralWorld ceiling_world = build_fixture("slope_probe_ceiling_px");
-    const StructuralSurface* ceiling = find_surface(ceiling_world, SurfaceKind::Ceiling, 0, -1);
-    REQUIRE(ceiling != nullptr);
-    CHECK((ceiling->appearance.raw_stat & fauxbuild::mapv7::kStatSloped) != 0);
-}
-
-TEST_CASE("slope probe rooms are ordinary, not inverted") {
-    // The first Mapster run showed the written MAP carried the intended
-    // floorstat/floorheinum, but the room itself was inverted (ceilingz
-    // 16384 > floorz 0). Build Z grows downward and real content
-    // consistently has ceilingz < floorz, so an inverted room is a useless
-    // behavioural probe however correct its slope fields are.
-    //
-    // This invariant is scoped to the EXPERIMENT FIXTURES only. Inverted
-    // intervals are representable and are exercised elsewhere on purpose;
-    // this is deliberately not promoted into MAP validation.
-    const char* probes[] = {"slope_probe_floor_px",  "slope_probe_floor_px_cw",
-                            "slope_probe_floor_py",  "slope_probe_floor_py_ccw",
-                            "slope_probe_floor_rx",  "slope_probe_floor_neg",
-                            "slope_probe_ceiling_px"};
-    for (const char* name : probes) {
-        auto map = map_fixture(name);
-        REQUIRE(map.is_ok());
-        REQUIRE(map.value().sectors.size() == 1);
-        const auto& sector = map.value().sectors[0];
-        const auto& start = map.value().start;
-        CHECK(sector.ceilingz < start.z);
-        CHECK(start.z < sector.floorz);
-        // Identical across the whole set, so the matrix varies nothing else.
-        CHECK(sector.ceilingz == -32768);
-        CHECK(start.z == 0);
-        CHECK(sector.floorz == 32768);
-
-        // Exactly one surface is flagged, and the other side stays inert.
-        const bool ceiling_flagged = (sector.ceilingstat & fauxbuild::mapv7::kStatSloped) != 0;
-        const bool floor_flagged = (sector.floorstat & fauxbuild::mapv7::kStatSloped) != 0;
-        CHECK(ceiling_flagged != floor_flagged);
-        if (ceiling_flagged) {
-            CHECK(sector.floorheinum == 0);
-            CHECK(sector.floorstat == 0);
-            CHECK(sector.ceilingheinum == 4096);
-        } else {
-            CHECK(sector.ceilingheinum == 0);
-            CHECK(sector.ceilingstat == 0);
-            CHECK((sector.floorheinum == 4096 || sector.floorheinum == -4096));
-        }
-    }
-}
-
-TEST_CASE("slope direction probes vary first-wall direction and winding independently") {
-    // The confound this matrix exists to remove: reversing a loop flips BOTH
-    // the first wall's direction and the polygon's winding, so a trio built
-    // by reversal cannot attribute an observed tilt difference to either one.
-    // These four hold one factor fixed while the other varies. Nothing here
-    // asserts what the tilt DOES -- that is the black-box run's job.
-    struct Probe {
-        const char* name;
-        int first_dx; // sign of the first wall's x component
-        int first_dy;
-        int winding; // +1 CCW, -1 CW
-    };
-    const Probe probes[] = {
-        {"slope_probe_floor_px", 1, 0, 1},
-        {"slope_probe_floor_px_cw", 1, 0, -1},
-        {"slope_probe_floor_py_ccw", 0, 1, 1},
-        {"slope_probe_floor_py", 0, 1, -1},
-    };
-
-    for (const Probe& probe : probes) {
-        auto map = map_fixture(probe.name);
-        REQUIRE(map.is_ok());
-        const auto& walls = map.value().walls;
-        REQUIRE(walls.size() == 4);
-
-        const auto& first = walls[0];
-        const auto& second = walls[static_cast<std::size_t>(first.point2)];
-        const std::int64_t dx = static_cast<std::int64_t>(second.x) - first.x;
-        const std::int64_t dy = static_cast<std::int64_t>(second.y) - first.y;
-        CHECK((dx > 0) == (probe.first_dx > 0));
-        CHECK((dx != 0) == (probe.first_dx != 0));
-        CHECK((dy > 0) == (probe.first_dy > 0));
-        CHECK((dy != 0) == (probe.first_dy != 0));
-
-        std::int64_t twice_area = 0;
-        for (std::size_t i = 0; i < walls.size(); ++i) {
-            const auto& a = walls[i];
-            const auto& b = walls[static_cast<std::size_t>(a.point2)];
-            twice_area +=
-                static_cast<std::int64_t>(a.x) * b.y - static_cast<std::int64_t>(b.x) * a.y;
-        }
-        CHECK(twice_area != 0);
-        CHECK((twice_area > 0) == (probe.winding > 0));
-
-        // Everything else must be identical, or the matrix confounds again.
-        REQUIRE(map.value().sectors.size() == 1);
-        const auto& sector = map.value().sectors[0];
-        CHECK(sector.floorz == 32768);
-        CHECK(sector.ceilingz == -32768);
-        CHECK(sector.floorheinum == 4096);
-        CHECK((sector.floorstat & fauxbuild::mapv7::kStatSloped) != 0);
-        CHECK((sector.ceilingstat & fauxbuild::mapv7::kStatSloped) == 0);
-    }
-
-    // Both factors are actually exercised in both states.
-    int ccw = 0;
-    int plus_x = 0;
-    for (const Probe& probe : probes) {
-        ccw += probe.winding > 0 ? 1 : 0;
-        plus_x += probe.first_dx != 0 ? 1 : 0;
-    }
-    CHECK(ccw == 2);
-    CHECK(plus_x == 2);
 }
 
 TEST_CASE("raw sector visibility reaches the consumer through StructuralWorld") {

@@ -1012,14 +1012,38 @@ Result<StructuralWorld> build_structural_world(const mapv7::MapData& map,
             surface.appearance.yrepeat = wall.yrepeat;
             surface.appearance.xpanning = wall.xpanning;
             surface.appearance.ypanning = wall.ypanning;
+            // A sloped plane can close the span at one end. The derived shape
+            // is then a triangular WEDGE, not a quad with a zero-area triangle
+            // stapled to it -- and a wedge is perfectly good geometry that must
+            // not be discarded just because one endpoint closes.
+            //
+            //   open at A and B       -> quad, two triangles
+            //   closed at exactly one -> wedge, one triangle
+            //   closed at both        -> nothing to emit
+            //
+            // Winding follows the quad each case degenerates from, so `left`
+            // keeps meaning exactly what it did before.
+            const bool open_a = a_lo != a_hi;
+            const bool open_b = b_lo != b_hi;
+            if (!open_a && !open_b) {
+                return; // the span closes along its whole length
+            }
             surface.vertices.push_back(to_render_space(wall.x, wall.y, a_lo, options));
             surface.vertices.push_back(to_render_space(target.x, target.y, b_lo, options));
-            surface.vertices.push_back(to_render_space(target.x, target.y, b_hi, options));
-            surface.vertices.push_back(to_render_space(wall.x, wall.y, a_hi, options));
-            if (left) {
-                surface.indices = {0, 2, 1, 0, 3, 2};
+            if (open_a && open_b) {
+                surface.vertices.push_back(to_render_space(target.x, target.y, b_hi, options));
+                surface.vertices.push_back(to_render_space(wall.x, wall.y, a_hi, options));
+                surface.indices = left ? std::vector<std::uint32_t>{0, 2, 1, 0, 3, 2}
+                                       : std::vector<std::uint32_t>{0, 1, 2, 0, 2, 3};
             } else {
-                surface.indices = {0, 1, 2, 0, 2, 3};
+                // Closed at A: its two vertices coincide, so the quad's second
+                // face vanishes and the first survives. Closed at B: the
+                // reverse. Either way one triangle remains.
+                surface.vertices.push_back(
+                    open_a ? to_render_space(wall.x, wall.y, a_hi, options)
+                           : to_render_space(target.x, target.y, b_hi, options));
+                surface.indices = left ? std::vector<std::uint32_t>{0, 2, 1}
+                                       : std::vector<std::uint32_t>{0, 1, 2};
             }
             world.surfaces.push_back(std::move(surface));
         };

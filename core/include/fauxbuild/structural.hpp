@@ -254,16 +254,20 @@ enum class SurfacePlane { Floor, Ceiling };
 std::int64_t surface_z_at(const mapv7::MapData& map, std::int16_t sector_index, SurfacePlane plane,
                           std::int32_t x, std::int32_t y);
 
-// True when a sloped plane's hinge and geometry are inside the exactly
-// representable domain the evaluator needs. False planes are emitted flat
-// with a StructuralDiagnostic rather than silently mis-evaluated.
+// False only when a plane is FLAGGED for slope but its first-wall hinge has
+// zero length, so no slope plane is defined. Such a plane is NEVER emitted
+// flat as a substitute (D0019): a `slope_hinge_degenerate` diagnostic is
+// recorded and the geometry whose placement depends on that plane is omitted,
+// while independently derivable geometry is retained.
 bool slope_is_evaluable(const mapv7::MapData& map, std::int16_t sector_index, SurfacePlane plane);
 
 // Derive the static structural shell of a validated MAP v7 world: floors and
 // ceilings triangulated with holes preserved, solid walls as single vertical
 // spans, portal walls as upper/lower spans outside the vertical opening only
-// (never a full quad across the opening). Sloped sectors are emitted flat at
-// their base Z with a deferral note (M6 owns slope semantics). Malformed or
+// (never a full quad across the opening). Sloped sectors are evaluated through
+// `surface_z_at` (M6 slice 1); a span that slope closes at one endpoint is
+// emitted as a triangular wedge, and one closed at both is omitted, so no
+// zero-area triangle ever reaches a consumer. Malformed or
 // geometrically unrepresentable content yields structured errors; the input
 // MapData is never mutated. Requires validate_map-clean input; the first
 // validation error is surfaced as the structured error otherwise.

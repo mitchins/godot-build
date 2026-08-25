@@ -120,11 +120,18 @@ if begin < 0 or end < 0 or end < begin:
     violations.append("core/src/structural.cpp: the slope evaluator's region markers are "
                       "missing; the single-authority tripwire cannot run")
 else:
-    for lineno, line in enumerate(structural_text.splitlines(), 1):
+    # Track each line's ACTUAL offset. Searching for the line's text would
+    # resolve a repeated line to its first occurrence, so an out-of-region
+    # `heinum` line identical to one inside the evaluator would silently
+    # inherit the inside offset and escape this gate entirely.
+    offset = 0
+    for lineno, line in enumerate(structural_text.splitlines(keepends=True), 1):
+        line_offset = offset
+        offset += len(line)
+        line = line.rstrip("\n")
         if "heinum" not in line:
             continue
-        offset = structural_text.find(line)
-        if offset < begin or offset > end:
+        if line_offset < begin or line_offset > end:
             violations.append(
                 f"core/src/structural.cpp:{lineno}: slope arithmetic must live only in the "
                 f"one evaluator (M6.1): {line.strip()}")

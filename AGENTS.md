@@ -41,8 +41,11 @@ enter. **Slice 3 HUMAN-ATTESTED PASS 2026-08-25**: untouched E1L1 through
 `DUKE3D.GRP` presents 317 sectors / 1937 walls / 1936 surfaces / 5134
 triangles / 0 diagnostics; the 16:1 vertical metric was independently
 corroborated in Mapster32 against the original synthetic `metric_cube`.
-Slopes are M6 (until then: flat base Z + deferral note); textures/sprites/
-visibility are M6+.
+Slopes landed in M6 slice 1: one authoritative evaluator (`surface_z_at`),
+first-wall hinge, activated by stat 0x0002, sign from the directed hinge's 2D
+cross product, `heinum/256` from the 16:1 metric. A plane with no usable hinge
+is diagnosed and its dependent geometry omitted, never flattened (D0019).
+Textures/UVs/sprites (M6.2) and visibility (M10) are not started.
 
 M4 (ART, palette, lookup, tile tooling and the indexed atlas) was **ACCEPTED
 2026-08-24**: all six gate items met, D0013/D0014/D0015 ratified, and two
