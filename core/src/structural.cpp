@@ -859,24 +859,24 @@ Result<StructuralWorld> build_structural_world(const mapv7::MapData& map,
             return Result<StructuralWorld>::err(loops.error());
         }
 
-        // --- Slope evaluability (M6 slice 1) ------------------------------
-        // A flagged plane whose first wall is degenerate has NO hinge, so its
-        // height is undefined. Emitting it flat would be knowingly incorrect
-        // geometry dressed up as a diagnostic, so the sector is OMITTED and
-        // reported instead -- the D0018 pattern for a surface that cannot be
-        // derived. See D0019 (proposed): the alternative is a structured fatal
-        // error, which is a one-line change here.
-        bool slope_underivable = false;
-        for (const SurfacePlane plane : {SurfacePlane::Floor, SurfacePlane::Ceiling}) {
-            if (!slope_is_evaluable(map, static_cast<std::int16_t>(s), plane)) {
-                slope_underivable = true;
-                world.diagnostics.push_back({"sector[" + std::to_string(s) + "]",
-                                             plane == SurfacePlane::Floor ? "floor" : "ceiling",
-                                             "slope_hinge_degenerate"});
-            }
+        // --- Slope evaluability (D0019) -----------------------------------
+        // A flagged plane whose first-wall hinge has zero length has no
+        // defined slope plane. It is never flattened as a substitute, and it
+        // never aborts the rest of an otherwise valid world. What is omitted
+        // is exactly the geometry whose PLACEMENT depends on that undefined
+        // plane; everything independently derivable is retained. Endpoints are
+        // never fabricated from base Z.
+        const bool floor_plane_defined =
+            slope_is_evaluable(map, static_cast<std::int16_t>(s), SurfacePlane::Floor);
+        const bool ceiling_plane_defined =
+            slope_is_evaluable(map, static_cast<std::int16_t>(s), SurfacePlane::Ceiling);
+        if (!floor_plane_defined) {
+            world.diagnostics.push_back(
+                {"sector[" + std::to_string(s) + "]", "floor", "slope_hinge_degenerate"});
         }
-        if (slope_underivable) {
-            continue; // no surfaces from this sector, rather than wrong ones
+        if (!ceiling_plane_defined) {
+            world.diagnostics.push_back(
+                {"sector[" + std::to_string(s) + "]", "ceiling", "slope_hinge_degenerate"});
         }
         if (sector.ceilingz > sector.floorz) {
             world.notes.push_back({"sector[" + std::to_string(s) + "]",
@@ -903,49 +903,57 @@ Result<StructuralWorld> build_structural_world(const mapv7::MapData& map,
             world.diagnostics.push_back({record, "ceiling", "zero_area"});
         } else {
 
-            StructuralSurface floor;
-            floor.kind = SurfaceKind::Floor;
-            floor.sector = static_cast<std::int16_t>(s);
-            floor.wall = -1;
-            floor.appearance.picnum = sector.floorpicnum;
-            floor.appearance.raw_stat = sector.floorstat;
-            floor.appearance.shade = sector.floorshade;
-            floor.appearance.pal = sector.floorpal;
-            floor.appearance.xpanning = sector.floorxpanning;
-            floor.appearance.ypanning = sector.floorypanning;
-            floor.vertices.reserve(tri.value().points.size());
-            for (const Pt& p : tri.value().points) {
-                const std::int64_t z =
-                    surface_z_at(map, static_cast<std::int16_t>(s), SurfacePlane::Floor,
-                                 static_cast<std::int32_t>(p.x), static_cast<std::int32_t>(p.y));
-                floor.vertices.push_back(to_render_space(
-                    static_cast<std::int32_t>(p.x), static_cast<std::int32_t>(p.y), z, options));
-            }
-            floor.indices =
-                floor_reversed ? flipped_triangles(tri.value().triangles) : tri.value().triangles;
-            world.surfaces.push_back(std::move(floor));
+            if (floor_plane_defined) {
 
-            StructuralSurface ceiling;
-            ceiling.kind = SurfaceKind::Ceiling;
-            ceiling.sector = static_cast<std::int16_t>(s);
-            ceiling.wall = -1;
-            ceiling.appearance.picnum = sector.ceilingpicnum;
-            ceiling.appearance.raw_stat = sector.ceilingstat;
-            ceiling.appearance.shade = sector.ceilingshade;
-            ceiling.appearance.pal = sector.ceilingpal;
-            ceiling.appearance.xpanning = sector.ceilingxpanning;
-            ceiling.appearance.ypanning = sector.ceilingypanning;
-            ceiling.vertices.reserve(tri.value().points.size());
-            for (const Pt& p : tri.value().points) {
-                const std::int64_t z =
-                    surface_z_at(map, static_cast<std::int16_t>(s), SurfacePlane::Ceiling,
-                                 static_cast<std::int32_t>(p.x), static_cast<std::int32_t>(p.y));
-                ceiling.vertices.push_back(to_render_space(
-                    static_cast<std::int32_t>(p.x), static_cast<std::int32_t>(p.y), z, options));
+                StructuralSurface floor;
+                floor.kind = SurfaceKind::Floor;
+                floor.sector = static_cast<std::int16_t>(s);
+                floor.wall = -1;
+                floor.appearance.picnum = sector.floorpicnum;
+                floor.appearance.raw_stat = sector.floorstat;
+                floor.appearance.shade = sector.floorshade;
+                floor.appearance.pal = sector.floorpal;
+                floor.appearance.xpanning = sector.floorxpanning;
+                floor.appearance.ypanning = sector.floorypanning;
+                floor.vertices.reserve(tri.value().points.size());
+                for (const Pt& p : tri.value().points) {
+                    const std::int64_t z = surface_z_at(
+                        map, static_cast<std::int16_t>(s), SurfacePlane::Floor,
+                        static_cast<std::int32_t>(p.x), static_cast<std::int32_t>(p.y));
+                    floor.vertices.push_back(to_render_space(static_cast<std::int32_t>(p.x),
+                                                             static_cast<std::int32_t>(p.y), z,
+                                                             options));
+                }
+                floor.indices = floor_reversed ? flipped_triangles(tri.value().triangles)
+                                               : tri.value().triangles;
+                world.surfaces.push_back(std::move(floor));
             }
-            ceiling.indices =
-                floor_reversed ? tri.value().triangles : flipped_triangles(tri.value().triangles);
-            world.surfaces.push_back(std::move(ceiling));
+
+            if (ceiling_plane_defined) {
+
+                StructuralSurface ceiling;
+                ceiling.kind = SurfaceKind::Ceiling;
+                ceiling.sector = static_cast<std::int16_t>(s);
+                ceiling.wall = -1;
+                ceiling.appearance.picnum = sector.ceilingpicnum;
+                ceiling.appearance.raw_stat = sector.ceilingstat;
+                ceiling.appearance.shade = sector.ceilingshade;
+                ceiling.appearance.pal = sector.ceilingpal;
+                ceiling.appearance.xpanning = sector.ceilingxpanning;
+                ceiling.appearance.ypanning = sector.ceilingypanning;
+                ceiling.vertices.reserve(tri.value().points.size());
+                for (const Pt& p : tri.value().points) {
+                    const std::int64_t z = surface_z_at(
+                        map, static_cast<std::int16_t>(s), SurfacePlane::Ceiling,
+                        static_cast<std::int32_t>(p.x), static_cast<std::int32_t>(p.y));
+                    ceiling.vertices.push_back(to_render_space(static_cast<std::int32_t>(p.x),
+                                                               static_cast<std::int32_t>(p.y), z,
+                                                               options));
+                }
+                ceiling.indices = floor_reversed ? tri.value().triangles
+                                                 : flipped_triangles(tri.value().triangles);
+                world.surfaces.push_back(std::move(ceiling));
+            }
         } // end non-degenerate floor/ceiling emission
 
         // --- Wall spans ----------------------------------------------------
@@ -1030,8 +1038,13 @@ Result<StructuralWorld> build_structural_world(const mapv7::MapData& map,
             const std::int64_t floor_b = surface_z_at(map, si, SurfacePlane::Floor, far.x, far.y);
 
             if (wall.nextsector == mapv7::kNoIndex) {
-                emit_span(SurfaceKind::SolidWall, static_cast<std::int16_t>(wi), wall,
-                          sector.ceilingz, sector.floorz, ceil_a, floor_a, ceil_b, floor_b, left);
+                // A solid span needs BOTH of this sector's planes for its
+                // vertical endpoints (D0019).
+                if (floor_plane_defined && ceiling_plane_defined) {
+                    emit_span(SurfaceKind::SolidWall, static_cast<std::int16_t>(wi), wall,
+                              sector.ceilingz, sector.floorz, ceil_a, floor_a, ceil_b, floor_b,
+                              left);
+                }
             } else {
                 // Structural portal spans: only the parts of the own wall
                 // outside the vertical opening shared with the neighbour
@@ -1053,12 +1066,22 @@ Result<StructuralWorld> build_structural_world(const mapv7::MapData& map,
                     surface_z_at(map, ni, SurfacePlane::Floor, wall.x, wall.y);
                 const std::int64_t n_floor_b =
                     surface_z_at(map, ni, SurfacePlane::Floor, far.x, far.y);
-                emit_span(SurfaceKind::PortalUpper, static_cast<std::int16_t>(wi), wall,
-                          sector.ceilingz, opening_top, ceil_a, std::max(ceil_a, n_ceil_a), ceil_b,
-                          std::max(ceil_b, n_ceil_b), left);
-                emit_span(SurfaceKind::PortalLower, static_cast<std::int16_t>(wi), wall,
-                          opening_bottom, sector.floorz, std::min(floor_a, n_floor_a), floor_a,
-                          std::min(floor_b, n_floor_b), floor_b, left);
+                // Each portal span depends only on the CEILING planes or only
+                // on the FLOOR planes, of this sector and its neighbour. An
+                // undefined plane removes exactly the spans that need it
+                // (D0019); the others remain independently derivable.
+                const bool n_ceiling_defined = slope_is_evaluable(map, ni, SurfacePlane::Ceiling);
+                const bool n_floor_defined = slope_is_evaluable(map, ni, SurfacePlane::Floor);
+                if (ceiling_plane_defined && n_ceiling_defined) {
+                    emit_span(SurfaceKind::PortalUpper, static_cast<std::int16_t>(wi), wall,
+                              sector.ceilingz, opening_top, ceil_a, std::max(ceil_a, n_ceil_a),
+                              ceil_b, std::max(ceil_b, n_ceil_b), left);
+                }
+                if (floor_plane_defined && n_floor_defined) {
+                    emit_span(SurfaceKind::PortalLower, static_cast<std::int16_t>(wi), wall,
+                              opening_bottom, sector.floorz, std::min(floor_a, n_floor_a), floor_a,
+                              std::min(floor_b, n_floor_b), floor_b, left);
+                }
             }
 
             if ((wall.cstat & mapv7::kWallCstatMasked) != 0) {

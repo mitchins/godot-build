@@ -1794,12 +1794,31 @@ compiled — a failed build is not a failed test.
   binary64 gives ~2^-53 relative at any operand magnitude. Removing it left
   exactly one underivable case: a flagged plane whose first wall is
   degenerate.
-- **Underivable slopes are omitted, not flattened (D0019, proposed).** Flat
-  emission was described as failing closed; it is not — it is a specific,
-  knowingly incorrect answer, and a diagnostic does not make it safe. Such a
-  sector now emits NO surfaces plus a `slope_hinge_degenerate` diagnostic,
-  following D0018's pattern. The alternative (structured fatal) is a one-line
-  change and is recorded in D0019, which is **proposed, not accepted**.
+- **Underivable slopes are omitted, not flattened — D0019 ACCEPTED
+  2026-08-25.** Flat emission was described as failing closed; it is not — it
+  is a specific, knowingly incorrect answer, and a diagnostic does not make it
+  safe. Ratification narrowed the scope: the failing unit is the PLANE, not
+  the sector. A surface is omitted only when its placement actually depends on
+  the undefined plane, and a vertical endpoint is never fabricated from base Z
+  to keep a span alive:
+
+  | surface | depends on | omitted when |
+  |---|---|---|
+  | floor | own floor plane | that plane is undefined |
+  | ceiling | own ceiling plane | that plane is undefined |
+  | solid wall span | own floor AND ceiling | either is undefined |
+  | portal upper span | own + neighbour CEILING | either is undefined |
+  | portal lower span | own + neighbour FLOOR | either is undefined |
+
+  Pinned by `slope_degenerate_hinge`: a square with a duplicated first vertex,
+  so the polygon keeps its AREA — otherwise D0018's zero-area rule would omit
+  both planes and the test would pass for the wrong reason. Its sloped floor
+  has a zero-length hinge and its ceiling is ordinary and flat. Observed:
+  floor omitted, one `slope_hinge_degenerate` naming sector and plane, **flat
+  ceiling retained at its authored height**, solid spans omitted, world not
+  aborted. Negative-tested by restoring the whole-sector skip: the
+  independent-ceiling regression goes red (`ceilings == 1` → `0 == 1`).
+  **No owned map hits this case: 0 across all six.**
 - **Determinism claim corrected and proven.** The earlier wording implied C++
   guarantees cross-platform bit identity because division and sqrt are used.
   It does not, and nothing now claims it. binary64 is documented as the chosen

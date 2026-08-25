@@ -337,12 +337,23 @@ mapv7::MapData slope_wide_z_pos_world() {
 mapv7::MapData slope_wide_z_neg_world() {
     return wide_z_ramp_world(-4096);
 }
-// A flagged plane whose FIRST WALL is degenerate: the hinge, and therefore the
-// height, is undefined. Used to pin the omit-plus-diagnostic policy.
+// A flagged FLOOR whose first-wall hinge has zero length: the hinge, and so
+// the floor height, is undefined (D0019). The polygon is a square with a
+// duplicated first vertex, so its AREA is unaffected -- otherwise D0018's
+// zero-area rule would omit both planes and the test would pass for the wrong
+// reason. The CEILING is ordinary and flat, and must survive: it does not
+// depend on the undefined plane.
 mapv7::MapData slope_degenerate_hinge_world() {
-    mapv7::MapData map = ramp_world(false, 4096);
-    map.walls[1].x = map.walls[0].x; // first wall collapses to a point
-    map.walls[1].y = map.walls[0].y;
+    mapv7::MapData map;
+    const std::int32_t side = 1024;
+    const std::int32_t xs[] = {0, 0, side, side, 0};
+    const std::int32_t ys[] = {0, 0, 0, side, side};
+    add_loop(map, xs, ys, 5); // wall 0 -> wall 1 is a zero-length hinge
+    map.sectors.push_back(make_sector(0, 5, 32768, -32768));
+    map.sectors[0].floorstat |= mapv7::kStatSloped;
+    map.sectors[0].floorheinum = 4096;
+    // ceilingstat / ceilingheinum stay 0: an ordinary flat ceiling.
+    map.start = {side / 2, side / 2, 0, 0, 0};
     return map;
 }
 

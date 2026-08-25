@@ -818,35 +818,72 @@ TEST_CASE("derived slope Z wider than int32 reaches render space unnarrowed") {
     CHECK(lowest == -97656.25);
 }
 
-TEST_CASE("a slope with no usable hinge omits the sector and says so") {
-    // D0019 (proposed). A flagged plane whose first wall is degenerate has no
-    // hinge, so its height is undefined. Emitting it flat would be knowingly
-    // incorrect geometry wearing a diagnostic; the sector is omitted instead,
-    // following D0018's pattern for a surface that cannot be derived.
+TEST_CASE("an undefined slope plane omits only what depends on it") {
+    // D0019 (accepted). A flagged plane whose first-wall hinge has zero length
+    // has no defined slope plane. It is never flattened as a substitute and it
+    // never aborts the rest of an otherwise valid world: what goes is exactly
+    // the geometry whose placement needs that plane.
+    //
+    // The fixture is a square with a duplicated first vertex, so the polygon
+    // keeps its AREA -- otherwise D0018's zero-area rule would omit both
+    // planes and this test would pass for the wrong reason. Its floor is
+    // sloped with the degenerate hinge; its ceiling is ordinary and flat.
     auto map = map_fixture("slope_degenerate_hinge");
     REQUIRE(map.is_ok());
-    CHECK((map.value().sectors[0].floorstat & fauxbuild::mapv7::kStatSloped) != 0);
-    CHECK(map.value().sectors[0].floorheinum == 4096);
+    const auto& sector = map.value().sectors[0];
+    CHECK((sector.floorstat & fauxbuild::mapv7::kStatSloped) != 0);
+    CHECK(sector.floorheinum == 4096);
+    CHECK((sector.ceilingstat & fauxbuild::mapv7::kStatSloped) == 0); // ordinary ceiling
     CHECK(map.value().walls[0].x == map.value().walls[1].x);
     CHECK(map.value().walls[0].y == map.value().walls[1].y);
 
     CHECK_FALSE(slope_is_evaluable(map.value(), 0, SurfacePlane::Floor));
-    CHECK(slope_is_evaluable(map.value(), 0, SurfacePlane::Ceiling)); // unflagged
+    CHECK(slope_is_evaluable(map.value(), 0, SurfacePlane::Ceiling));
 
     auto built = build_structural_world(map.value());
-    if (built.is_ok()) {
-        const StructuralWorld world = built.take();
-        bool reported = false;
-        for (const auto& d : world.diagnostics) {
-            if (d.reason == "slope_hinge_degenerate") {
-                reported = true;
-            }
+    REQUIRE(built.is_ok()); // the world is NOT aborted
+    const StructuralWorld world = built.take();
+
+    // The diagnostic names the sector and the affected plane, and only it.
+    std::size_t degenerate_diagnostics = 0;
+    for (const auto& d : world.diagnostics) {
+        if (d.reason == "slope_hinge_degenerate") {
+            ++degenerate_diagnostics;
+            CHECK(d.record == "sector[0]");
+            CHECK(d.surface == "floor");
         }
-        CHECK(reported);
-        // Omitted, not flattened: no surface from that sector survives.
-        for (const auto& surface : world.surfaces) {
-            CHECK(surface.sector != 0);
+    }
+    CHECK(degenerate_diagnostics == 1);
+
+    std::size_t floors = 0;
+    std::size_t ceilings = 0;
+    std::size_t spans = 0;
+    for (const auto& surface : world.surfaces) {
+        switch (surface.kind) {
+        case SurfaceKind::Floor:
+            ++floors;
+            break;
+        case SurfaceKind::Ceiling:
+            ++ceilings;
+            break;
+        default:
+            ++spans;
+            break;
         }
+    }
+    CHECK(floors == 0);   // depends on the undefined plane
+    CHECK(ceilings == 1); // independently derivable: RETAINED
+    // Solid spans need both of this sector's planes for their endpoints, and
+    // fabricating a base-Z endpoint is exactly what D0019 forbids.
+    CHECK(spans == 0);
+
+    // The retained ceiling is real geometry at its authored height, not a
+    // placeholder.
+    const StructuralSurface* ceiling = find_surface(world, SurfaceKind::Ceiling, 0, -1);
+    REQUIRE(ceiling != nullptr);
+    CHECK(ceiling->indices.size() >= 3);
+    for (const auto& v : ceiling->vertices) {
+        CHECK(v.y == 32768.0 / 32768.0); // ceilingz -32768
     }
 }
 

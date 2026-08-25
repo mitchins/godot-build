@@ -546,9 +546,11 @@ traversal speed come from the whole-world AABB in both modes. This is
 presentation, not authority: no geometry, derivation, packing or metric
 changes.
 
-### D0019 — Slope planes that cannot be derived are omitted, not flattened (M6) — PROPOSED
+### D0019 — Slope planes that cannot be derived are omitted, not flattened (M6)
 
-Status: **proposed 2026-08-25.** Ratification is the human's.
+Status: **accepted — human ratification 2026-08-25**, with the scope narrowed
+during ratification (see "Decision" below): the omission is per affected
+plane and per dependent surface, not per sector.
 
 Context: a sector plane flagged for slope (`stat & 0x0002`, nonzero heinum)
 whose FIRST WALL is degenerate has no hinge, so its height is undefined at
@@ -567,16 +569,35 @@ underivable case is the degenerate hinge. Zero-length walls are not rejected
 by MAP validation, so it is reachable, but it does not occur in any of the six
 legally owned maps.
 
-Decision (proposed): a flagged plane with no usable hinge causes its sector to
-emit NO surfaces, plus a `slope_hinge_degenerate` diagnostic naming the sector
-and the plane. This follows D0018's existing pattern for a derived surface
-that cannot be produced — diagnose and omit, keep the rest of the world.
+Decision (accepted): a flagged sloped surface whose first-wall hinge has zero
+length has no defined slope plane. FauxBuild must
 
-Alternative considered: a structured fatal error rejecting the whole map. That
-is a one-line change at the same site. It was not chosen because a single
-malformed sector aborting an otherwise good world is the behaviour D0018 was
-created to avoid; but it is a defensible reading and the reason this is
-proposed rather than assumed.
+1. never flatten it as a substitute;
+2. never abort the whole otherwise-valid world solely for that derived
+   presentation failure;
+3. emit `slope_hinge_degenerate`, naming the sector and the affected plane;
+4. omit geometry whose placement depends on that undefined plane;
+5. retain independently derivable geometry.
+
+Rule 5 is what the first implementation got wrong: it skipped the entire
+sector. Ratification narrowed it. The plane is now the unit of failure, and a
+surface is omitted only when it actually needs that plane:
+
+| surface | depends on | omitted when |
+|---|---|---|
+| floor | own floor plane | that plane is undefined |
+| ceiling | own ceiling plane | that plane is undefined |
+| solid wall span | own floor AND ceiling | either is undefined |
+| portal upper span | own + neighbour CEILING | either is undefined |
+| portal lower span | own + neighbour FLOOR | either is undefined |
+
+So a sector with an undefined sloped floor still contributes its ordinary flat
+ceiling, and a portal's upper span survives a neighbour's undefined floor. A
+vertical endpoint is never fabricated from base Z to keep a span alive.
+
+Alternative considered: a structured fatal error rejecting the whole map. It
+was not chosen because a single malformed sector aborting an otherwise good
+world is exactly what D0018 was created to avoid.
 
 Rejected: emitting the plane flat, with or without a diagnostic. No accepted
 decision authorises that degradation, and M6.1's brief explicitly forbids it.
