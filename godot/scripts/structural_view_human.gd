@@ -23,12 +23,40 @@ extends Node3D
 # CharacterBody3D, no collision, no physics. Camera framing derives an AABB
 # from the generated presentation meshes -- framing is presentation, never
 # world authority.
+#
+# Everything below the geometry is HUMAN-VIEWER PRESENTATION ONLY and is
+# deliberately non-contractual: the readability palette (applied as a
+# material_override, so FauxBuildView's own diagnostic materials are
+# untouched), the dark background, per-group visibility toggles, and the
+# framing/traversal maths. None of it changes mesh contents, and no test
+# asserts a colour. Ceilings start hidden so the shell can be inspected
+# like an open model; C restores them.
 
 const GROUPS := ["Floors", "Ceilings", "SolidWalls", "PortalUpper", "PortalLower"]
 const KINDS := [0, 1, 2, 3, 4]
 const SPEED := 10.0
 const FAST_MULT := 4.0
 const LOOK_SENSITIVITY := 0.0022
+
+# Readability palette (presentation only, non-contractual). Neutral greys
+# for structure, restrained warm tones for the portal bands so openings
+# read at a glance without competing with the architecture.
+const PALETTE := {
+	"Floors": Color(0.62, 0.62, 0.63),
+	"Ceilings": Color(0.30, 0.30, 0.32),
+	"SolidWalls": Color(0.88, 0.87, 0.85),
+	"PortalUpper": Color(0.80, 0.58, 0.24),
+	"PortalLower": Color(0.66, 0.31, 0.24),
+}
+const BACKGROUND := Color(0.07, 0.07, 0.08)
+const HIDDEN_BY_DEFAULT := ["Ceilings"]
+const TOGGLE_KEYS := {
+	KEY_1: "Floors",
+	KEY_2: "Ceilings",
+	KEY_3: "SolidWalls",
+	KEY_4: "PortalUpper",
+	KEY_5: "PortalLower",
+}
 const USAGE := "usage: [--fixture NAME] | [--grp PATH | --dir PATH] --map VFS_NAME"
 
 var view: FauxBuildView
@@ -38,6 +66,7 @@ var fixture_given := false
 var grp_path := ""
 var dir_path := ""
 var map_name := ""
+var move_speed := SPEED
 
 
 func _usage_error(message: String) -> void:
@@ -102,12 +131,17 @@ func _ready() -> void:
 		if not _present_fixture():
 			return
 
+	_apply_presentation()
 	_frame_camera()
 
+	if DisplayServer.get_name() == "headless":
+		_headless_probe()
 	if DisplayServer.get_name() != "headless":
 		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 	print("structural-view: WASD move, Q/E down/up, Shift fast, mouse look, "
 		+ "Escape releases the mouse, click recaptures")
+	print("structural-view: C toggles ceilings (hidden at start); 1-5 toggle "
+		+ "floors/ceilings/solid walls/portal upper/portal lower")
 
 
 func _present_source() -> bool:
@@ -166,8 +200,10 @@ func _present_fixture() -> bool:
 	return true
 
 
-func _frame_camera() -> void:
-	# AABB over the presented meshes; presentation-only convenience.
+func _bounds() -> AABB:
+	# AABB over the presented meshes; presentation-only convenience. Groups
+	# hidden for readability still contribute, so the framing does not jump
+	# when a toggle is pressed.
 	var bounds := AABB()
 	var have := false
 	for group in GROUPS:
@@ -177,14 +213,113 @@ func _frame_camera() -> void:
 		var box: AABB = inst.global_transform * inst.mesh.get_aabb()
 		bounds = box if not have else bounds.merge(box)
 		have = true
-	if not have:
+	return bounds if have else AABB()
+
+
+func _apply_presentation() -> void:
+	# Readability overrides on the generated group nodes. material_override
+	# leaves FauxBuildView's own diagnostic materials and every mesh array
+	# untouched; visibility is a node flag, not mesh content.
+	var environment := Environment.new()
+	environment.background_mode = Environment.BG_COLOR
+	environment.background_color = BACKGROUND
+	environment.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
+	environment.ambient_light_color = Color(1, 1, 1)
+	var world_environment := WorldEnvironment.new()
+	world_environment.environment = environment
+	add_child(world_environment)
+
+	for group in GROUPS:
+		var inst := view.get_node_or_null(group)
+		if inst == null:
+			continue
+		var material := StandardMaterial3D.new()
+		material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		material.cull_mode = BaseMaterial3D.CULL_DISABLED
+		material.albedo_color = PALETTE.get(group, Color(0.7, 0.7, 0.7))
+		inst.material_override = material
+		inst.visible = not HIDDEN_BY_DEFAULT.has(group)
+
+
+func _frame_camera() -> void:
+	# Framing from the HORIZONTAL (X/Z) footprint, because real maps are
+	# broad and shallow: sizing the pull-back on the full 3D diagonal let a
+	# tall-but-narrow map push the camera far away, and a fixed diagonal
+	# offset could end up looking straight DOWN the long axis, which is the
+	# least informative direction.
+	#
+	# So: pull back along the MINOR horizontal axis with a smaller component
+	# along the dominant one. The dominant axis then spans the view instead
+	# of receding into it, and the offset stays diagonal rather than
+	# axis-aligned. Elevation is a moderate rise above the AABB centre --
+	# high enough to read the plan with ceilings hidden, never parked at the
+	# map's vertical extreme.
+	#
+	# Presentation only. No Build angle or start-pose semantics are consulted;
+	# this reads the generated meshes' bounds and nothing else.
+	var bounds := _bounds()
+	if bounds.size == Vector3.ZERO:
 		return
 	var center := bounds.get_center()
-	var radius := maxf(bounds.size.length() * 0.5, 0.001)
-	var distance := radius / tan(deg_to_rad(camera.fov * 0.5)) * 1.35
-	var direction := Vector3(0.55, 0.75, 0.85).normalized()
-	camera.global_position = center + direction * distance
+	var extent_x := maxf(bounds.size.x, 0.001)
+	var extent_z := maxf(bounds.size.z, 0.001)
+	var horizontal_radius := maxf(0.5 * sqrt(extent_x * extent_x + extent_z * extent_z), 0.001)
+
+	var distance := horizontal_radius / tan(deg_to_rad(camera.fov * 0.5)) * 1.15
+	var offset := (Vector3(0.45, 0.0, 1.0) if extent_x >= extent_z
+		else Vector3(1.0, 0.0, 0.45)).normalized()
+	var elevation := maxf(horizontal_radius * 0.45, bounds.size.y * 0.75)
+
+	var eye := center + offset * distance
+	eye.y = center.y + elevation
+	camera.global_position = eye
 	camera.look_at(center, Vector3.UP)
+
+	# Clip planes and traversal speed scale with the world: the stock 4000-unit
+	# far plane and fixed 10 units/s are unusable at real-map scale.
+	var span := maxf(distance + bounds.size.length(), 1.0)
+	camera.near = clampf(span * 0.0004, 0.05, 4.0)
+	camera.far = span * 4.0
+	move_speed = maxf(SPEED, horizontal_radius * 0.35)
+
+
+func _toggle_group(group: String) -> void:
+	var inst := view.get_node_or_null(group)
+	if inst != null:
+		inst.visible = not inst.visible
+
+
+func _headless_probe() -> void:
+	# Headless-only diagnostic, never reached in a human session. It prints
+	# raw observations and makes no judgement: ci/check_scene.py decides
+	# whether the framing points at the bounds and whether toggling left the
+	# arrays alone, so a broken viewer cannot declare itself correct.
+	var bounds := _bounds()
+	var center := bounds.get_center()
+	var forward := -camera.global_transform.basis.z
+	print("structural-view framing: eye=(%.6f,%.6f,%.6f) center=(%.6f,%.6f,%.6f) "
+		% [camera.global_position.x, camera.global_position.y, camera.global_position.z,
+			center.x, center.y, center.z]
+		+ "fwd=(%.6f,%.6f,%.6f) size=(%.6f,%.6f,%.6f) near=%.6f far=%.6f speed=%.6f"
+		% [forward.x, forward.y, forward.z, bounds.size.x, bounds.size.y, bounds.size.z,
+			camera.near, camera.far, move_speed])
+
+	var ceilings := view.get_node_or_null("Ceilings")
+	if ceilings == null or ceilings.mesh == null:
+		print("structural-view toggle: absent")
+		return
+	var before: Array = ceilings.mesh.surface_get_arrays(0)
+	var mesh_before: int = ceilings.mesh.get_instance_id()
+	var visible_before: bool = ceilings.visible
+	_toggle_group("Ceilings")
+	var visible_mid: bool = ceilings.visible
+	_toggle_group("Ceilings")
+	var after: Array = ceilings.mesh.surface_get_arrays(0)
+	print("structural-view toggle: vis=%s,%s,%s mesh=%d,%d vhash=%d,%d ihash=%d,%d"
+		% [visible_before, visible_mid, ceilings.visible,
+			mesh_before, ceilings.mesh.get_instance_id(),
+			hash(before[Mesh.ARRAY_VERTEX]), hash(after[Mesh.ARRAY_VERTEX]),
+			hash(before[Mesh.ARRAY_INDEX]), hash(after[Mesh.ARRAY_INDEX])])
 
 
 func _physics_process(delta: float) -> void:
@@ -206,7 +341,7 @@ func _physics_process(delta: float) -> void:
 		move += basis.y
 	if move != Vector3.ZERO:
 		var mult := FAST_MULT if Input.is_key_pressed(KEY_SHIFT) else 1.0
-		camera.global_position += move.normalized() * SPEED * mult * delta
+		camera.global_position += move.normalized() * move_speed * mult * delta
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -215,6 +350,10 @@ func _unhandled_input(event: InputEvent) -> void:
 		camera.rotate_object_local(Vector3(1, 0, 0), -event.relative.y * LOOK_SENSITIVITY)
 	elif event is InputEventKey and event.pressed and event.keycode == KEY_ESCAPE:
 		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	elif event is InputEventKey and event.pressed and event.keycode == KEY_C:
+		_toggle_group("Ceilings")
+	elif event is InputEventKey and event.pressed and TOGGLE_KEYS.has(event.keycode):
+		_toggle_group(TOGGLE_KEYS[event.keycode])
 	elif event is InputEventMouseButton and event.pressed \
 			and Input.mouse_mode == Input.MOUSE_MODE_VISIBLE:
 		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED

@@ -1373,6 +1373,36 @@ seam slices 1–2 already proved.
   bytes/mount/parser are genuinely consumed, not re-derived. The same
   case asserts the failed load replaces nothing (previous arrays
   unchanged, facts still describe the last success).
+- **Human-viewer usability patch (2026-08-25, presentation only).** No core,
+  view, or packing change; the five-group structure and every boundary array
+  are untouched. Framing now derives from the horizontal X/Z footprint and
+  pulls back along the MINOR horizontal axis with a smaller component along
+  the dominant one, so a long map spans the view instead of receding down
+  it; elevation is a moderate rise above the AABB centre, never its vertical
+  extreme. Clip planes and fly speed scale with the world (the stock
+  4000-unit far plane and fixed 10 units/s are unusable at real-map scale).
+  Nothing consults Build angle or start-pose semantics — only the generated
+  meshes' bounds. A readability palette (neutral greys for structure,
+  restrained amber/rust for the portal bands, dark neutral background) is
+  applied as a `material_override` in the human scene, leaving
+  `FauxBuildView`'s own diagnostic materials untouched; **colours are
+  non-contractual and no test asserts one.** Ceilings start hidden so the
+  shell reads as an open model; `C` toggles them and `1`-`5` toggle the five
+  groups — visibility only, never mesh contents. Sector-identity colouring
+  was deliberately skipped: the accepted batched packing carries no sector
+  identity, and M6 owns surface appearance.
+- **Framing/toggle gate:** the viewer's headless probe prints raw
+  observations and makes no judgement; `ci/check_scene.py` decides, so a
+  broken viewer cannot report itself healthy. It requires finite eye/centre/
+  forward/size, camera-to-bounds alignment > 0.999, a start above the centre,
+  usable clip planes that reach the framed geometry, positive traversal
+  speed, ceilings starting hidden and round-tripping false→true→false, and an
+  unchanged mesh instance id and vertex/index hash across the toggle. Six
+  negative tests observed red: aim, non-finite framing, far plane too small,
+  toggle rebuilding the mesh, ceilings visible by default, probe removed.
+  Both framing branches were exercised (the X-dominant one by
+  `two_sector_portal`/`portal_heights` at 64x32; the Z-dominant one by
+  temporarily forcing it, since no committed fixture is deeper than wide).
 - **Error paths (CI, synthetic only):** missing MAP inside a valid
   directory mount, malformed MAP bytes, nonexistent directory,
   nonexistent GRP path, and a null view — each fails cleanly with the
