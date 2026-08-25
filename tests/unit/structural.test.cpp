@@ -736,6 +736,15 @@ TEST_CASE("slope evaluator: deterministic corpus with independently derived orac
         {"just_above_half", 0, 0, 1024, 0, 0, 1, 1665, 7},
         {"tiny_hinge", 0, 0, 1, 0, 0, 7, 4096, 112},
         {"on_hinge", 0, 0, 1024, 0, 512, 0, 4096, 0},
+        // Extreme coordinates: a hinge spanning the whole int32 range. The
+        // EXACT result here is 1048577.5, a true half-tie, but the cross
+        // product is 9007212137545725 -- just past 2^53 -- so binary64 sees
+        // 1048577.4999999998 and rounds to 1048577. Pinned to the behaviour
+        // that actually occurs, with the limit stated rather than hidden:
+        // beyond 2^53 the result is accurate to one Build Z unit, and the
+        // symmetry check below still holds exactly. Unreachable from real
+        // content, where cross products sit around 2^40.
+        {"int32_span_half_tie", -2147483647 - 1, 0, 2147483647, 0, 0, 2097155, 128, 1048577},
     };
 
     for (const SlopeCase& c : kCases) {

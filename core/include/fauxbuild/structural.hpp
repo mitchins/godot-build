@@ -250,7 +250,15 @@ enum class SurfacePlane { Floor, Ceiling };
 // mismatch is a real divergence.
 //
 // Rounding to integer Build Z is symmetric (half away from zero), which is
-// what makes negating heinum negate the result exactly.
+// what makes negating heinum negate the result exactly -- a property that
+// holds even past the precision boundary below.
+//
+// Precision boundary, stated rather than hidden: while the cross product fits
+// in 2^53 the evaluation is exact to the unit. Beyond that -- a hinge
+// spanning most of the int32 range -- the result stays accurate to one Build
+// Z unit, but a mathematically exact half-tie can round to the other
+// neighbour. Real content is nowhere near it (cross products around 2^40),
+// and the corpus pins the case explicitly.
 std::int64_t surface_z_at(const mapv7::MapData& map, std::int16_t sector_index, SurfacePlane plane,
                           std::int32_t x, std::int32_t y);
 

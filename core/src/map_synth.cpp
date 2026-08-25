@@ -247,8 +247,6 @@ mapv7::MapData slope_metadata_world() {
     return map;
 }
 
-// M6 slice 1 slope probes (PROVENANCE STOP 2026-08-25). The approved
-
 // Ramp fixture geometry (M6.1 slope oracles).
 constexpr std::int32_t kRampRun = 1024;
 constexpr std::int32_t kRampFloorZ = 32768;

@@ -1680,9 +1680,18 @@ rounded, and `long double` is deliberately avoided because it is 80-bit on
 x86 and 64-bit on arm64 — and the claim is proven by the pinned corpus below
 rather than asserted. Rounding to integer Build Z is symmetric (half away
 from zero), which is exactly what makes negating the heinum negate the
-result. There is no operand-width limit: the earlier 2^53 gate was
-over-strict (only the quotient's relative precision matters) and the largest
-derived |z| reachable from int32 coordinates is about 2^39.5.
+result. The earlier 2^53 gate on OPERANDS was over-strict — only the
+quotient's relative precision matters — and the largest derived |z| reachable
+from int32 coordinates is about 2^39.5, so no result is ever out of range.
+
+The precision boundary is stated rather than hidden: while the cross product
+fits in 2^53 the evaluation is exact to the unit. Beyond it — a hinge spanning
+most of the int32 range — the result stays accurate to one Build Z unit and
+symmetry is preserved, but a mathematically exact half-tie can round to the
+other neighbour. Pinned by the `int32_span_half_tie` corpus case, whose exact
+value is 1048577.5 and whose binary64 value is 1048577.4999999998. Real
+content is nowhere near this: its cross products sit around 2^40 against a
+2^53 budget.
 
 **Topology.** Whether a span is emitted *at all* remains a decision about the
 flat interval. Slope then determines its SHAPE: a span it closes at one
