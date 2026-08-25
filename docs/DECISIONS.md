@@ -457,12 +457,19 @@ surfaces; M6 slopes will extend, not replace, this derivation (flat-Z
 output order stays stable for unsloped sectors).
 
 
-#### D0016 amendment — Build vertical units are 16x the horizontal scale (proposed 2026-08-25)
+#### D0016 amendment — Build vertical units are 16x the horizontal scale
 
-Status: **proposed.** D0016 rule 1 was accepted with an isotropic transform,
-so it is not being changed silently. Ratification is the human's, and the
-independent black-box confirmation below (Mapster32) has not been performed
-yet.
+Status: **accepted — human ratification 2026-08-25**, on Mapster32 black-box
+observation of the `metric_cube` fixture: a room 1024 units across with a
+16384-unit floor-to-ceiling delta presents approximately cubically, not as a
+16x-tall shaft. D0016 rule 1's vertical term is amended accordingly.
+
+That attestation is the independent corroboration the amendment was held
+open for. The published 16:1 description supplied the hypothesis; our own
+black-box observations supplied the evidence — first the two measurements
+below over legally owned content, then the Mapster32 confirmation on
+original synthetic content, which is the one a reader can reproduce without
+owning anything.
 
 Context: the M5 slice-3 human gate found that untouched E1L1 presents as a
 tall narrow tower — structurally coherent by counts and topology, but
@@ -523,10 +530,18 @@ CI truth: the `metric_cube` fixture (1024 horizontal, 16384 vertical) must
 derive equal render extents on all three axes. It encodes generic format
 quantities only — nothing from any game's content.
 
-Outstanding for ratification: **HUMAN-ATTESTED** black-box confirmation that
-a 1024-horizontal / 16384-vertical room presents as roughly cubic in
-Mapster32, per the command in docs/MILESTONES.md. If that contradicts 16:1,
-this amendment is withdrawn.
+**HUMAN-ATTESTED PASS 2026-08-25** by mitchellcurrie: `metric_cube` opened
+in Mapster32 presents approximately cubically, confirming 16:1. The
+`metric_cube` CI test is the standing regression pin.
+
+Follow-on (accepted with this amendment): the human viewer's real-content
+mode aims its initial view at the map's own parsed start position, converted
+through `to_render_space` like every other coordinate — never a second
+transform, and never the start ANGLE, whose semantics are not M5's. Synthetic
+fixture mode keeps the AABB centre; distance, elevation, clip planes and
+traversal speed come from the whole-world AABB in both modes. This is
+presentation, not authority: no geometry, derivation, packing or metric
+changes.
 
 ### D0017 — Structural polygon triangulation pipeline (M5)
 

@@ -14,6 +14,7 @@ import pathlib
 import math
 import re
 import subprocess
+import tempfile
 import sys
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -145,6 +146,96 @@ def check_human_framing(output: str) -> bool:
     return True
 
 
+def check_start_pose_focus(godot: str) -> bool:
+    """Real-content mode must aim the initial view at the map's start pose.
+
+    Driven with committed synthetic content through the same source route
+    real content uses, so this is CI truth. The expected point is derived
+    from the fixture spec and the format's two scale factors, NOT read back
+    from the implementation: multi_loop starts at Build (8192, 8192, 4096),
+    which is (8192/2048, -4096/32768, 8192/2048) in render space. The
+    fixture's start is off-centre on every axis, so aiming at the AABB
+    centre instead cannot pass by coincidence.
+    """
+    fbtool = ROOT / "build/dev/fbtool"
+    if not fbtool.exists():
+        print(f"scene-check FAILED: {fbtool} missing; build it before the scene gate",
+              file=sys.stderr)
+        return False
+
+    with tempfile.TemporaryDirectory(prefix="fauxbuild_startpose_") as scratch:
+        written = subprocess.run(
+            [str(fbtool), "gen-map", "--fixture", "multi_loop",
+             "--out", str(pathlib.Path(scratch) / "MULTI_LOOP.MAP")],
+            capture_output=True, text=True)
+        if written.returncode != 0:
+            print(f"scene-check FAILED: could not write the start-pose fixture: "
+                  f"{written.stdout + written.stderr}", file=sys.stderr)
+            return False
+
+        result = run_godot(godot, ["res://scenes/structural_view_human.tscn",
+                                   "--quit-after", "3", "--",
+                                   "--dir", scratch, "--map", "MULTI_LOOP.MAP"], timeout=120)
+    output = result.stdout + result.stderr
+    if result.returncode != 0 or "structural-view: ready for inspection" not in output:
+        print(f"scene-check FAILED: start-pose viewer run (exit {result.returncode})",
+              file=sys.stderr)
+        print(output[-2000:], file=sys.stderr)
+        return False
+
+    expected = (8192.0 / 2048.0, -4096.0 / 32768.0, 8192.0 / 2048.0)
+    match = re.search(r"start position \(render space\): "
+                      r"(-?[0-9.]+) / (-?[0-9.]+) / (-?[0-9.]+)", output)
+    if match is None:
+        print("scene-check FAILED: source mode printed no start position", file=sys.stderr)
+        print(output[-2000:], file=sys.stderr)
+        return False
+    reported = tuple(float(g) for g in match.groups())
+    for axis, (got, want) in enumerate(zip(reported, expected)):
+        if abs(got - want) > 1e-4:
+            print(f"scene-check FAILED: start position axis {axis} is {got}, expected "
+                  f"{want} from the fixture spec through to_render_space", file=sys.stderr)
+            return False
+
+    # The framing must actually adopt it, and say so.
+    if "focus=start" not in output:
+        print("scene-check FAILED: real-content mode did not focus on the start pose",
+              file=sys.stderr)
+        return False
+    framing = next((line for line in output.splitlines()
+                    if line.startswith("structural-view framing:")), None)
+    aim = _vec(framing or "", "center")
+    if aim is None:
+        print("scene-check FAILED: start-pose run printed no framing probe", file=sys.stderr)
+        return False
+    for axis, (got, want) in enumerate(zip(aim, expected)):
+        if abs(got - want) > 1e-4:
+            print(f"scene-check FAILED: camera aim axis {axis} is {got}, expected the "
+                  f"start pose {want}", file=sys.stderr)
+            return False
+
+    # The synthetic fixture mode keeps the whole-world AABB centre.
+    fallback = run_godot(godot, ["res://scenes/structural_view_human.tscn",
+                                 "--quit-after", "3", "--",
+                                 "--fixture", "multi_loop"], timeout=120)
+    fallback_output = fallback.stdout + fallback.stderr
+    if fallback.returncode != 0 or "focus=centre" not in fallback_output:
+        print(f"scene-check FAILED: synthetic fixture mode should fall back to the AABB "
+              f"centre (exit {fallback.returncode})", file=sys.stderr)
+        print(fallback_output[-2000:], file=sys.stderr)
+        return False
+    fallback_aim = _vec(next((line for line in fallback_output.splitlines()
+                              if line.startswith("structural-view framing:")), ""), "center")
+    if fallback_aim is None:
+        print("scene-check FAILED: fixture-mode run printed no framing probe", file=sys.stderr)
+        return False
+    if all(abs(fallback_aim[i] - expected[i]) <= 1e-4 for i in range(3)):
+        print("scene-check FAILED: the fixture's start pose and its AABB centre coincide, "
+              "so this test cannot tell the two focus modes apart", file=sys.stderr)
+        return False
+    return True
+
+
 def main() -> int:
     godot = sys.argv[1] if len(sys.argv) > 1 else \
         "/Applications/Godot.app/Contents/MacOS/Godot"
@@ -252,6 +343,8 @@ def main() -> int:
     # is presentation, not a compatibility contract.
     if not check_human_framing(output):
         return 1
+    if not check_start_pose_focus(godot):
+        return 1
 
     # ...and the CI structural test must refuse real-content input too.
     struct_guarded = run_godot(
@@ -324,6 +417,7 @@ def main() -> int:
     print("scene-check: structural consumer boundary verified; human viewer runs")
     print("scene-check: production source route verified; human viewer source modes hold")
     print("scene-check: human viewer framing is finite and aimed; ceiling toggle rebuilds nothing")
+    print("scene-check: real-content mode focuses the parsed start pose; fixtures keep the AABB centre")
     return 0
 
 

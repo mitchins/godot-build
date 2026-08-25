@@ -88,7 +88,7 @@ struct StructuralWorld {
 // scale for the same physical extent: 1024 horizontal units and 16384
 // vertical units describe the same distance. Treating the three axes
 // isotropically stretches every world into a tower (D0016 amendment,
-// proposed 2026-08-25 — see docs/DECISIONS.md).
+// accepted 2026-08-25 — see docs/DECISIONS.md).
 //
 // This is a compatibility invariant of the format, NOT user tuning, so it is
 // a compile-time constant rather than an option: there is deliberately no

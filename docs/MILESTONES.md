@@ -1428,8 +1428,10 @@ seam slices 1–2 already proved.
     all four corner constants. The probe's two scale factors are written out
     literally from the format spec (2048 horizontal, 32768 vertical), never
     read back from the implementation.
-- **HUMAN-ATTESTED, OUTSTANDING — black-box metric confirmation.** Generate
-  the fixture and open it in Mapster32:
+- **HUMAN-ATTESTED PASS 2026-08-25 — black-box metric confirmation.** By
+  mitchellcurrie: `metric_cube` opened in Mapster32 presents approximately
+  cubically, confirming the 16:1 vertical unit ratio. **The D0016 amendment
+  is ACCEPTED.** The command that produced the artifact:
 
   ```sh
   scons config=dev check
@@ -1437,11 +1439,32 @@ seam slices 1–2 already proved.
   # then open /tmp/METRIC.MAP in Mapster32 and inspect the single sector
   ```
 
-  Criterion: a room 1024 units across with a 16384-unit floor-to-ceiling
-  delta should read as roughly **equal physical dimensions**, not a 16x-tall
-  shaft. If it reads as a shaft, the 16:1 hypothesis is contradicted — stop,
-  and the D0016 amendment is withdrawn. This box is not tickable by the
-  agent.
+  Criterion applied: a room 1024 units across with a 16384-unit
+  floor-to-ceiling delta reads as roughly **equal physical dimensions**, not
+  a 16x-tall shaft. This is the corroboration a reader can reproduce without
+  owning any proprietary content — the two measurements above depend on
+  legally owned maps, this one does not.
+- **Real-content initial focus (presentation only, accepted with the
+  amendment).** The human viewer's `--grp`/`--dir` modes aim the initial view
+  at the map's own parsed start position, converted through
+  `to_render_space` like every other coordinate — a level's AABB centre is
+  usually solid rock. The start **angle is not used**; Build angle semantics
+  are not M5's. Synthetic `--fixture` mode keeps the AABB centre, and
+  distance, elevation, clip planes and traversal speed still come from the
+  whole-world AABB in both modes. Geometry, derivation, packing and the
+  metric are untouched; `FauxStructuralSource.get_start_position()` is
+  diagnostic state, never authority.
+- **Start-pose camera gate (CI, synthetic).** Driven with committed content
+  through the same source route real content uses: `fbtool gen-map` writes
+  `multi_loop` (start Build 8192/8192/4096, off-centre on every axis) into a
+  scratch directory, and the viewer is run in `--dir` mode. The expected aim
+  point is spec-derived — `(8192/2048, -4096/32768, 8192/2048)` — never read
+  back from the implementation, and the gate refuses to pass if the
+  fixture's start and AABB centre ever coincide, since it could then no
+  longer tell the two focus modes apart. Three sabotages observed red:
+  source mode ignoring the start pose, the start pose getting its own
+  isotropic transform (`axis 1 is -2.0, expected -0.125`), and fixture mode
+  wrongly adopting the start pose.
 - **Error paths (CI, synthetic only):** missing MAP inside a valid
   directory mount, malformed MAP bytes, nonexistent directory,
   nonexistent GRP path, and a null view — each fails cleanly with the

@@ -2,6 +2,7 @@
 
 #include <godot_cpp/classes/ref_counted.hpp>
 #include <godot_cpp/variant/string.hpp>
+#include <godot_cpp/variant/vector3.hpp>
 
 #include <cstdint>
 #include <memory>
@@ -64,10 +65,19 @@ class FauxStructuralSource : public godot::RefCounted {
     std::int32_t get_note_count() const;
     std::int32_t get_diagnostic_count() const;
 
+    // The map's own parsed start position, converted through the single
+    // core transform (to_render_space) like every other vertex. Diagnostic
+    // only: the human viewer uses it to aim its initial view at where the
+    // map says a player begins, rather than at the centre of the whole
+    // shell. The start ANGLE is deliberately not exposed -- Build angle
+    // semantics are not M5's, and nothing here needs them.
+    godot::Vector3 get_start_position() const;
+
     // Empty after success; on failure, "<stage>: <structured core error>".
     godot::String get_last_error() const;
 
   private:
+    godot::Vector3 start_position_;
     bool present_from_mount(std::unique_ptr<fauxbuild::Mount> mount, const godot::String& map_name,
                             FauxBuildView* view);
 

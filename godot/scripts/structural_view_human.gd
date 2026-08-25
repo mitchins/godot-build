@@ -67,6 +67,8 @@ var grp_path := ""
 var dir_path := ""
 var map_name := ""
 var move_speed := SPEED
+var focus_target := Vector3.ZERO
+var focus_is_start := false
 
 
 func _usage_error(message: String) -> void:
@@ -173,6 +175,14 @@ func _present_source() -> bool:
 	print("notes: %d" % source.get_note_count())
 	print("diagnostics: %d" % source.get_diagnostic_count())
 	print("groups: %s" % ", ".join(view.get_group_names()))
+	# Real content aims at the map's own parsed start position (through the
+	# single core transform), not the centre of the whole shell: a level's
+	# AABB centre is usually solid rock. The start ANGLE is not used --
+	# Build angle semantics are not M5's.
+	focus_target = source.get_start_position()
+	focus_is_start = true
+	print("start position (render space): %.4f / %.4f / %.4f"
+		% [focus_target.x, focus_target.y, focus_target.z])
 	print("structural-view: ready for inspection (%s:%s; %d notes, %d diagnostics)"
 		% [source.get_source_description(), source.get_map_name(),
 			source.get_note_count(), source.get_diagnostic_count()])
@@ -268,7 +278,11 @@ func _frame_camera() -> void:
 	var bounds := _bounds()
 	if bounds.size == Vector3.ZERO:
 		return
-	var center := bounds.get_center()
+	# Aim point: the parsed start position for real content, the AABB centre
+	# for synthetic fixtures (which have no meaningful "where you begin").
+	# Distance, elevation, clip planes and traversal speed still come from
+	# the whole-world AABB either way.
+	var center := focus_target if focus_is_start else bounds.get_center()
 	var extent_x := maxf(bounds.size.x, 0.001)
 	var extent_z := maxf(bounds.size.z, 0.001)
 	var horizontal_radius := maxf(0.5 * sqrt(extent_x * extent_x + extent_z * extent_z), 0.001)
@@ -303,14 +317,15 @@ func _headless_probe() -> void:
 	# whether the framing points at the bounds and whether toggling left the
 	# arrays alone, so a broken viewer cannot declare itself correct.
 	var bounds := _bounds()
-	var center := bounds.get_center()
+	var center: Vector3 = focus_target if focus_is_start else bounds.get_center()
 	var forward := -camera.global_transform.basis.z
 	print("structural-view framing: eye=(%.6f,%.6f,%.6f) center=(%.6f,%.6f,%.6f) "
 		% [camera.global_position.x, camera.global_position.y, camera.global_position.z,
 			center.x, center.y, center.z]
-		+ "fwd=(%.6f,%.6f,%.6f) size=(%.6f,%.6f,%.6f) near=%.6f far=%.6f speed=%.6f"
+		+ "fwd=(%.6f,%.6f,%.6f) size=(%.6f,%.6f,%.6f) near=%.6f far=%.6f speed=%.6f "
 		% [forward.x, forward.y, forward.z, bounds.size.x, bounds.size.y, bounds.size.z,
-			camera.near, camera.far, move_speed])
+			camera.near, camera.far, move_speed]
+		+ "focus=%s" % ("start" if focus_is_start else "centre"))
 
 	var ceilings := view.get_node_or_null("Ceilings")
 	if ceilings == null or ceilings.mesh == null:

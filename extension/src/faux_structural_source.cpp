@@ -42,6 +42,8 @@ void FauxStructuralSource::_bind_methods() {
     ClassDB::bind_method(godot::D_METHOD("get_note_count"), &FauxStructuralSource::get_note_count);
     ClassDB::bind_method(godot::D_METHOD("get_diagnostic_count"),
                          &FauxStructuralSource::get_diagnostic_count);
+    ClassDB::bind_method(godot::D_METHOD("get_start_position"),
+                         &FauxStructuralSource::get_start_position);
     ClassDB::bind_method(godot::D_METHOD("get_last_error"), &FauxStructuralSource::get_last_error);
 }
 
@@ -110,6 +112,14 @@ bool FauxStructuralSource::present_from_mount(std::unique_ptr<fauxbuild::Mount> 
         triangles += surface.indices.size() / 3;
     }
 
+    // Start position through THE transform (D0016) -- never a second one.
+    const auto& start = map.value().start;
+    const fauxbuild::StructuralVertex start_render =
+        fauxbuild::to_render_space(start.x, start.y, start.z);
+    start_position_ =
+        godot::Vector3(static_cast<float>(start_render.x), static_cast<float>(start_render.y),
+                       static_cast<float>(start_render.z));
+
     source_description_ = description;
     map_name_ = file.value().name.c_str();
     sector_count_ = static_cast<std::int32_t>(map.value().sectors.size());
@@ -152,6 +162,10 @@ std::int32_t FauxStructuralSource::get_note_count() const {
 
 std::int32_t FauxStructuralSource::get_diagnostic_count() const {
     return diagnostic_count_;
+}
+
+godot::Vector3 FauxStructuralSource::get_start_position() const {
+    return start_position_;
 }
 
 godot::String FauxStructuralSource::get_last_error() const {
