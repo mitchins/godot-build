@@ -993,7 +993,7 @@ checklist above.
 **M4 ACCEPTED 2026-08-24.** All six gate items satisfied; see the gate
 checklist above for the evidence and class of each.
 
-## M5 — Static structural world viewer — IN_PROGRESS (slices 1–2 ACCEPTED; slice 3 HUMAN-ATTESTED PASS, awaiting review close-out)
+## M5 — Static structural world viewer — ACCEPTED 2026-08-25
 
 Gate summary: structural fixtures render with correct topology; holes/non-convex sectors render;
 no persistent Godot scene becomes authority; local E1L1 loads as recognizable 3D shell (HUMAN-ATTESTED);
@@ -1556,6 +1556,40 @@ Three things the gate established that counts alone could not:
 - The authored start XYZ places the camera inside a plausible playable
   volume, with **no floor snapping and no map-specific correction** — which
   is what makes it evidence rather than a result engineered to look right.
+
+
+**M5 — ACCEPTED 2026-08-25** by mitchellcurrie. A static structural world
+derived from authoritative MAP topology, presented through Godot, and
+inspectable on untouched real content. All three slices accepted; D0016 (as
+amended), D0017 and D0018 all accepted.
+
+What the milestone actually established, beyond the deliverable:
+
+- **Separating validation from triangulation.** The bespoke ear clipper was
+  correct where it succeeded but too narrow for real content (33/2450
+  sectors failed). Adopting earcut for triangulation while keeping our exact
+  predicates for validation and the area oracle for verification preserved
+  both the fail-closed guarantee and the robustness. Neither library nor
+  hand-rolled code could have done both.
+- **The boundary is what the consumer reads.** Slice 2's test reads
+  `ArrayMesh.surface_get_arrays()`, not an internal cache — verified by
+  sabotaging the packing and the expected side identically, leaving only
+  spec-derived constants failing.
+- **Equivalence cannot prove byte consumption.** A route that re-derives a
+  fixture instead of reading mounted bytes passes every array comparison.
+  Only corruption tripwires catch it; both mount kinds carry one.
+- **Counts can be right while the world is wrong.** The 16:1 vertical metric
+  defect passed every automated check and every count. It took a human
+  looking at the shell. The corrected transform changed no count on E1L1 —
+  only Y, by exactly 1/16.
+- **Evidence classes stayed unmixed.** Synthetic CI carries the entire
+  automated burden; real content differs in no code path, only in which
+  bytes are mounted. The one piece of evidence a reader can reproduce
+  without owning proprietary content — Mapster32 on `metric_cube` — is what
+  ratified the metric, not the measurements over owned maps.
+
+M6 (slopes, indexed textures, UV/flags, sprites) is next and is where the
+shell stops looking like a CAD model.
 
 
 Next milestone work was not started.
