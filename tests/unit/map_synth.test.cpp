@@ -34,6 +34,20 @@ TEST_CASE("fixture worlds have the intended shape") {
         CHECK(world.value().walls.size() == 4);
         CHECK(world.value().sprites.empty());
     }
+    SUBCASE("asymmetric_probe") {
+        auto world = fauxbuild::synth::map_fixture("asymmetric_probe");
+        REQUIRE(world.is_ok());
+        CHECK(world.value().sectors.size() == 1);
+        CHECK(world.value().walls.size() == 4);
+        // Pairwise-distinct on every axis so the Godot boundary probe can
+        // catch an axis swap or sign flip component-for-component.
+        CHECK(world.value().sectors[0].floorz == 9000);
+        CHECK(world.value().sectors[0].ceilingz == 3000);
+        CHECK(world.value().walls[0].x == 1000);
+        CHECK(world.value().walls[0].y == 2000);
+        CHECK(world.value().walls[1].x == 11000);
+        CHECK(world.value().walls[2].y == 7000);
+    }
     SUBCASE("two_sector_portal") {
         auto world = fauxbuild::synth::map_fixture("two_sector_portal");
         REQUIRE(world.is_ok());

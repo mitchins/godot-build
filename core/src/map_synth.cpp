@@ -144,6 +144,22 @@ mapv7::MapData portal_step_floor_world() {
     return two_room_shell(8192, 0);
 }
 
+mapv7::MapData asymmetric_probe_world() {
+    // M5 slice 2: a rectangular room whose Build x range (1000..11000),
+    // y range (2000..7000) and z interval (ceiling 3000, floor 9000) are
+    // pairwise distinct at every vertex under the render transform
+    // (x, -z, y) * 2^-11, so an accidental axis swap or sign inversion at
+    // the Godot boundary cannot survive comparison. Real-content vertical
+    // ordering (ceilingz < floorz numerically; Build Z grows down).
+    mapv7::MapData map;
+    const std::int32_t xs[] = {1000, 11000, 11000, 1000};
+    const std::int32_t ys[] = {2000, 2000, 7000, 7000};
+    add_loop(map, xs, ys, 4);
+    map.sectors.push_back(make_sector(0, 4, 9000, 3000));
+    map.start = {6000, 4500, 6000, 512, 0};
+    return map;
+}
+
 mapv7::MapData non_convex_world() {
     mapv7::MapData map;
     // L-shape: (0,0)->(2u,0)->(2u,u)->(u,u)->(u,2u)->(0,2u)->close.
@@ -260,9 +276,10 @@ mapv7::MapData max_reasonable_counts_world() {
 
 std::vector<std::string> map_fixture_names() {
     return {
-        "minimal",        "square_room", "two_sector_portal",   "non_convex",
-        "multi_loop",     "double_hole", "portal_heights",      "portal_step_floor",
-        "slope_metadata", "masked_wall", "sprite_orientations", "max_reasonable_counts",
+        "minimal",          "square_room", "two_sector_portal",   "non_convex",
+        "multi_loop",       "double_hole", "portal_heights",      "portal_step_floor",
+        "slope_metadata",   "masked_wall", "sprite_orientations", "max_reasonable_counts",
+        "asymmetric_probe",
     };
 }
 
@@ -292,6 +309,8 @@ Result<mapv7::MapData> map_fixture(const std::string& name) {
         map = sprite_orientations_world();
     } else if (name == "max_reasonable_counts") {
         map = max_reasonable_counts_world();
+    } else if (name == "asymmetric_probe") {
+        map = asymmetric_probe_world();
     } else {
         return Result<mapv7::MapData>::err(
             {"synth", 0, "fixture", ErrorCode::InvalidName, "unknown fixture " + name});

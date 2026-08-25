@@ -993,7 +993,7 @@ checklist above.
 **M4 ACCEPTED 2026-08-24.** All six gate items satisfied; see the gate
 checklist above for the evidence and class of each.
 
-## M5 — Static structural world viewer — IN_PROGRESS (slice 1 delivered at checkpoint)
+## M5 — Static structural world viewer — IN_PROGRESS (slices 1–2 ACCEPTED; slice 3 next)
 
 Gate summary: structural fixtures render with correct topology; holes/non-convex sectors render;
 no persistent Godot scene becomes authority; local E1L1 loads as recognizable 3D shell (HUMAN-ATTESTED);
@@ -1179,7 +1179,122 @@ scale validation now tests D0016's actual exact-reversibility requirement
 instead of asking whether a double numerically resembles a power of two; and
 two float-to-integer conversions that UBSan flagged as undefined are gone.
 
-M5 remains IN_PROGRESS. Slice 2 was not started.
+M5 remains IN_PROGRESS. Slice 2 delivered at checkpoint below; slice 3 not
+started.
+
+### Slice 2 — Godot structural viewer (delivered 2026-08-25, checkpoint)
+
+- **Production seam:** `FauxBuildView::present_world(const
+  fauxbuild::StructuralWorld&)` — a C++ method deliberately NOT bound to
+  ClassDB. A native StructuralWorld cannot travel through GDScript, so the
+  only callers are C++ owners of a world; the view itself never parses,
+  loads, or derives one. The only numeric operation on accepted geometry is
+  packaging core doubles into Godot's float32 Vector3 (presentation
+  narrowing, D0016 — not a transform).
+- **Mesh organisation:** one MeshInstance3D child per non-empty SurfaceKind
+  (Floors, Ceilings, SolidWalls, PortalUpper, PortalLower — at most five
+  diagnostic groups), each holding one ArrayMesh triangle surface built by
+  traversing the world's canonical surface order, appending vertices in
+  source order and indices with checked accumulated offsets. No welding, no
+  reordering, no normals, no UVs, no winding changes. Empty kinds have no
+  node. Unshaded two-sided flat-colour StandardMaterial3D per kind
+  (presentation-only, not a contract).
+- **Checked packing invariants** (fail cleanly, previous presentation
+  untouched, D0006 — no FB_CHECK on content): source index addresses its own
+  surface's vertices; accumulated vertex count and offset+index fit Godot's
+  int32 index representation.
+- **Test/sample harness:** `FauxStructuralFixture` (registered RefCounted) —
+  committed fixture → core derivation → StructuralWorld → the view's C++
+  seam. It also exposes the retained world's vertices/indices packed by an
+  implementation independent of the view's packer, as the expected side of
+  the boundary test. No production `load_map`/`load_fixture` convenience
+  exists on the view; the harness accepts fixture names only and the CI
+  scene refuses `--grp`/`--map`/`--dir`.
+- **New fixture:** `asymmetric_probe` — Build x 1000..11000, y 2000..7000,
+  ceiling 3000 / floor 9000, pairwise distinct on every render-space axis
+  (core test pins the property, so the fixture cannot silently become
+  symmetric).
+- **Consumer-boundary scene** (`structural_view_test.tscn` +
+  `structural_view_test.gd`, wired into `ci/check_scene.py`): every
+  assertion reads the ACTUAL boundary objects — `MeshInstance3D.mesh` →
+  `ArrayMesh.surface_get_arrays()` — never an intermediate cache or helper
+  getter. Coverage: square_room groups/counts/arrays vs StructuralWorld;
+  non_convex and multi_loop triangles verbatim (not re-derived in the
+  extension); two_sector_portal zero portal groups and no closing quad;
+  portal_heights upper/lower spans; asymmetric transform probe with
+  fixture-spec Vector3 constants read directly from the mesh (float32-exact
+  values); stale-group absence across rebuilds; A→B→A rebuild round-trip
+  equality at the boundary; and presentation disposability (mesh replaced
+  with PlaneMesh / cleared Godot-side, re-present of the same fixture
+  reconstructs from the StructuralWorld).
+- **Human synthetic viewer** (`structural_view_human.tscn`): fly camera
+  (WASD/QE/Shift/mouse, Escape/click), perspective Camera3D, AABB-derived
+  initial framing from the presentation meshes, no physics/collision.
+  Fixture selectable via `--fixture`; refuses real-content arguments. The
+  scene gate launches it headless with a 120 s timeout so it cannot rot.
+- **Static tripwire:** `ci/check_layering.py` viewer guard — the production
+  FauxBuildView files may include exactly one core header
+  (`fauxbuild/structural.hpp`) and must not reference map parsing, fixture
+  synthesis, structural derivation, the core render conversion, VFS/GRP,
+  asset loading, or ResourceSaver. The harness is deliberately outside the
+  guard's file list. Negative-tested both ways (forbidden include → red).
+- **Sabotage evidence** (each observed red on a verified build, then
+  reverted): double transform at the boundary (expected-vs-actual failures
+  AND the direct-read asymmetric probe); zeroed index accumulation
+  (multi-surface kinds' indices wrong from the second surface); no-op
+  discard (stale groups survive; round trip reads stale square_room floor
+  for non_convex); retention of damaged meshes on rebuild (disposable
+  test red); and the boundary-test sabotage — corrupting the mesh while
+  making the actual-side helper report the harness's expected arrays turned
+  every bulk check green, but the direct `surface_get_arrays()` probe with
+  fixture constants still failed. The load-bearing read is the mesh.
+- Deferred by design: textures/UVs/atlas, slopes, sprites, masked/one-way
+  walls, visibility, collision (M6+); real E1L1 presentation is slice 3.
+
+Slice-2 residual review (2026-08-25, PR #6) — two CodeRabbit findings, both
+valid, both reproduced before being fixed:
+
+- **Refusal gates accepted any exit status.** `ci/check_scene.py` matched only
+  the refusal message, so a scene that refused `--grp` and then exited 0 passed.
+  The **M4 atlas refusal gate had the identical weakness**; it was fixed in the
+  same change rather than leaving two standards. Both now require exit 2 AND
+  the expected text. Negative-tested separately by changing `quit(2)` to
+  `quit(0)`: "the CI structural test did not refuse --grp (exit 0, expected 2)"
+  and the same for the boundary test.
+- **`FauxBuildView` held raw `MeshInstance3D*` to nodes it does not own.**
+  Freeing a generated group externally left dangling pointers; reproduced with
+  a throwaway probe as `Program crashed with signal 11` after `queue_free()`
+  plus two frame awaits. Fixed by storing `godot::ObjectID` and validating
+  every access through `ObjectDB::get_instance`. Teardown distinguishes three
+  states — already freed (skip), queued for deletion (detach only, never free
+  twice), live (detach if ours, then free) — and `remove_child` is guarded on
+  `get_parent() == this` so a reparented group is not taken from another tree.
+  External deletion is not prevented and the generated mesh does not become
+  authoritative; rebuild remains driven entirely by `StructuralWorld`.
+  Lifecycle regressions run for two different kinds (Floors, PortalUpper),
+  cross real frame boundaries, and re-present to compare rebuilt arrays.
+  Negative test: genuinely restoring raw-pointer tracking → scene gate exit
+  -6, signal 11.
+
+The scene gate's frame budget went 3 → 30 for the structural scene: the new
+awaits need frames to run, and too small a budget would have made the scene
+look silent rather than failing.
+
+**Slice 2 — ACCEPTED 2026-08-25** by mitchellcurrie. The architectural seam is
+accepted as: authoritative `MapData` → `build_structural_world()` → disposable
+`StructuralWorld` → `FauxBuildView::present_world()` → disposable Godot
+`ArrayMesh`. The view cannot ingest MapData, does not re-enter render space,
+does not triangulate or infer portal geometry, and does not touch ART or the
+atlas. The boundary test reads `ArrayMesh.surface_get_arrays()`; A→B→A proves
+no stale presentation survives; damaging or freeing generated nodes does not
+make them authoritative. PR #6 merged with zero unresolved threads and all four
+CI jobs green on head `2920b4d`.
+
+M5 remains IN_PROGRESS. Slice 3 — real E1L1 presentation — is next and is the
+milestone's payoff: existing loader → existing derivation → existing view, with
+no new subsystems.
+
+Next milestone work was not started.
 ## M6 — Slopes, indexed textures, flags, and sprites — NOT_STARTED
 
 Gate summary: slope query and render share one function; UV/sprite-flag/palette-shade matrix

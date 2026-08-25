@@ -17,9 +17,9 @@ import sys
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 
 
-def run_godot(godot: str, args: list[str]) -> subprocess.CompletedProcess:
+def run_godot(godot: str, args: list[str], timeout: int = 600) -> subprocess.CompletedProcess:
     return subprocess.run([godot, "--headless", "--path", str(ROOT / "godot")] + args,
-                          capture_output=True, text=True, timeout=600)
+                          capture_output=True, text=True, timeout=timeout)
 
 
 def main() -> int:
@@ -76,14 +76,67 @@ def main() -> int:
     guarded = run_godot(
         godot, ["res://scenes/atlas_preview.tscn", "--quit-after", "3", "--",
                 "--grp", "/nonexistent.grp"])
-    if "only runs against the synthetic fixture" not in (guarded.stdout + guarded.stderr):
-        print("scene-check FAILED: the CI boundary test accepted --grp",
-              file=sys.stderr)
+    # Both halves are required. Matching only the message would pass a scene
+    # that printed the refusal and then ran anyway, or exited 0 -- the refusal
+    # is a *status* contract, not a log line (CodeRabbit, PR #6; the M4 gate
+    # had the same weakness as the M5 one and is fixed here to keep a single
+    # standard).
+    if guarded.returncode != 2 or \
+            "only runs against the synthetic fixture" not in (guarded.stdout + guarded.stderr):
+        print(f"scene-check FAILED: the CI boundary test did not refuse --grp "
+              f"(exit {guarded.returncode}, expected 2)", file=sys.stderr)
+        return 1
+
+    # M5 slice 2: the structural consumer boundary. The scene reads what
+    # Godot actually received (MeshInstance3D.mesh -> ArrayMesh ->
+    # surface_get_arrays) and compares it against the StructuralWorld the
+    # harness packed independently of the view. Fixture-only by
+    # construction; real content is slice 3.
+    struct_scene = run_godot(
+        # 30 frames, not 3: the lifecycle regressions deliberately await frame
+        # boundaries so external queue_free() actually completes before the
+        # boundary is re-read. A budget too small to reach the awaits would
+        # make the scene look silent rather than failing.
+        godot, ["res://scenes/structural_view_test.tscn", "--quit-after", "30", "--"])
+    output = struct_scene.stdout + struct_scene.stderr
+    if struct_scene.returncode != 0 or "M5 structural consumer boundary: OK" not in output:
+        print(f"scene-check FAILED: structural consumer boundary (exit "
+              f"{struct_scene.returncode})", file=sys.stderr)
+        print(output[-3000:], file=sys.stderr)
+        return 1
+
+    # The human synthetic structural viewer is launched headless with a
+    # short timeout so it cannot rot between the human runs it exists for.
+    # It asserts nothing fixture-specific here; the ready marker proves the
+    # whole harness (fixture -> world -> view -> camera framing) builds.
+    try:
+        struct_human = run_godot(
+            godot, ["res://scenes/structural_view_human.tscn", "--quit-after", "3", "--"],
+            timeout=120)
+    except subprocess.TimeoutExpired:
+        print("scene-check FAILED: human structural viewer timed out", file=sys.stderr)
+        return 1
+    output = struct_human.stdout + struct_human.stderr
+    if struct_human.returncode != 0 or "structural-view: ready for inspection" not in output:
+        print(f"scene-check FAILED: human structural viewer (exit "
+              f"{struct_human.returncode})", file=sys.stderr)
+        print(output[-3000:], file=sys.stderr)
+        return 1
+
+    # ...and the CI structural test must refuse real-content input too.
+    struct_guarded = run_godot(
+        godot, ["res://scenes/structural_view_test.tscn", "--quit-after", "3", "--",
+                "--grp", "/nonexistent.grp"])
+    if struct_guarded.returncode != 2 or "only runs against committed synthetic fixtures" \
+            not in (struct_guarded.stdout + struct_guarded.stderr):
+        print(f"scene-check FAILED: the CI structural test did not refuse --grp "
+              f"(exit {struct_guarded.returncode}, expected 2)", file=sys.stderr)
         return 1
 
     print("scene-check: sample scene ran with the extension live")
     print("scene-check: atlas consumer boundary + preview verified")
     print("scene-check: human atlas harness runs and the CI test refuses real content")
+    print("scene-check: structural consumer boundary verified; human viewer runs")
     return 0
 
 

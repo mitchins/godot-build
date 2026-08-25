@@ -1,0 +1,6 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/structural_view_human.gd" id="1_structhuman"]
+
+[node name="StructuralViewHuman" type="Node3D"]
+script = ExtResource("1_structhuman")

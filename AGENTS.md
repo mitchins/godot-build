@@ -16,12 +16,16 @@ mechanism with no authority, and its output is checked against the exact
 expected polygon area before any surface is emitted. Degenerate derived
 surfaces are nonfatal diagnostics (D0018).
 
-**Slice 2 (Godot structural viewer) is next and has not started.** Its input is
-`StructuralWorld` and nothing else: it does not re-derive geometry, re-read
-maps, or invent a transform. `to_render_space` is the single conversion. No
-textures, no UVs, no slopes, no sprites, no collision, no portal visibility —
-flat diagnostic materials only. No generated scene, mesh or cache may become
-world authority; rebuilding the shell from the map must always be possible.
+**Slice 2 (Godot structural viewer) delivered at checkpoint 2026-08-25,
+awaiting review.** `FauxBuildView.present_world(const StructuralWorld&)` is
+the production seam (C++-only, not ClassDB-bound): the view packs the
+accepted surfaces into five diagnostic ArrayMesh groups — a copier/packer
+that never re-derives, reorders, or transforms geometry. The
+`FauxStructuralFixture` harness owns the synthetic fixture → world → view
+path for scenes; the view has no map/fixture loading. The scene gate reads
+the actual `MeshInstance3D.mesh -> ArrayMesh.surface_get_arrays()` arrays,
+and the layering guard pins the view to `structural.hpp` alone. Real E1L1
+presentation is slice 3; textures/slopes/sprites/visibility are M6+.
 
 M4 (ART, palette, lookup, tile tooling and the indexed atlas) was **ACCEPTED
 2026-08-24**: all six gate items met, D0013/D0014/D0015 ratified, and two

@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Layering guards: core/ must never reference Godot (AGENTS.md, plan §2.2),
-and the indexed atlas must keep its authoritative storage one-byte-per-texel
-(M4 slice 4 RGBA tripwire)."""
+the indexed atlas must keep its authoritative storage one-byte-per-texel
+(M4 slice 4 RGBA tripwire), and the production FauxBuildView must stay a
+consumer of fauxbuild::StructuralWorld only (M5 slice 2 viewer guard)."""
 
 import pathlib
 import re
@@ -29,10 +30,38 @@ if not pin.search(atlas_hpp.read_text(encoding="utf-8")):
     violations.append("core/include/fauxbuild/atlas.hpp: authoritative "
                       "'std::vector<std::uint8_t> pixels;' declaration missing")
 
+# M5 slice 2 viewer guard: pin the architectural seam, not a style. The
+# production FauxBuildView is a pure consumer of
+# fauxbuild::StructuralWorld: it must not include any other core header,
+# and must not reference world-production facilities (map parsing, fixture
+# synthesis, structural derivation, the core render conversion, VFS/GRP or
+# asset loading) or generated-scene persistence. The test/sample harness
+# (faux_structural_fixture.cpp) legitimately produces worlds from committed
+# fixtures and is deliberately outside this guard's file list.
+view_files = [
+    root / "extension/include/fauxbuild_godot/fauxbuild_view.hpp",
+    root / "extension/src/fauxbuild_view.cpp",
+]
+view_include = re.compile(r'#\s*include\s*[<"](fauxbuild/[A-Za-z0-9_./]+\.hpp)')
+viewer_forbidden = re.compile(
+    r'\b(map_v7|mapv7|map_synth|map_io|map_validate|build_structural_world|'
+    r'to_render_space|GrpMount|Vfs|AssetSet|IndexedAtlas|ResourceSaver)\b')
+for path in view_files:
+    text = path.read_text(encoding="utf-8")
+    for inc in view_include.findall(text):
+        if inc != "fauxbuild/structural.hpp":
+            violations.append(f"{path.relative_to(root)}: core include '{inc}' not allowed "
+                              "in FauxBuildView (structural.hpp only)")
+    for lineno, line in enumerate(text.splitlines(), 1):
+        if viewer_forbidden.search(line):
+            violations.append(f"{path.relative_to(root)}:{lineno}: FauxBuildView must not "
+                              f"reference world production: {line.strip()}")
+
 if violations:
     print("layering check FAILED:")
     for v in violations:
         print(f"  {v}")
     sys.exit(1)
 
-print("layering check: core/ contains no Godot references; atlas payload is indexed")
+print("layering check: core/ contains no Godot references; atlas payload is indexed; "
+      "FauxBuildView consumes StructuralWorld only")

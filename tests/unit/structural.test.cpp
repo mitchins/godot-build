@@ -231,6 +231,30 @@ TEST_CASE("square room: floor, ceiling, four solid walls, facing inwards") {
 // C. Portal walls
 // ---------------------------------------------------------------------------
 
+TEST_CASE("asymmetric_probe: render-space vertices are component-distinct") {
+    // The M5 slice-2 boundary probe fixture: every surface vertex must have
+    // three pairwise-distinct components so an accidental axis swap or sign
+    // flip at the Godot boundary cannot survive component-for-component
+    // comparison. If someone "fixes" the fixture to a symmetric shape, this
+    // case fails here rather than silently weakening the scene gate.
+    const StructuralWorld world = build_fixture("asymmetric_probe");
+    REQUIRE(world.surfaces.size() == 6);
+    for (const auto& surface : world.surfaces) {
+        for (const auto& vertex : surface.vertices) {
+            CHECK(vertex.x != vertex.y);
+            CHECK(vertex.x != vertex.z);
+            CHECK(vertex.y != vertex.z);
+        }
+    }
+    // Floor/ceiling planes at the authored heights under (x, -z, y) * 2^-11.
+    for (const auto& vertex : world.surfaces[0].vertices) {
+        CHECK(vertex.y == -9000.0 / 2048.0);
+    }
+    for (const auto& vertex : world.surfaces[1].vertices) {
+        CHECK(vertex.y == -3000.0 / 2048.0);
+    }
+}
+
 TEST_CASE("two_sector_portal: the opening is not closed by any wall") {
     const StructuralWorld world = build_fixture("two_sector_portal");
     check_triangles_wellformed(world);
