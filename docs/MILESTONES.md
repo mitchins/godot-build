@@ -993,7 +993,7 @@ checklist above.
 **M4 ACCEPTED 2026-08-24.** All six gate items satisfied; see the gate
 checklist above for the evidence and class of each.
 
-## M5 — Static structural world viewer — IN_PROGRESS (slices 1–2 delivered at checkpoints)
+## M5 — Static structural world viewer — IN_PROGRESS (slices 1–2 ACCEPTED; slice 3 next)
 
 Gate summary: structural fixtures render with correct topology; holes/non-convex sectors render;
 no persistent Godot scene becomes authority; local E1L1 loads as recognizable 3D shell (HUMAN-ATTESTED);
@@ -1250,6 +1250,49 @@ started.
   fixture constants still failed. The load-bearing read is the mesh.
 - Deferred by design: textures/UVs/atlas, slopes, sprites, masked/one-way
   walls, visibility, collision (M6+); real E1L1 presentation is slice 3.
+
+Slice-2 residual review (2026-08-25, PR #6) — two CodeRabbit findings, both
+valid, both reproduced before being fixed:
+
+- **Refusal gates accepted any exit status.** `ci/check_scene.py` matched only
+  the refusal message, so a scene that refused `--grp` and then exited 0 passed.
+  The **M4 atlas refusal gate had the identical weakness**; it was fixed in the
+  same change rather than leaving two standards. Both now require exit 2 AND
+  the expected text. Negative-tested separately by changing `quit(2)` to
+  `quit(0)`: "the CI structural test did not refuse --grp (exit 0, expected 2)"
+  and the same for the boundary test.
+- **`FauxBuildView` held raw `MeshInstance3D*` to nodes it does not own.**
+  Freeing a generated group externally left dangling pointers; reproduced with
+  a throwaway probe as `Program crashed with signal 11` after `queue_free()`
+  plus two frame awaits. Fixed by storing `godot::ObjectID` and validating
+  every access through `ObjectDB::get_instance`. Teardown distinguishes three
+  states — already freed (skip), queued for deletion (detach only, never free
+  twice), live (detach if ours, then free) — and `remove_child` is guarded on
+  `get_parent() == this` so a reparented group is not taken from another tree.
+  External deletion is not prevented and the generated mesh does not become
+  authoritative; rebuild remains driven entirely by `StructuralWorld`.
+  Lifecycle regressions run for two different kinds (Floors, PortalUpper),
+  cross real frame boundaries, and re-present to compare rebuilt arrays.
+  Negative test: genuinely restoring raw-pointer tracking → scene gate exit
+  -6, signal 11.
+
+The scene gate's frame budget went 3 → 30 for the structural scene: the new
+awaits need frames to run, and too small a budget would have made the scene
+look silent rather than failing.
+
+**Slice 2 — ACCEPTED 2026-08-25** by mitchellcurrie. The architectural seam is
+accepted as: authoritative `MapData` → `build_structural_world()` → disposable
+`StructuralWorld` → `FauxBuildView::present_world()` → disposable Godot
+`ArrayMesh`. The view cannot ingest MapData, does not re-enter render space,
+does not triangulate or infer portal geometry, and does not touch ART or the
+atlas. The boundary test reads `ArrayMesh.surface_get_arrays()`; A→B→A proves
+no stale presentation survives; damaging or freeing generated nodes does not
+make them authoritative. PR #6 merged with zero unresolved threads and all four
+CI jobs green on head `2920b4d`.
+
+M5 remains IN_PROGRESS. Slice 3 — real E1L1 presentation — is next and is the
+milestone's payoff: existing loader → existing derivation → existing view, with
+no new subsystems.
 
 Next milestone work was not started.
 ## M6 — Slopes, indexed textures, flags, and sprites — NOT_STARTED
