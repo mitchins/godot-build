@@ -69,6 +69,10 @@ var map_name := ""
 var move_speed := SPEED
 var focus_target := Vector3.ZERO
 var focus_is_start := false
+var start_position := Vector3.ZERO
+var have_start := false
+var camera_mode := "overview"
+var overview_transform := Transform3D.IDENTITY
 
 
 func _usage_error(message: String) -> void:
@@ -143,6 +147,8 @@ func _ready() -> void:
 	var world_bounds := _bounds()
 	print("bounds size X/Y/Z: %.4f / %.4f / %.4f"
 		% [world_bounds.size.x, world_bounds.size.y, world_bounds.size.z])
+	overview_transform = camera.global_transform
+	print("camera mode: %s" % camera_mode)
 
 	if DisplayServer.get_name() == "headless":
 		_headless_probe()
@@ -152,6 +158,8 @@ func _ready() -> void:
 		+ "Escape releases the mouse, click recaptures")
 	print("structural-view: C toggles ceilings (hidden at start); 1-5 toggle "
 		+ "floors/ceilings/solid walls/portal upper/portal lower")
+	print("structural-view: O = architectural overview, P = authored start position "
+		+ "(exact, unsnapped)")
 
 
 func _present_source() -> bool:
@@ -179,10 +187,12 @@ func _present_source() -> bool:
 	# single core transform), not the centre of the whole shell: a level's
 	# AABB centre is usually solid rock. The start ANGLE is not used --
 	# Build angle semantics are not M5's.
-	focus_target = source.get_start_position()
+	start_position = source.get_start_position()
+	have_start = true
+	focus_target = start_position
 	focus_is_start = true
-	print("start position (render space): %.4f / %.4f / %.4f"
-		% [focus_target.x, focus_target.y, focus_target.z])
+	print("start render position: %.4f, %.4f, %.4f"
+		% [start_position.x, start_position.y, start_position.z])
 	print("structural-view: ready for inspection (%s:%s; %d notes, %d diagnostics)"
 		% [source.get_source_description(), source.get_map_name(),
 			source.get_note_count(), source.get_diagnostic_count()])
@@ -305,6 +315,32 @@ func _frame_camera() -> void:
 	move_speed = maxf(SPEED, horizontal_radius * 0.35)
 
 
+
+func _set_camera_mode(mode: String) -> void:
+	# Two independent M5 observations, deliberately not blended:
+	#
+	#   overview  the whole static shell, framed from the world AABB
+	#   start     the camera placed EXACTLY at the authored start position
+	#
+	# Start mode does no floor snapping, no collision, no "ground level"
+	# correction and no capsule height. The MAP's start z is part of the
+	# authored pose; forcing it onto a floor plane would destroy that
+	# information, and the queries that would justify a correction (floor Z
+	# at an XY, clearance, slope) belong to the world-query and collision
+	# milestones, not M5. The Build start ANGLE is still not interpreted:
+	# start mode faces a generic horizontal direction.
+	if mode == "start":
+		if not have_start:
+			print("camera mode: start unavailable (synthetic fixture mode has no "
+				+ "authored start pose; use --grp/--dir)")
+			return
+		camera.global_position = start_position
+		camera.global_rotation = Vector3.ZERO # generic yaw, level pitch
+	else:
+		camera.global_transform = overview_transform
+	camera_mode = mode
+	print("camera mode: %s" % camera_mode)
+
 func _toggle_group(group: String) -> void:
 	var inst := view.get_node_or_null(group)
 	if inst != null:
@@ -326,6 +362,13 @@ func _headless_probe() -> void:
 		% [forward.x, forward.y, forward.z, bounds.size.x, bounds.size.y, bounds.size.z,
 			camera.near, camera.far, move_speed]
 		+ "focus=%s" % ("start" if focus_is_start else "centre"))
+
+	if have_start:
+		_set_camera_mode("start")
+		print("structural-view start-mode: pos=(%.6f,%.6f,%.6f)"
+			% [camera.global_position.x, camera.global_position.y,
+				camera.global_position.z])
+		_set_camera_mode("overview")
 
 	var ceilings := view.get_node_or_null("Ceilings")
 	if ceilings == null or ceilings.mesh == null:
@@ -373,6 +416,10 @@ func _unhandled_input(event: InputEvent) -> void:
 		camera.rotate_object_local(Vector3(1, 0, 0), -event.relative.y * LOOK_SENSITIVITY)
 	elif event is InputEventKey and event.pressed and event.keycode == KEY_ESCAPE:
 		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	elif event is InputEventKey and event.pressed and event.keycode == KEY_P:
+		_set_camera_mode("start")
+	elif event is InputEventKey and event.pressed and event.keycode == KEY_O:
+		_set_camera_mode("overview")
 	elif event is InputEventKey and event.pressed and event.keycode == KEY_C:
 		_toggle_group("Ceilings")
 	elif event is InputEventKey and event.pressed and TOGGLE_KEYS.has(event.keycode):

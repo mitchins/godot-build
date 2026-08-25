@@ -184,8 +184,8 @@ def check_start_pose_focus(godot: str) -> bool:
         return False
 
     expected = (8192.0 / 2048.0, -4096.0 / 32768.0, 8192.0 / 2048.0)
-    match = re.search(r"start position \(render space\): "
-                      r"(-?[0-9.]+) / (-?[0-9.]+) / (-?[0-9.]+)", output)
+    match = re.search(r"start render position: "
+                      r"(-?[0-9.]+), (-?[0-9.]+), (-?[0-9.]+)", output)
     if match is None:
         print("scene-check FAILED: source mode printed no start position", file=sys.stderr)
         print(output[-2000:], file=sys.stderr)
@@ -213,6 +213,27 @@ def check_start_pose_focus(godot: str) -> bool:
             print(f"scene-check FAILED: camera aim axis {axis} is {got}, expected the "
                   f"start pose {want}", file=sys.stderr)
             return False
+
+    # P (start mode) must place the camera EXACTLY on the authored point --
+    # no floor snapping, no ground-level correction, no capsule height. The
+    # overview aims at the start from a distance; this is the separate
+    # observation of whether the authored pose sits inside architecture.
+    start_mode = _vec(next((line for line in output.splitlines()
+                            if line.startswith("structural-view start-mode:")), ""), "pos")
+    if start_mode is None:
+        print("scene-check FAILED: source mode never exercised the start camera mode",
+              file=sys.stderr)
+        return False
+    for axis, (got, want) in enumerate(zip(start_mode, expected)):
+        if abs(got - want) > 1e-4:
+            print(f"scene-check FAILED: start-mode camera axis {axis} is {got}, expected "
+                  f"the authored position {want}. The camera must land on the start pose "
+                  f"exactly -- snapping or height correction would destroy authored "
+                  f"information M5 cannot reconstruct", file=sys.stderr)
+            return False
+    if "camera mode: start" not in output:
+        print("scene-check FAILED: start camera mode was never announced", file=sys.stderr)
+        return False
 
     # The synthetic fixture mode keeps the whole-world AABB centre.
     fallback = run_godot(godot, ["res://scenes/structural_view_human.tscn",
@@ -417,7 +438,7 @@ def main() -> int:
     print("scene-check: structural consumer boundary verified; human viewer runs")
     print("scene-check: production source route verified; human viewer source modes hold")
     print("scene-check: human viewer framing is finite and aimed; ceiling toggle rebuilds nothing")
-    print("scene-check: real-content mode focuses the parsed start pose; fixtures keep the AABB centre")
+    print("scene-check: real-content overview aims at the start pose; P lands on it exactly")
     return 0
 
 

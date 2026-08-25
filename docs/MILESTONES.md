@@ -1444,16 +1444,29 @@ seam slices 1–2 already proved.
   a 16x-tall shaft. This is the corroboration a reader can reproduce without
   owning any proprietary content — the two measurements above depend on
   legally owned maps, this one does not.
-- **Real-content initial focus (presentation only, accepted with the
-  amendment).** The human viewer's `--grp`/`--dir` modes aim the initial view
-  at the map's own parsed start position, converted through
-  `to_render_space` like every other coordinate — a level's AABB centre is
-  usually solid rock. The start **angle is not used**; Build angle semantics
-  are not M5's. Synthetic `--fixture` mode keeps the AABB centre, and
-  distance, elevation, clip planes and traversal speed still come from the
-  whole-world AABB in both modes. Geometry, derivation, packing and the
-  metric are untouched; `FauxStructuralSource.get_start_position()` is
-  diagnostic state, never authority.
+- **Two camera modes, two independent observations (presentation only).**
+  `O` — architectural overview: the whole shell framed from the world AABB,
+  *aimed at* the start position for real content (a level's AABB centre is
+  usually solid rock) and at the AABB centre for synthetic fixtures. This is
+  the default and answers "does the static world look coherent?".
+  `P` — authored start position: the camera is placed **exactly** at
+  `to_render_space(map.start.x, .y, .z)`. No floor snapping, no
+  ground-level correction, no capsule height. The MAP's start z is part of
+  the authored pose; forcing it onto a floor plane would destroy
+  information, and the queries that could justify a correction (floor Z at
+  an XY, clearance, slope) belong to M7/M8, not M5. This answers the
+  separate question "does the authored start lie inside plausible
+  architecture?".
+  The Build start **angle is not interpreted** in either mode; `P` faces a
+  generic horizontal direction. Distance, elevation, clip planes and
+  traversal speed come from the whole-world AABB throughout. Geometry,
+  derivation, packing and the metric are untouched;
+  `FauxStructuralSource.get_start_position()` is diagnostic state, never
+  authority.
+  *Note on an earlier report:* the overview was described as making the
+  viewer "focus on the start pose". It aims at it from a distance; it never
+  placed the camera there. `P` is what actually tests the authored pose, and
+  until it existed that observation had not been made.
 - **Start-pose camera gate (CI, synthetic).** Driven with committed content
   through the same source route real content uses: `fbtool gen-map` writes
   `multi_loop` (start Build 8192/8192/4096, off-centre on every axis) into a
@@ -1464,7 +1477,18 @@ seam slices 1–2 already proved.
   longer tell the two focus modes apart. Three sabotages observed red:
   source mode ignoring the start pose, the start pose getting its own
   isotropic transform (`axis 1 is -2.0, expected -0.125`), and fixture mode
-  wrongly adopting the start pose.
+  wrongly adopting the start pose. The gate additionally requires `P` to land
+  on the authored point exactly; sabotaging it with a floor snap goes red
+  (`axis 1 is 0.0, expected -0.125`), as does a `P` that silently does
+  nothing.
+- **Dev evidence (legally owned content, aggregate only, not a gate):** in
+  all six owned maps the authored start pose lies inside its own sector's
+  vertical interval. Five of the six sit exactly 10240 Build units above
+  their floor (0.3125 render), consistent with an authored eye-height
+  offset; E1L1 is the outlier at 32992 (1.01 render), in a start sector that
+  is itself unusually tall (99328 Build / 3.03 render). Recorded so the `P`
+  observation is judged against a known baseline rather than an
+  expectation.
 - **Error paths (CI, synthetic only):** missing MAP inside a valid
   directory mount, malformed MAP bytes, nonexistent directory,
   nonexistent GRP path, and a null view — each fails cleanly with the
