@@ -1592,7 +1592,7 @@ M6 (slopes, indexed textures, UV/flags, sprites) is next and is where the
 shell stops looking like a CAD model.
 
 Next milestone work was not started.
-## M6 — Slopes, indexed textures, flags, and sprites — NOT_STARTED
+## M6 — Slopes, indexed textures, flags, and sprites — IN_PROGRESS (slice 1 checkpoint 2026-08-25: appearance contract delivered; slope evaluator stopped pending provenance)
 
 Gate summary: slope query and render share one function; UV/sprite-flag/palette-shade matrix
 fixtures pass; local E1L1 immediately recognizable; unsupported features listed explicitly.
@@ -1605,6 +1605,96 @@ where M6 first gives those bits behavioural weight. M3 also established that
 `stat & 0x0002` marks a slope and that a nonzero heinum without it is an ignored
 leftover in real content (n=4,900 surfaces) — slope evaluation must honour the
 flag, not the heinum alone.
+
+### Slice 1 — slope authority + appearance contract (checkpoint 2026-08-25)
+
+Delivered (provenance-safe, formula-independent):
+
+- **Raw appearance contract on every emitted surface** (slice brief §8).
+  `StructuralSurface` now carries `SurfaceAppearance`: picnum, overpicnum
+  (walls), the raw stat word (floorstat/ceilingstat for floors/ceilings, wall
+  cstat for wall spans), shade, pal, x/y panning, x/y repeat (walls) — all
+  preserved verbatim from the MAP record. Nothing is interpreted: no UVs, no
+  flag behaviour, no Duke semantics; heinum and tags are deliberately not
+  appearance. Consumer-level test reads the actual emitted surfaces
+  field-by-field against the source records (negative shade, nonzero
+  panning/pal, awkward stat words). Uninterpreted fields stay raw rather than
+  inventing behaviour (§15 — masking, flips, alignment, expansion wait for
+  their slices).
+- **Flag semantics pinned** (§2): `heinum != 0` with the slope flag CLEAR
+  produces perfectly flat geometry and no slope note — geometry honours the
+  flag, never the heinum alone. The pin is written to stay green after the
+  evaluator lands (flag-clear sectors are flat by definition).
+- **Separation pinned statically** (§9): `structural.{hpp,cpp}` may not
+  include atlas/asset/ART/palette headers — the structural world derives from
+  MapData alone; tile dimensions and texels meet it at the M6.2 seam.
+  Negative-tested (forbidden include → guard red). No
+  `build_structural_world(MapData, AssetSet)` exists or may exist in this
+  slice.
+- **M6.2 seam defined, not implemented** (§10): StructuralWorld (geometry +
+  raw appearance) + IndexedAtlas/AssetSet → UV/material packing → ArrayMesh +
+  indexed shader. Documented in RENDERING_CONTRACT.md; the accepted
+  `present_world(StructuralWorld)` signature is unchanged, and no Godot,
+  texture, UV, shader, or sprite work landed (§14).
+- **Original slope probe fixtures** (§4): `slope_probe_floor_px`/`_py`/`_rx`
+  (first wall along +X/+Y/−X, floorheinum +4096), `slope_probe_floor_neg`
+  (heinum −4096), `slope_probe_ceiling_px`. One 2×1 rectangular sector each,
+  floorz 0 / ceilingz 16384, slope bit set on exactly one surface. They
+  encode NO formula — CI pins only the provenance-safe facts (valid map, flat
+  base Z, exactly one deferral note, raw slope bit readable on the emitted
+  surface). They exist to be opened in Mapster32 by the human.
+
+**STOPPED — slope evaluator not implemented (slice brief §3).** The exact
+evaluation equation is not provenance-safe in the repository:
+
+- *Published, approved (PROVENANCE row 9):* heinum is "rise/run; 0 =
+  parallel to floor, 4096 = 45 degrees"; sector stat bit 0x0002 = sloped
+  (n=4,900 corroboration, M3); floorz/ceilingz is the height "at first point
+  of sector"; the CONVMAP7 note confirms heinum is zeroed when the slope bit
+  is clear.
+- *Not established by any approved source:* **(a)** the tilt axis/direction
+  — world X, world Y, or first-wall-relative; **(b)** the sign convention —
+  which heinum sign moves Z which way along it; **(c)** the evaluation
+  equation and its rounding as an executable statement. The natural reading
+  of "4096 = 45°" is the ratio heinum/4096 against horizontal Build units
+  (z_delta = heinum·d/4096, exact integer arithmetic, 4096 = 2^12), but the
+  page never states the equation, and without (a) the distance d has no
+  defined axis. Source-port memory of the answer is exactly the input the
+  clean-room rules forbid, so it is not used even where it agrees.
+
+*Published hypothesis (hypothesis only):* for a flagged surface,
+z(x,y) = z_anchor + heinum·d/4096 where z_anchor is the surface's base Z at
+the sector's first point, d is signed horizontal Build distance along the
+unknown tilt direction, int64 arithmetic widened before multiply, explicit
+rounding at the divide (NUMERICS requires the rounding policy be named and
+tested — itself an open black-box item).
+
+*Candidate synthetic Mapster experiment (HUMAN-ATTESTED; needs no
+proprietary content):*
+
+```sh
+scons config=dev check
+for f in slope_probe_floor_px slope_probe_floor_py slope_probe_floor_rx \
+         slope_probe_floor_neg slope_probe_ceiling_px; do
+  ./build/dev/fbtool gen-map --fixture "$f" --out "/tmp/${f^^}.MAP"
+done
+# open each /tmp/*.MAP in Mapster32 (black box) and inspect the 3D preview
+```
+
+*Exact quantities to record:* (1) per probe, which horizontal direction the
+surface height changes along (+X/−X/+Y/−Y); (2) whether px vs py vs rx tilt
+the same world axis (axis-aligned) or follow the first wall's orientation
+(first-wall-relative) — rx is px with the first wall reversed precisely to
+separate these; (3) the sign: does +4096 raise or lower the surface along
+that direction (Build Z grows downward); (4) does neg flip exactly; (5) does
+the ceiling probe behave like the floor probe; (6) anchor: does the surface
+pass through the first point at its declared base Z. Visual observations are
+HUMAN-ATTESTED; once recorded, the numbers become exact integer CI oracles in
+the probe fixtures (e.g. heinum 4096 ⇒ z delta exactly equal to horizontal
+distance along the attested axis), and only then do the evaluator, the
+geometry consumption, the shared-function tripwire, and sabotages 1–5 land.
+
+M6 remains IN_PROGRESS. Slice 2 (textured surfaces + UV) is not started.
 
 ## M7 — Sector lookup and vertical world queries — NOT_STARTED
 

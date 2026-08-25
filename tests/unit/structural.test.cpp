@@ -265,7 +265,7 @@ TEST_CASE("square room: floor, ceiling, four solid walls, facing inwards") {
 
     const StructuralSurface& floor = world.surfaces[0];
     CHECK(floor.wall == -1);
-    CHECK(floor.picnum == 101); // inert source metadata preserved
+    CHECK(floor.appearance.picnum == 101); // inert source metadata preserved
     REQUIRE(floor.indices.size() == 6);
     CHECK(floor.vertices.size() == 4);
 
@@ -675,6 +675,156 @@ TEST_CASE("masked walls are noted as deferred, spans stay plain") {
     // all beyond the notes.
     CHECK(count_kind(world, SurfaceKind::PortalUpper) == 0);
     CHECK(count_kind(world, SurfaceKind::PortalLower) == 0);
+}
+
+// ---------------------------------------------------------------------------
+// I. M6 slice 1: raw appearance contract and the slope-flag pin
+// ---------------------------------------------------------------------------
+
+TEST_CASE("appearance facts are preserved raw on emitted surfaces") {
+    // The consumer is the pure-C++ StructuralWorld: read the emitted surfaces
+    // themselves, field by field, against the source MAP records. No
+    // interpretation may creep in: every value below is the source field
+    // verbatim (M6 slice 1 §8).
+    auto map = map_fixture("square_room");
+    REQUIRE(map.is_ok());
+    auto& sector = map.value().sectors[0];
+    // Distinct, deliberately awkward source values (negative shade, nonzero
+    // panning/pal) so a transposed or truncated field is loud.
+    sector.ceilingpicnum = 111;
+    sector.floorpicnum = 222;
+    sector.ceilingshade = -13;
+    sector.floorshade = 17;
+    sector.ceilingpal = 3;
+    sector.floorpal = 4;
+    sector.ceilingxpanning = 11;
+    sector.ceilingypanning = 13;
+    sector.floorxpanning = 17;
+    sector.floorypanning = 19;
+    sector.ceilingstat = 0x0044; // uninterpreted bits stay raw (slope bit clear)
+    sector.floorstat = 0x0018;
+    for (auto& wall : map.value().walls) {
+        wall.picnum = 333;
+        wall.overpicnum = 444;
+        wall.cstat = 0x0108;
+        wall.shade = -5;
+        wall.pal = 6;
+        wall.xrepeat = 9;
+        wall.yrepeat = 10;
+        wall.xpanning = 21;
+        wall.ypanning = 23;
+    }
+    const StructuralWorld world = build_structural_world(map.value()).value();
+
+    const StructuralSurface* floor = find_surface(world, SurfaceKind::Floor, 0, -1);
+    REQUIRE(floor != nullptr);
+    CHECK(floor->appearance.picnum == 222);
+    CHECK(floor->appearance.overpicnum == 0); // not a wall field
+    CHECK(floor->appearance.raw_stat == 0x0018);
+    CHECK(floor->appearance.shade == 17);
+    CHECK(floor->appearance.pal == 4);
+    CHECK(floor->appearance.xpanning == 17);
+    CHECK(floor->appearance.ypanning == 19);
+    CHECK(floor->appearance.xrepeat == 0); // not a floor/ceiling field
+    CHECK(floor->appearance.yrepeat == 0);
+
+    const StructuralSurface* ceiling = find_surface(world, SurfaceKind::Ceiling, 0, -1);
+    REQUIRE(ceiling != nullptr);
+    CHECK(ceiling->appearance.picnum == 111);
+    CHECK(ceiling->appearance.raw_stat == 0x0044);
+    CHECK(ceiling->appearance.shade == -13);
+    CHECK(ceiling->appearance.pal == 3);
+    CHECK(ceiling->appearance.xpanning == 11);
+    CHECK(ceiling->appearance.ypanning == 13);
+
+    for (std::int16_t w = 0; w < 4; ++w) {
+        const StructuralSurface* wall = find_surface(world, SurfaceKind::SolidWall, 0, w);
+        REQUIRE(wall != nullptr);
+        CHECK(wall->appearance.picnum == 333);
+        CHECK(wall->appearance.overpicnum == 444);
+        CHECK(wall->appearance.raw_stat == 0x0108);
+        CHECK(wall->appearance.shade == -5);
+        CHECK(wall->appearance.pal == 6);
+        CHECK(wall->appearance.xrepeat == 9);
+        CHECK(wall->appearance.yrepeat == 10);
+        CHECK(wall->appearance.xpanning == 21);
+        CHECK(wall->appearance.ypanning == 23);
+    }
+
+    // Geometry is untouched by appearance: the floor plane stays at its base
+    // Z (no slope bit set; heinum irrelevant here and zero).
+    for (const auto& v : floor->vertices) {
+        CHECK(v.y == 0.0);
+    }
+}
+
+TEST_CASE("heinum without the slope flag stays perfectly flat") {
+    // M6 slice 1 §2 pin (fixture matrix B): M3 established that stat 0x0002
+    // marks a slope and that a nonzero heinum without it is an ignored
+    // leftover in real content (n=4,900 surfaces). Geometry must honour the
+    // flag, never the heinum alone — this case stays green after the slope
+    // evaluator lands, because flag-clear sectors remain flat by definition.
+    auto map = map_fixture("minimal");
+    REQUIRE(map.is_ok());
+    map.value().sectors[0].floorheinum = 1000;
+    map.value().sectors[0].ceilingheinum = -1000;
+    // Flag deliberately NOT set.
+    const StructuralWorld world = build_structural_world(map.value()).value();
+
+    for (const auto& note : world.notes) {
+        CHECK(note.detail.find("slope present") == std::string::npos);
+    }
+    const StructuralSurface* floor = find_surface(world, SurfaceKind::Floor, 0, -1);
+    REQUIRE(floor != nullptr);
+    for (const auto& v : floor->vertices) {
+        CHECK(v.y == 0.0);
+    }
+    const StructuralSurface* ceiling = find_surface(world, SurfaceKind::Ceiling, 0, -1);
+    REQUIRE(ceiling != nullptr);
+    for (const auto& v : ceiling->vertices) {
+        CHECK(v.y == -16384.0 / 32768.0);
+    }
+}
+
+TEST_CASE("slope probes build flat with deferral notes until the evaluator exists") {
+    // The M6 black-box experiment inputs (axis/sign/anchor unsettled; see the
+    // M6 slice-1 provenance stop in docs/MILESTONES.md). CI pins only what is
+    // provenance-safe today: every probe is a valid map that derives flat at
+    // its base Z with exactly the deferred-slope note for its flagged surface.
+    // When the evaluator lands, these expectations are replaced by the exact
+    // attested oracles — not deleted.
+    const char* floor_probes[] = {"slope_probe_floor_px", "slope_probe_floor_py",
+                                  "slope_probe_floor_rx", "slope_probe_floor_neg"};
+    for (const char* name : floor_probes) {
+        const StructuralWorld world = build_fixture(name);
+        check_triangles_wellformed(world);
+        std::size_t slope_notes = 0;
+        for (const auto& note : world.notes) {
+            if (note.detail.find("slope present") != std::string::npos) {
+                ++slope_notes;
+            }
+        }
+        CHECK(slope_notes == 1); // floor flagged, ceiling not
+        const StructuralSurface* floor = find_surface(world, SurfaceKind::Floor, 0, -1);
+        REQUIRE(floor != nullptr);
+        for (const auto& v : floor->vertices) {
+            CHECK(v.y == 0.0);
+        }
+        CHECK((floor->appearance.raw_stat & fauxbuild::mapv7::kStatSloped) != 0);
+    }
+    const StructuralWorld ceiling_world = build_fixture("slope_probe_ceiling_px");
+    std::size_t ceiling_notes = 0;
+    for (const auto& note : ceiling_world.notes) {
+        if (note.detail.find("slope present") != std::string::npos) {
+            ++ceiling_notes;
+        }
+    }
+    CHECK(ceiling_notes == 1); // ceiling flagged, floor not
+    const StructuralSurface* ceiling = find_surface(ceiling_world, SurfaceKind::Ceiling, 0, -1);
+    REQUIRE(ceiling != nullptr);
+    for (const auto& v : ceiling->vertices) {
+        CHECK(v.y == -16384.0 / 32768.0);
+    }
 }
 
 // ---------------------------------------------------------------------------

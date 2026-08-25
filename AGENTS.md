@@ -6,36 +6,43 @@ The full implementation contract is `docs/PROJECT_CONTRACT.md` and the source pl
 
 ## Active milestone
 
-**M5 — Static structural world viewer: IN_PROGRESS.**
+**M6 — Slopes, indexed textures, flags, and sprites: IN_PROGRESS.**
 
-**Slice 1 ACCEPTED 2026-08-25** — pure-C++ structural derivation from
-authoritative MAP topology. D0016/D0017/D0018 accepted; E1L1 HUMAN-ATTESTED
-(1936 surfaces / 5134 triangles / 0 diagnostics). Triangulation is
-**exact validation -> earcut -> exact verification** (D0017): earcut is a
-mechanism with no authority, and its output is checked against the exact
-expected polygon area before any surface is emitted. Degenerate derived
-surfaces are nonfatal diagnostics (D0018).
+**Slice 1 (slope authority + appearance contract) delivered at checkpoint.**
+The raw renderer-facing appearance contract landed on `StructuralSurface`
+(picnum/overpicnum/raw stat/shade/pal/panning/repeat, preserved verbatim,
+nothing interpreted — no UVs yet), the flag rule is pinned (heinum without
+the sector slope bit is an ignored leftover, geometry stays perfectly
+flat), and the structural core is pinned away from the atlas/asset headers.
+**The slope evaluator itself is NOT implemented: the exact evaluation
+equation (tilt axis/direction, sign, anchor) is not established by any
+provenance-safe source — the approved published description fixes only
+rise/run with 4096 = 45 degrees and the 0x0002 flag. Implementation stopped
+pending a human black-box Mapster32 experiment on original synthetic probe
+fixtures (recorded in docs/MILESTONES.md, M6 slice 1).** Do not guess the
+axis, sign, divisor, or reference wall; do not start slice 2.
 
-**Slice 2 ACCEPTED 2026-08-25** — `FauxBuildView.present_world(const
-StructuralWorld&)` is the production seam (C++-only, not ClassDB-bound):
-the view packs accepted surfaces into five diagnostic ArrayMesh groups — a
-copier/packer that never re-derives, reorders, or transforms geometry. The
-boundary test reads the actual `MeshInstance3D.mesh ->
-ArrayMesh.surface_get_arrays()` arrays; the layering guard pins the view to
-`structural.hpp` alone.
-
-**Slice 3 (real-content entry path) delivered at checkpoint 2026-08-25,
-awaiting the HUMAN-ATTESTED real-world E1L1 gate.** `FauxStructuralSource`
-is the production content owner: `present_grp`/`present_dir` run mount →
-Vfs → MAP parser → `build_structural_world` → the view's C++ seam, failing
-transactionally with stage-tagged errors. Synthetic CI drives the identical
-route (`structural_source_test`: canonical write_map → scratch directory →
-DirectoryMount → parser → source owner), compares boundary arrays against
-the direct fixture route, and carries a standing corruption tripwire proving
-the serialized bytes are consumed. The human viewer is the only place real
-content may enter (`--grp|--dir` + required `--map`) and prints generic
-facts for the human to compare against 317/1937/1936/5134/0. Until the human
-attests, M5 stays IN_PROGRESS. Textures/slopes/sprites/visibility are M6+.
+**M5 — Static structural world viewer: ACCEPTED 2026-08-25.** All three
+slices accepted. Slice 1: pure-C++ structural derivation from authoritative
+MAP topology; D0016/D0017/D0018 accepted (D0016 as amended — Build Z is 16x
+the horizontal unit scale, `render.y = -build.z * scale / 16`); E1L1
+HUMAN-ATTESTED (1936 surfaces / 5134 triangles / 0 diagnostics). Slice 2:
+`FauxBuildView.present_world(const StructuralWorld&)` is the production seam
+(C++-only, not ClassDB-bound): the view packs accepted surfaces into five
+diagnostic ArrayMesh groups — a copier/packer that never re-derives,
+reorders, or transforms geometry; the boundary test reads the actual
+`MeshInstance3D.mesh -> ArrayMesh.surface_get_arrays()` arrays; the layering
+guard pins the view to `structural.hpp` alone. Slice 3: `FauxStructuralSource`
+owns the real-content route (mount → Vfs → MAP parser →
+`build_structural_world` → view seam, transactional stage-tagged failures);
+synthetic CI drives the identical route through both mount kinds with
+corruption tripwires; the human viewer is the only place real content may
+enter. **Slice 3 HUMAN-ATTESTED PASS 2026-08-25**: untouched E1L1 through
+`DUKE3D.GRP` presents 317 sectors / 1937 walls / 1936 surfaces / 5134
+triangles / 0 diagnostics; the 16:1 vertical metric was independently
+corroborated in Mapster32 against the original synthetic `metric_cube`.
+Slopes are M6 (until then: flat base Z + deferral note); textures/sprites/
+visibility are M6+.
 
 M4 (ART, palette, lookup, tile tooling and the indexed atlas) was **ACCEPTED
 2026-08-24**: all six gate items met, D0013/D0014/D0015 ratified, and two

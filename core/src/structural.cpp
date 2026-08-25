@@ -741,7 +741,12 @@ Result<StructuralWorld> build_structural_world(const mapv7::MapData& map,
             floor.kind = SurfaceKind::Floor;
             floor.sector = static_cast<std::int16_t>(s);
             floor.wall = -1;
-            floor.picnum = sector.floorpicnum;
+            floor.appearance.picnum = sector.floorpicnum;
+            floor.appearance.raw_stat = sector.floorstat;
+            floor.appearance.shade = sector.floorshade;
+            floor.appearance.pal = sector.floorpal;
+            floor.appearance.xpanning = sector.floorxpanning;
+            floor.appearance.ypanning = sector.floorypanning;
             floor.vertices.reserve(tri.value().points.size());
             for (const Pt& p : tri.value().points) {
                 floor.vertices.push_back(to_render_space(static_cast<std::int32_t>(p.x),
@@ -756,7 +761,12 @@ Result<StructuralWorld> build_structural_world(const mapv7::MapData& map,
             ceiling.kind = SurfaceKind::Ceiling;
             ceiling.sector = static_cast<std::int16_t>(s);
             ceiling.wall = -1;
-            ceiling.picnum = sector.ceilingpicnum;
+            ceiling.appearance.picnum = sector.ceilingpicnum;
+            ceiling.appearance.raw_stat = sector.ceilingstat;
+            ceiling.appearance.shade = sector.ceilingshade;
+            ceiling.appearance.pal = sector.ceilingpal;
+            ceiling.appearance.xpanning = sector.ceilingxpanning;
+            ceiling.appearance.ypanning = sector.ceilingypanning;
             ceiling.vertices.reserve(tri.value().points.size());
             for (const Pt& p : tri.value().points) {
                 ceiling.vertices.push_back(to_render_space(static_cast<std::int32_t>(p.x),
@@ -802,7 +812,15 @@ Result<StructuralWorld> build_structural_world(const mapv7::MapData& map,
             surface.kind = kind;
             surface.sector = static_cast<std::int16_t>(s);
             surface.wall = wall_index;
-            surface.picnum = wall.picnum;
+            surface.appearance.picnum = wall.picnum;
+            surface.appearance.overpicnum = wall.overpicnum;
+            surface.appearance.raw_stat = wall.cstat;
+            surface.appearance.shade = wall.shade;
+            surface.appearance.pal = wall.pal;
+            surface.appearance.xrepeat = wall.xrepeat;
+            surface.appearance.yrepeat = wall.yrepeat;
+            surface.appearance.xpanning = wall.xpanning;
+            surface.appearance.ypanning = wall.ypanning;
             surface.vertices.push_back(
                 to_render_space(wall.x, wall.y, static_cast<std::int32_t>(zt), options));
             surface.vertices.push_back(

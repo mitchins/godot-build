@@ -35,13 +35,56 @@ struct StructuralVertex {
     bool operator==(const StructuralVertex&) const = default;
 };
 
+// M6 slice 1 appearance contract: the raw MAP appearance facts for one
+// emitted surface, preserved verbatim for the later texture/UV seam. Nothing
+// here is interpreted by slice 1 — no UVs, no flag behaviour, no Duke
+// semantics; a field whose meaning is not yet established stays raw. Fields
+// per surface kind:
+//
+//   Floor/Ceiling: picnum, shade, pal, raw_stat (the sector's
+//                  floorstat/ceilingstat), xpanning, ypanning.
+//   Wall spans:    picnum, overpicnum, shade, pal, raw_stat (the wall's
+//                  cstat), xrepeat, yrepeat, xpanning, ypanning.
+//
+// Fields that do NOT belong here: heinum (a geometry input for the slope
+// evaluator, not appearance), lotag/hitag/extra and anything else
+// game-specific (tags are not appearance).
+//
+// Intended M6.2 seam (defined, deliberately NOT implemented in slice 1):
+//
+//   StructuralWorld (geometry + this raw appearance)
+//       + IndexedAtlas / AssetSet (tile dimensions, indexed texels)
+//       -> UV/material packing
+//       -> Godot ArrayMesh + indexed shader
+//
+// Geometry and raw appearance derive from MapData alone; tile dimensions and
+// texels live on the asset side; the two meet at the rendering/presentation
+// seam, never inside this header. Adding appearance here must never require
+// atlas/asset includes in the structural core.
+struct SurfaceAppearance {
+    std::int16_t picnum = 0;
+    std::int16_t overpicnum = 0; // wall spans only; 0 on floors/ceilings
+    // The raw stat word: floorstat/ceilingstat for Floor/Ceiling, wall cstat
+    // for wall spans. Preserved verbatim; interpretation (beyond the slope
+    // bit's geometry role once the evaluator exists) belongs to later slices.
+    std::int16_t raw_stat = 0;
+    std::int8_t shade = 0;
+    std::uint8_t pal = 0;
+    std::uint8_t xpanning = 0;
+    std::uint8_t ypanning = 0;
+    std::uint8_t xrepeat = 0; // wall spans only; 0 on floors/ceilings
+    std::uint8_t yrepeat = 0; // wall spans only
+
+    bool operator==(const SurfaceAppearance&) const = default;
+};
+
 struct StructuralSurface {
     SurfaceKind kind = SurfaceKind::Floor;
     std::int16_t sector = 0; // owning sector
     std::int16_t wall = -1;  // owning wall; -1 for floor/ceiling
-    // Inert source metadata for later diagnostics. Never affects M5 geometry
-    // or behaviour (M5 slice-1 brief); textures are M6.
-    std::int16_t picnum = 0;
+    // Raw appearance facts for the M6 texture/UV seam (see SurfaceAppearance).
+    // Inert for geometry: nothing here affects slice-1 vertex placement.
+    SurfaceAppearance appearance;
 
     std::vector<StructuralVertex> vertices; // render space
     std::vector<std::uint32_t> indices;     // triangles, three indices each

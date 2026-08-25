@@ -247,6 +247,71 @@ mapv7::MapData slope_metadata_world() {
     return map;
 }
 
+// M6 slice 1 slope probes (PROVENANCE STOP 2026-08-25). The approved
+// published description establishes heinum as rise/run with 4096 = 45
+// degrees and the sector slope bit (stat 0x0002), but NOT which horizontal
+// direction the surface tilts along, the sign convention, or the exact
+// evaluation equation. These ORIGINAL fixtures are the inputs to the
+// black-box Mapster32 experiment that settles axis/sign/anchor; they encode
+// no formula and assert no sloped geometry. Until the evaluator exists they
+// derive flat at their base Z with the ordinary deferral note.
+//
+// All probes are one 2x1 rectangular sector (floorz 0, ceilingz 16384) whose
+// FIRST wall (wallptr; the published anchor for base heights) runs in a
+// controlled direction, so the experiments can separate world-axis tilt from
+// first-wall-relative tilt and read the sign:
+//   floor_px  first wall along +X, floorheinum  +4096
+//   floor_py  first wall along +Y, floorheinum  +4096
+//   floor_rx  first wall along -X (px reversed), floorheinum +4096
+//   floor_neg first wall along +X, floorheinum  -4096
+//   ceiling_px first wall along +X, ceilingheinum +4096
+mapv7::MapData slope_probe(const std::int32_t* xs, const std::int32_t* ys, bool ceiling_slope,
+                           std::int16_t heinum) {
+    mapv7::MapData map;
+    add_loop(map, xs, ys, 4);
+    map.sectors.push_back(make_sector(0, 4));
+    auto& sector = map.sectors[0];
+    if (ceiling_slope) {
+        sector.ceilingstat |= mapv7::kStatSloped;
+        sector.ceilingheinum = heinum;
+    } else {
+        sector.floorstat |= mapv7::kStatSloped;
+        sector.floorheinum = heinum;
+    }
+    map.start = {kUnit, kUnit / 2, 4096, 512, 0};
+    return map;
+}
+
+mapv7::MapData slope_probe_floor_px_world() {
+    const std::int32_t xs[] = {0, 2 * kUnit, 2 * kUnit, 0};
+    const std::int32_t ys[] = {0, 0, kUnit, kUnit};
+    return slope_probe(xs, ys, false, 4096);
+}
+
+mapv7::MapData slope_probe_floor_py_world() {
+    const std::int32_t xs[] = {0, 0, 2 * kUnit, 2 * kUnit};
+    const std::int32_t ys[] = {0, kUnit, kUnit, 0};
+    return slope_probe(xs, ys, false, 4096);
+}
+
+mapv7::MapData slope_probe_floor_rx_world() {
+    const std::int32_t xs[] = {2 * kUnit, 0, 0, 2 * kUnit};
+    const std::int32_t ys[] = {0, 0, kUnit, kUnit};
+    return slope_probe(xs, ys, false, 4096);
+}
+
+mapv7::MapData slope_probe_floor_neg_world() {
+    const std::int32_t xs[] = {0, 2 * kUnit, 2 * kUnit, 0};
+    const std::int32_t ys[] = {0, 0, kUnit, kUnit};
+    return slope_probe(xs, ys, false, -4096);
+}
+
+mapv7::MapData slope_probe_ceiling_px_world() {
+    const std::int32_t xs[] = {0, 2 * kUnit, 2 * kUnit, 0};
+    const std::int32_t ys[] = {0, 0, kUnit, kUnit};
+    return slope_probe(xs, ys, true, 4096);
+}
+
 mapv7::MapData masked_wall_world() {
     mapv7::MapData map = two_sector_portal_world();
     // Masking flag on both sides of the shared edge. 0x0002 was used here
@@ -299,10 +364,25 @@ mapv7::MapData max_reasonable_counts_world() {
 
 std::vector<std::string> map_fixture_names() {
     return {
-        "minimal",          "square_room", "two_sector_portal",   "non_convex",
-        "multi_loop",       "double_hole", "portal_heights",      "portal_step_floor",
-        "slope_metadata",   "masked_wall", "sprite_orientations", "max_reasonable_counts",
-        "asymmetric_probe", "metric_cube",
+        "minimal",
+        "square_room",
+        "two_sector_portal",
+        "non_convex",
+        "multi_loop",
+        "double_hole",
+        "portal_heights",
+        "portal_step_floor",
+        "slope_metadata",
+        "masked_wall",
+        "sprite_orientations",
+        "max_reasonable_counts",
+        "asymmetric_probe",
+        "metric_cube",
+        "slope_probe_floor_px",
+        "slope_probe_floor_py",
+        "slope_probe_floor_rx",
+        "slope_probe_floor_neg",
+        "slope_probe_ceiling_px",
     };
 }
 
@@ -336,6 +416,16 @@ Result<mapv7::MapData> map_fixture(const std::string& name) {
         map = max_reasonable_counts_world();
     } else if (name == "asymmetric_probe") {
         map = asymmetric_probe_world();
+    } else if (name == "slope_probe_floor_px") {
+        map = slope_probe_floor_px_world();
+    } else if (name == "slope_probe_floor_py") {
+        map = slope_probe_floor_py_world();
+    } else if (name == "slope_probe_floor_rx") {
+        map = slope_probe_floor_rx_world();
+    } else if (name == "slope_probe_floor_neg") {
+        map = slope_probe_floor_neg_world();
+    } else if (name == "slope_probe_ceiling_px") {
+        map = slope_probe_ceiling_px_world();
     } else {
         return Result<mapv7::MapData>::err(
             {"synth", 0, "fixture", ErrorCode::InvalidName, "unknown fixture " + name});

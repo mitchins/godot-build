@@ -36,8 +36,27 @@ Becomes binding at M5/M10 (first binding content at M5 slice 1). Rules fixed by 
   The source path is never authority: generated Godot state remains
   disposable and re-presenting from the source recreates the shell.
 - One authoritative slope evaluator feeds floor/ceiling rendering, grounding, clearance,
-  hitscan, sprite placement, movers (plan §8.3). Until M6, sloped-flag sectors render flat
-  at their base Z with an explicit deferral note (M5 allowance).
+  hitscan, sprite placement, movers (plan §8.3). **M6 slice 1 checkpoint (2026-08-25): the
+  evaluator is deliberately NOT implemented.** The approved published description fixes the
+  heinum scale (rise/run, 0 = flat, 4096 = 45°) and the slope flag (sector stat 0x0002), but
+  not the tilt axis/direction, the sign convention, or the evaluation equation — implementing
+  those from memory would violate the clean-room rules. Sloped-flag sectors therefore still
+  render flat at their base Z with the explicit deferral note (M5 allowance, carried); a
+  nonzero heinum with the flag clear remains an ignored leftover. Resolution awaits the
+  human black-box Mapster32 experiment on the original `slope_probe_*` fixtures recorded in
+  MILESTONES.md. When the evaluator lands: structural geometry places every sloped
+  floor/ceiling vertex — and every wall endpoint adjacent to a sloped surface — through the
+  same Build-space evaluation, converting to render space only afterwards; a static tripwire
+  pins the evaluator as the sole slope call site.
+- Appearance data contract (M6 slice 1, delivered): every emitted StructuralSurface carries
+  raw MAP appearance facts verbatim — picnum, overpicnum (walls), the raw stat word
+  (floorstat/ceilingstat or wall cstat), shade, pal, x/y panning, x/y repeat (walls). No UVs,
+  no flag behaviour, no interpretation; heinum and tags are not appearance. The M6.2 seam is
+  defined but NOT implemented: StructuralWorld (geometry + raw appearance) + IndexedAtlas /
+  AssetSet (tile dimensions, indexed texels) → UV/material packing → Godot ArrayMesh +
+  indexed shader. Geometry and appearance derive from MapData alone; the asset side meets
+  them only at that seam (pinned by the layering guard), and the seam must not change the
+  accepted `present_world(StructuralWorld)` signature without a reported API decision.
 - Wall spans are generated only where visible (solid, upper, lower, masked, one-way) — never
   full portal quads clipped later. (M5 generates structural upper/lower spans only;
   masked/one-way semantics arrive at M6 and are diagnosed-not-interpreted before that.)
