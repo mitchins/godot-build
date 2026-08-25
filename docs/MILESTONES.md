@@ -1592,7 +1592,7 @@ M6 (slopes, indexed textures, UV/flags, sprites) is next and is where the
 shell stops looking like a CAD model.
 
 Next milestone work was not started.
-## M6 — Slopes, indexed textures, flags, and sprites — IN_PROGRESS (slice 1 checkpoint 2026-08-25: appearance contract delivered; slope evaluator stopped pending provenance)
+## M6 — Slopes, indexed textures, flags, and sprites — IN_PROGRESS (slice 1: appearance contract + slope evaluator landed 2026-08-25)
 
 Gate summary: slope query and render share one function; UV/sprite-flag/palette-shade matrix
 fixtures pass; local E1L1 immediately recognizable; unsupported features listed explicitly.
@@ -1723,6 +1723,79 @@ Delivered (provenance-safe, formula-independent):
   values, so neither a right-length table nor a broadcast copy passes;
   negative-tested both ways (zeroed copy, and one sector's value broadcast to
   all).
+
+**SLOPE EVALUATOR LANDED 2026-08-25 — Mapster experiment abandoned.** The
+black-box route was retired in favour of a minimal provenance-backed ramp
+contract. Accepted for implementation from PROVENANCE row 9: `stat & 0x0002`
+enables slope; heinum is signed rise/run with 4096 = 45 degrees; the sector's
+FIRST WALL is the hinge; base floorz/ceilingz is the height on that hinge.
+
+    perp  = cross(B-A, P-A) / |B-A|          signed perpendicular distance
+    z(P)  = base_z + perp * heinum / 256
+
+The 256 is derived, not chosen: 45 degrees means physical rise equals
+physical run, and under the ratified 16:1 metric a run of d Build XY units is
+16d Build Z units, so delta = d * 16 * heinum/4096 = d * heinum/256.
+
+**Sign convention (current compatibility convention).** The sign is the 2D
+cross product of (B-A) and (P-A) — points left of the directed hinge get
+positive perp. Winding is NOT an additional factor: changing which wall is
+first changes the hinge, but reversing an otherwise equivalent polygon does
+not independently flip anything beyond that directed first wall. If real
+content later shows the signed direction is globally reversed, that is a
+one-line change plus fixture updates.
+
+**Arithmetic and determinism.** The cross product and squared hinge length
+are exact in 128-bit integers. The definition contains a length, so it is
+irrational and cannot be fully integral; the single division by that length
+uses `double`, because IEEE-754 *requires* division and sqrt to be correctly
+rounded — unlike `long double`, which is 80-bit on x86 and 64-bit on arm64
+and would make vertices differ per platform. Rounding to integer Build Z is
+symmetric (half away from zero), which is exactly what makes negating the
+heinum negate the result. Operands wider than 2^53 fail closed: the plane is
+emitted flat with a `slope_hinge_out_of_domain` diagnostic rather than
+silently approximated.
+
+**Topology is deliberately unaffected.** Whether a wall span is emitted
+remains a decision about the flat interval. Slope moves vertices; it must not
+change how many surfaces a world has.
+
+**Gates.** A hinge invariance (both endpoints, and every point on the hinge
+line, hold base Z); B 45-degree ramp (1024 perpendicular units give exactly
+16384 Build Z, and equal rise/run at the render boundary); C negative heinum
+(equal magnitude, opposite delta, at four distances); D flag clear (stale
+heinum stays perfectly flat); E shared authority (every sloped vertex
+re-derives through `surface_z_at`, plus a static tripwire pinning `heinum` to
+the one evaluator region); F wall seam (wall endpoints sit exactly on the
+sloped planes at the same XY, including the neighbour's planes across a
+portal); G E1L1 topology unchanged.
+
+Negative-tested, each observed red: omitting the flag check (stale-heinum
+fixture red); reversing the signed perpendicular (ramp sign tests red); using
+base Z on walls (seam test red); a second divergent equation in generation
+(layering tripwire red, naming file and line). The flag-check sabotage was
+first rejected by `-Werror` as an unused variable and re-run so it actually
+compiled — a failed build is not a failed test.
+
+*Real-content scan (dev evidence, aggregate only):*
+
+| map | sloped planes | stale heinum | max \|z−base\| | surfaces | tris | diags |
+|---|---|---|---|---|---|---|
+| E1L1 | 69 | 22 | 24576 | 1936 | 5134 | 0 |
+| E1L2 | 67 | 7 | 44544 | 1726 | 4686 | 0 |
+| E1L3 | 252 | 57 | 40960 | 3085 | 8348 | 0 |
+| E1L4 | 278 | 287 | 60407 | 3468 | 9312 | 0 |
+| E1L5 | 302 | 49 | 152056 | 3106 | 8854 | 0 |
+| E1L6 | 206 | 27 | 78200 | 1917 | 4894 | 2 |
+
+E1L1 holds 317/1937/1936/5134/0, and its note count fell 321 → 252 — exactly
+the 69 slope-deferral notes removed. E1L6's 2 diagnostics are the
+pre-existing zero-area sector, confirmed by building the same map on the
+parent commit and getting the identical 1917/4894/2. **287 stale-heinum
+planes in E1L4 alone** is why gate D is load-bearing rather than theoretical.
+
+The superseded provenance STOP and the abandoned Mapster protocol are kept
+below as the record of how the question was actually settled.
 
 **STOPPED — slope evaluator not implemented (slice brief §3).** The exact
 evaluation equation is not provenance-safe in the repository:

@@ -276,11 +276,61 @@ mapv7::MapData slope_metadata_world() {
 //
 // Ordinary (non-inverted) room: Build Z grows downward, so
 // ceilingz < startz < floorz, with the eye starting between the planes.
+// Ramp fixture geometry (M6.1 slope oracles).
+constexpr std::int32_t kRampRun = 1024;
+constexpr std::int32_t kRampFloorZ = 32768;
+constexpr std::int32_t kRampCeilingZ = -32768;
+
 constexpr std::int32_t kProbeWidth = 1024;
 constexpr std::int32_t kProbeHeight = 512;
 constexpr std::int32_t kProbeCeilingZ = -32768;
 constexpr std::int32_t kProbeStartZ = 0;
 constexpr std::int32_t kProbeFloorZ = 32768;
+
+// M6.1 ramp fixtures: the authoritative slope oracles. A right triangle whose
+// first wall A->B IS the hinge, with the third corner C exactly 1024 units
+// perpendicular to it:
+//
+//     A = (0,0)   B = (1024,0)   C = (0,1024)
+//
+// A and B sit on the hinge, so they must hold base Z whatever the heinum. C
+// is 1024 units away, so at heinum 4096 (45 degrees) it must differ by
+// 1024 * 4096 / 256 = 16384 Build Z units -- equal physical rise and run
+// under the 16:1 metric. Every quantity here is derived from the published
+// definition, not from the implementation.
+mapv7::MapData ramp_world(bool ceiling_slope, std::int16_t heinum) {
+    mapv7::MapData map;
+    const std::int32_t xs[] = {0, kRampRun, 0};
+    const std::int32_t ys[] = {0, 0, kRampRun};
+    add_loop(map, xs, ys, 3);
+    map.sectors.push_back(make_sector(0, 3, kRampFloorZ, kRampCeilingZ));
+    auto& sector = map.sectors[0];
+    if (ceiling_slope) {
+        sector.ceilingstat |= mapv7::kStatSloped;
+        sector.ceilingheinum = heinum;
+    } else {
+        sector.floorstat |= mapv7::kStatSloped;
+        sector.floorheinum = heinum;
+    }
+    map.start = {kRampRun / 4, kRampRun / 4, 0, 0, 0};
+    return map;
+}
+mapv7::MapData ramp_floor_pos_world() {
+    return ramp_world(false, 4096);
+}
+mapv7::MapData ramp_floor_neg_world() {
+    return ramp_world(false, -4096);
+}
+mapv7::MapData ramp_ceiling_world() {
+    return ramp_world(true, 4096);
+}
+// A nonzero heinum with the slope flag CLEAR: real content treats this as an
+// ignored leftover (M3, n=4,900), so the surface must stay perfectly flat.
+mapv7::MapData ramp_stale_heinum_world() {
+    mapv7::MapData map = ramp_world(false, 4096);
+    map.sectors[0].floorstat = 0; // flag cleared, heinum deliberately left set
+    return map;
+}
 
 mapv7::MapData slope_probe(const std::int32_t* xs, const std::int32_t* ys, bool ceiling_slope,
                            std::int16_t heinum) {
@@ -443,6 +493,14 @@ Result<mapv7::MapData> map_fixture(const std::string& name) {
     mapv7::MapData map;
     if (name == "minimal") {
         map = minimal_world();
+    } else if (name == "ramp_floor_pos") {
+        map = ramp_floor_pos_world();
+    } else if (name == "ramp_floor_neg") {
+        map = ramp_floor_neg_world();
+    } else if (name == "ramp_ceiling") {
+        map = ramp_ceiling_world();
+    } else if (name == "ramp_stale_heinum") {
+        map = ramp_stale_heinum_world();
     } else if (name == "metric_cube") {
         map = metric_cube_world();
     } else if (name == "square_room") {

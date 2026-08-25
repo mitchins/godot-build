@@ -22,7 +22,9 @@ using fauxbuild::StructuralOptions;
 using fauxbuild::StructuralSurface;
 using fauxbuild::StructuralVertex;
 using fauxbuild::StructuralWorld;
+using fauxbuild::surface_z_at;
 using fauxbuild::SurfaceKind;
+using fauxbuild::SurfacePlane;
 using fauxbuild::to_render_space;
 using fauxbuild::synth::map_fixture;
 
@@ -631,33 +633,153 @@ TEST_CASE("a hole loop outside the outer loop fails closed") {
 // H. Slope-marked sectors are diagnosed, not interpreted
 // ---------------------------------------------------------------------------
 
-TEST_CASE("slope metadata is deferred with notes and flat base Z") {
-    const StructuralWorld world = build_fixture("slope_metadata");
-    check_triangles_wellformed(world);
+TEST_CASE("slope evaluator: hinge invariance, 45-degree ramp, sign, and flag") {
+    // The ramp fixture is a right triangle A=(0,0) B=(1024,0) C=(0,1024) with
+    // the first wall A->B as the hinge, floorz 32768. Every expected number
+    // below comes from the published definition (heinum 4096 = 45 degrees)
+    // and the ratified 16:1 metric, NOT from the implementation.
+    auto map = map_fixture("ramp_floor_pos");
+    REQUIRE(map.is_ok());
+    const auto& source = map.value();
+    const std::int64_t base = 32768;
 
-    std::size_t slope_notes = 0;
-    for (const auto& note : world.notes) {
-        if (note.detail.find("slope present") != std::string::npos) {
-            ++slope_notes;
-            CHECK(note.detail.find("M6 owns slope semantics") != std::string::npos);
-            CHECK(note.detail.find("flat base Z") != std::string::npos);
-            CHECK(note.record == std::string("sector[0]"));
+    // A. Hinge invariance: both hinge endpoints hold base Z.
+    CHECK(surface_z_at(source, 0, SurfacePlane::Floor, 0, 0) == base);
+    CHECK(surface_z_at(source, 0, SurfacePlane::Floor, 1024, 0) == base);
+    // ...and so does every other point ON the hinge line, including beyond it.
+    CHECK(surface_z_at(source, 0, SurfacePlane::Floor, 512, 0) == base);
+    CHECK(surface_z_at(source, 0, SurfacePlane::Floor, -4096, 0) == base);
+
+    // B. 45 degrees: 1024 units perpendicular must give exactly
+    //    1024 * 4096 / 256 = 16384 Build Z, i.e. equal physical rise and run.
+    CHECK(surface_z_at(source, 0, SurfacePlane::Floor, 0, 1024) == base + 16384);
+    // Linear in the perpendicular distance.
+    CHECK(surface_z_at(source, 0, SurfacePlane::Floor, 0, 512) == base + 8192);
+    CHECK(surface_z_at(source, 0, SurfacePlane::Floor, 700, 256) == base + 4096);
+    // The sign follows cross((B-A), (P-A)): the far side is the other way.
+    CHECK(surface_z_at(source, 0, SurfacePlane::Floor, 0, -1024) == base - 16384);
+
+    // Equal physical rise and run, stated at the render boundary.
+    const StructuralVertex hinge = to_render_space(0, 0, static_cast<std::int32_t>(base));
+    const StructuralVertex apex = to_render_space(
+        0, 1024, static_cast<std::int32_t>(surface_z_at(source, 0, SurfacePlane::Floor, 0, 1024)));
+    CHECK(std::fabs(apex.y - hinge.y) == std::fabs(apex.z - hinge.z));
+
+    // C. Negative heinum: equal magnitude, opposite delta, exactly.
+    auto negative = map_fixture("ramp_floor_neg");
+    REQUIRE(negative.is_ok());
+    for (const std::int32_t probe : {0, 128, 512, 1024}) {
+        const std::int64_t up = surface_z_at(source, 0, SurfacePlane::Floor, 0, probe) - base;
+        const std::int64_t down =
+            surface_z_at(negative.value(), 0, SurfacePlane::Floor, 0, probe) - base;
+        CHECK(up == -down);
+    }
+
+    // D. Flag clear: the same nonzero heinum is an ignored leftover.
+    auto stale = map_fixture("ramp_stale_heinum");
+    REQUIRE(stale.is_ok());
+    CHECK(stale.value().sectors[0].floorheinum == 4096); // still set in the record
+    CHECK((stale.value().sectors[0].floorstat & fauxbuild::mapv7::kStatSloped) == 0);
+    for (const std::int32_t probe : {0, 512, 1024}) {
+        CHECK(surface_z_at(stale.value(), 0, SurfacePlane::Floor, 0, probe) == base);
+    }
+    const StructuralWorld flat = build_fixture("ramp_stale_heinum");
+    const StructuralSurface* flat_floor = find_surface(flat, SurfaceKind::Floor, 0, -1);
+    REQUIRE(flat_floor != nullptr);
+    for (const auto& v : flat_floor->vertices) {
+        CHECK(v.y == -32768.0 / 32768.0);
+    }
+
+    // The ceiling plane uses the same evaluator and the same convention.
+    auto ceiling_map = map_fixture("ramp_ceiling");
+    REQUIRE(ceiling_map.is_ok());
+    const std::int64_t ceiling_base = -32768;
+    CHECK(surface_z_at(ceiling_map.value(), 0, SurfacePlane::Ceiling, 0, 0) == ceiling_base);
+    CHECK(surface_z_at(ceiling_map.value(), 0, SurfacePlane::Ceiling, 1024, 0) == ceiling_base);
+    CHECK(surface_z_at(ceiling_map.value(), 0, SurfacePlane::Ceiling, 0, 1024) ==
+          ceiling_base + 16384);
+    // The floor of that same fixture is unflagged and stays flat.
+    CHECK(surface_z_at(ceiling_map.value(), 0, SurfacePlane::Floor, 0, 1024) == 32768);
+}
+
+TEST_CASE("sloped geometry comes from the evaluator, and walls meet it exactly") {
+    // E. Every sloped surface vertex must equal the evaluator at its own XY.
+    //    Reading the emitted world back and re-deriving through surface_z_at
+    //    is what catches a second, divergent equation in generation.
+    for (const char* name : {"ramp_floor_pos", "ramp_floor_neg", "ramp_ceiling"}) {
+        auto map = map_fixture(name);
+        REQUIRE(map.is_ok());
+        const StructuralWorld world = build_fixture(name);
+        check_triangles_wellformed(world);
+
+        bool saw_non_base = false;
+        for (const auto& surface : world.surfaces) {
+            const bool is_ceiling = surface.kind == SurfaceKind::Ceiling;
+            if (surface.kind != SurfaceKind::Floor && !is_ceiling) {
+                continue;
+            }
+            const SurfacePlane plane = is_ceiling ? SurfacePlane::Ceiling : SurfacePlane::Floor;
+            for (const auto& v : surface.vertices) {
+                // Render space back to Build XY: x * 2048, z * 2048.
+                const auto bx = static_cast<std::int32_t>(std::llround(v.x * 2048.0));
+                const auto by = static_cast<std::int32_t>(std::llround(v.z * 2048.0));
+                const std::int64_t expected =
+                    surface_z_at(map.value(), surface.sector, plane, bx, by);
+                const StructuralVertex want =
+                    to_render_space(bx, by, static_cast<std::int32_t>(expected));
+                CHECK(v.y == want.y);
+                if (expected != (is_ceiling ? map.value().sectors[0].ceilingz
+                                            : map.value().sectors[0].floorz)) {
+                    saw_non_base = true;
+                }
+            }
+        }
+        CHECK(saw_non_base); // the fixture really does slope
+    }
+
+    // F. Wall seam: a wall's endpoints must sit exactly on the sloped planes
+    //    at the same XY, so no crack opens between a wall and its floor.
+    auto map = map_fixture("ramp_floor_pos");
+    REQUIRE(map.is_ok());
+    const StructuralWorld world = build_fixture("ramp_floor_pos");
+    std::size_t checked = 0;
+    for (const auto& surface : world.surfaces) {
+        if (surface.kind != SurfaceKind::SolidWall) {
+            continue;
+        }
+        for (const auto& v : surface.vertices) {
+            const auto bx = static_cast<std::int32_t>(std::llround(v.x * 2048.0));
+            const auto by = static_cast<std::int32_t>(std::llround(v.z * 2048.0));
+            const std::int64_t floor_z =
+                surface_z_at(map.value(), surface.sector, SurfacePlane::Floor, bx, by);
+            const std::int64_t ceiling_z =
+                surface_z_at(map.value(), surface.sector, SurfacePlane::Ceiling, bx, by);
+            const StructuralVertex on_floor =
+                to_render_space(bx, by, static_cast<std::int32_t>(floor_z));
+            const StructuralVertex on_ceiling =
+                to_render_space(bx, by, static_cast<std::int32_t>(ceiling_z));
+            CHECK((v.y == on_floor.y || v.y == on_ceiling.y));
+            ++checked;
         }
     }
-    CHECK(slope_notes == 2); // floor and ceiling
+    CHECK(checked == 12); // three walls, four corners each
 
-    // Flat planes at the declared Z; heinum ignored (M3 established the flag,
-    // not the magnitude, carries meaning).
-    const StructuralSurface* floor = find_surface(world, SurfaceKind::Floor, 0, -1);
-    REQUIRE(floor != nullptr);
-    for (const auto& v : floor->vertices) {
-        CHECK(v.y == 0.0);
+    // The seam test must not be passing merely because everything is flat.
+    // Deliberately direction-agnostic: which way +heinum moves the surface is
+    // the documented sign convention, not something this test should restate.
+    std::vector<double> wall_heights;
+    for (const auto& surface : world.surfaces) {
+        if (surface.kind != SurfaceKind::SolidWall) {
+            continue;
+        }
+        for (const auto& v : surface.vertices) {
+            wall_heights.push_back(v.y);
+        }
     }
-    const StructuralSurface* ceiling = find_surface(world, SurfaceKind::Ceiling, 0, -1);
-    REQUIRE(ceiling != nullptr);
-    for (const auto& v : ceiling->vertices) {
-        CHECK(v.y == -16384.0 / 32768.0);
-    }
+    std::sort(wall_heights.begin(), wall_heights.end());
+    wall_heights.erase(std::unique(wall_heights.begin(), wall_heights.end()), wall_heights.end());
+    // Flat walls would give exactly two heights (base floor, base ceiling).
+    CHECK(wall_heights.size() > 2);
 }
 
 TEST_CASE("masked walls are noted as deferred, spans stay plain") {
@@ -786,52 +908,33 @@ TEST_CASE("heinum without the slope flag stays perfectly flat") {
     }
 }
 
-TEST_CASE("slope probes build flat with deferral notes until the evaluator exists") {
-    // The M6 black-box experiment inputs (axis/sign/anchor unsettled; see the
-    // M6 slice-1 provenance stop in docs/MILESTONES.md). CI pins only what is
-    // provenance-safe today: every probe is a valid map that derives flat at
-    // its base Z with exactly the deferred-slope note for its flagged surface.
-    // When the evaluator lands, these expectations are replaced by the exact
-    // attested oracles — not deleted.
-    // The 2x2 direction matrix (first-wall +X/+Y crossed with CCW/CW), plus
-    // the reversal and negative-heinum probes. Pinned only for the
-    // provenance-safe facts: valid map, flat M6-deferred geometry, exactly
-    // one deferral note, raw slope bit readable. No formula.
+TEST_CASE("slope probe fixtures evaluate through the one authority") {
+    // The direction/winding matrix survives the evaluator landing: these
+    // fixtures now genuinely slope, and every vertex agrees with
+    // surface_z_at. Their diagnostic value is unchanged.
     const char* floor_probes[] = {"slope_probe_floor_px", "slope_probe_floor_px_cw",
                                   "slope_probe_floor_py", "slope_probe_floor_py_ccw",
                                   "slope_probe_floor_rx", "slope_probe_floor_neg"};
     for (const char* name : floor_probes) {
+        auto map = map_fixture(name);
+        REQUIRE(map.is_ok());
         const StructuralWorld world = build_fixture(name);
         check_triangles_wellformed(world);
-        std::size_t slope_notes = 0;
-        for (const auto& note : world.notes) {
-            if (note.detail.find("slope present") != std::string::npos) {
-                ++slope_notes;
-            }
-        }
-        CHECK(slope_notes == 1); // floor flagged, ceiling not
+        CHECK(world.diagnostics.empty());
         const StructuralSurface* floor = find_surface(world, SurfaceKind::Floor, 0, -1);
         REQUIRE(floor != nullptr);
-        // Ordinary room: ceilingz 0, floorz 16384. Flat at the floor plane
-        // until the evaluator exists; vertical scale 2048 * 16 = 32768.
-        for (const auto& v : floor->vertices) {
-            CHECK(v.y == -32768.0 / 32768.0); // floorz 32768, vertical scale 2048 * 16
-        }
         CHECK((floor->appearance.raw_stat & fauxbuild::mapv7::kStatSloped) != 0);
+        for (const auto& v : floor->vertices) {
+            const auto bx = static_cast<std::int32_t>(std::llround(v.x * 2048.0));
+            const auto by = static_cast<std::int32_t>(std::llround(v.z * 2048.0));
+            const std::int64_t z = surface_z_at(map.value(), 0, SurfacePlane::Floor, bx, by);
+            CHECK(v.y == to_render_space(bx, by, static_cast<std::int32_t>(z)).y);
+        }
     }
     const StructuralWorld ceiling_world = build_fixture("slope_probe_ceiling_px");
-    std::size_t ceiling_notes = 0;
-    for (const auto& note : ceiling_world.notes) {
-        if (note.detail.find("slope present") != std::string::npos) {
-            ++ceiling_notes;
-        }
-    }
-    CHECK(ceiling_notes == 1); // ceiling flagged, floor not
     const StructuralSurface* ceiling = find_surface(ceiling_world, SurfaceKind::Ceiling, 0, -1);
     REQUIRE(ceiling != nullptr);
-    for (const auto& v : ceiling->vertices) {
-        CHECK(v.y == 32768.0 / 32768.0); // ceilingz -32768; render Y is up
-    }
+    CHECK((ceiling->appearance.raw_stat & fauxbuild::mapv7::kStatSloped) != 0);
 }
 
 TEST_CASE("slope probe rooms are ordinary, not inverted") {

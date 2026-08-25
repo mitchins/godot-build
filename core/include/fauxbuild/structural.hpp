@@ -183,6 +183,57 @@ struct StructuralOptions {
 StructuralVertex to_render_space(std::int32_t x, std::int32_t y, std::int32_t z,
                                  const StructuralOptions& options = {});
 
+enum class SurfacePlane { Floor, Ceiling };
+
+// THE slope evaluator (M6 slice 1). One definition; no consumer and no part
+// of structural generation may reimplement it — a static tripwire in
+// ci/check_layering.py pins that `heinum` appears nowhere else in the
+// derivation.
+//
+// Model. The sector's FIRST WALL A->B is the hinge: the plane passes through
+// that directed segment at the surface's base floorz/ceilingz, and tilts
+// about it. For a query point P, with everything in Build coordinates:
+//
+//     perp  = cross(B-A, P-A) / |B-A|      signed perpendicular distance
+//     z(P)  = base_z + perp * heinum / 256
+//
+// The 256 is the vertical-unit conversion, not a magic number:
+// heinum 4096 is a 45 degree rise/run (PROVENANCE row 9), and 45 degrees
+// means the PHYSICAL rise equals the physical run. Under the ratified 16:1
+// metric (D0016 amendment) a run of d Build XY units is 16d Build Z units,
+// so delta_z = d * 16 * heinum/4096 = d * heinum/256. Check: d = 1024 with
+// heinum 4096 gives 16384, which is 0.5 render units vertically against
+// 0.5 horizontally — exactly 45 degrees.
+//
+// **Sign convention (current compatibility convention, documented
+// deliberately).** The sign is the 2D cross product of (B-A) and (P-A):
+// points to the left of the directed hinge get positive perp. Winding is NOT
+// an additional factor — changing which wall is first changes the hinge and
+// therefore the result, but reversing an otherwise equivalent polygon does
+// not independently flip anything beyond that directed first wall. If real
+// content later shows the signed direction is globally reversed, that is a
+// one-line change here plus fixture updates, not an architectural one.
+//
+// Geometry honours `stat & 0x0002`, never the heinum alone: a nonzero heinum
+// with the flag clear is an ignored leftover in real content (M3, n=4,900)
+// and returns base_z unchanged.
+//
+// Determinism: the cross product and squared hinge length are computed
+// exactly in 128-bit integers. The only inexact step is the single division
+// by the hinge length, which is irrational by definition; IEEE-754 requires
+// division and sqrt to be correctly rounded, so the result is bit-identical
+// across conforming platforms (unlike long double, which is 80-bit on x86
+// and 64-bit on arm64). Rounding to integer Build Z is symmetric
+// (half away from zero), which is what makes negating heinum negate the
+// result exactly.
+std::int64_t surface_z_at(const mapv7::MapData& map, std::int16_t sector_index, SurfacePlane plane,
+                          std::int32_t x, std::int32_t y);
+
+// True when a sloped plane's hinge and geometry are inside the exactly
+// representable domain the evaluator needs. False planes are emitted flat
+// with a StructuralDiagnostic rather than silently mis-evaluated.
+bool slope_is_evaluable(const mapv7::MapData& map, std::int16_t sector_index, SurfacePlane plane);
+
 // Derive the static structural shell of a validated MAP v7 world: floors and
 // ceilings triangulated with holes preserved, solid walls as single vertical
 // spans, portal walls as upper/lower spans outside the vertical opening only

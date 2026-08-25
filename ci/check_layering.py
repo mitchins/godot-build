@@ -106,6 +106,32 @@ if "present_world(" not in source_cpp:
     violations.append("extension/src/faux_structural_source.cpp: must hand worlds to "
                       "FauxBuildView.present_world (the view seam), not present on its own")
 
+# M6.1 shared slope authority: `heinum` may appear ONLY inside the marked
+# evaluator region of structural.cpp. A second slope equation anywhere in the
+# derivation -- even one that happens to agree today -- is the defect this
+# pins, because the two drift apart the first time either is touched.
+structural_cpp = root / "core/src/structural.cpp"
+structural_text = structural_cpp.read_text(encoding="utf-8")
+begin_marker = "// --- slope evaluator (single authority) ---"
+end_marker = "// --- end slope evaluator ---"
+begin = structural_text.find(begin_marker)
+end = structural_text.find(end_marker)
+if begin < 0 or end < 0 or end < begin:
+    violations.append("core/src/structural.cpp: the slope evaluator's region markers are "
+                      "missing; the single-authority tripwire cannot run")
+else:
+    for lineno, line in enumerate(structural_text.splitlines(), 1):
+        if "heinum" not in line:
+            continue
+        offset = structural_text.find(line)
+        if offset < begin or offset > end:
+            violations.append(
+                f"core/src/structural.cpp:{lineno}: slope arithmetic must live only in the "
+                f"one evaluator (M6.1): {line.strip()}")
+    if "surface_z_at(" not in structural_text[end:]:
+        violations.append("core/src/structural.cpp: geometry generation must call "
+                          "surface_z_at; no sloped vertex may be placed another way")
+
 if violations:
     print("layering check FAILED:")
     for v in violations:
@@ -113,5 +139,6 @@ if violations:
     sys.exit(1)
 
 print("layering check: core/ contains no Godot references; atlas payload is indexed; "
+      "slope arithmetic has one authority; "
       "structural derivation stays asset-free; FauxBuildView consumes StructuralWorld "
       "only; the content route lives in FauxStructuralSource")
