@@ -995,6 +995,15 @@ checklist above for the evidence and class of each.
 
 ## M5 — Static structural world viewer — ACCEPTED 2026-08-25
 
+> **Reading note on E1L1 figures in this section.** Every surface and triangle
+> count below is M5's **flat-preview** result — 1936 surfaces / 5134 triangles.
+> It was correct for M5 and is not restated here as current: slopes did not
+> exist yet, so none of those triangles was degenerate in the world M5 built.
+> M6.1's slope-aware wall spans made 23 of them degenerate by giving spans a
+> shape that can close, and the **current accepted baseline is 317 / 1937 /
+> 1929 / 5111 / 0, notes 252** (see M6 slice 1). Both figures are true of their
+> own milestone; neither supersedes the other as history.
+
 Gate summary: structural fixtures render with correct topology; holes/non-convex sectors render;
 no persistent Godot scene becomes authority; local E1L1 loads as recognizable 3D shell (HUMAN-ATTESTED);
 diagnostics instead of crashes. Allowed shortcuts: untextured diagnostic materials,
@@ -1592,7 +1601,7 @@ M6 (slopes, indexed textures, UV/flags, sprites) is next and is where the
 shell stops looking like a CAD model.
 
 Next milestone work was not started.
-## M6 — Slopes, indexed textures, flags, and sprites — NOT_STARTED
+## M6 — Slopes, indexed textures, flags, and sprites — IN_PROGRESS (slice 1 ACCEPTED 2026-08-26; slice 2 not started)
 
 Gate summary: slope query and render share one function; UV/sprite-flag/palette-shade matrix
 fixtures pass; local E1L1 immediately recognizable; unsupported features listed explicitly.
@@ -1605,6 +1614,350 @@ where M6 first gives those bits behavioural weight. M3 also established that
 `stat & 0x0002` marks a slope and that a nonzero heinum without it is an ignored
 leftover in real content (n=4,900 surfaces) — slope evaluation must honour the
 flag, not the heinum alone.
+
+### Slice 1 — slope authority + appearance contract — ACCEPTED 2026-08-26
+
+**Slice 1 ACCEPTED 2026-08-26** by mitchellcurrie, with the slope-aware E1L1
+baseline accepted as **317 sectors / 1937 walls / 1929 surfaces / 5111
+triangles / 0 diagnostics / 252 notes**.
+
+That baseline supersedes M5's for current work but does **not** rewrite M5's
+history: M5's flat-preview attestation of 1936 surfaces / 5134 triangles was
+correct for M5. Slopes did not exist then, so those triangles were not
+degenerate in the world M5 built — the wedge rule made 23 of them degenerate
+by giving spans a shape that could close. Both figures are true of their own
+milestone.
+
+M6.2 (textures, UVs, flags, sprites) has not started.
+
+
+Delivered (provenance-safe, formula-independent):
+
+- **Raw appearance contract on every emitted surface** (slice brief §8).
+  `StructuralSurface` now carries `SurfaceAppearance`: picnum, overpicnum
+  (walls), the raw stat word (floorstat/ceilingstat for floors/ceilings, wall
+  cstat for wall spans), shade, pal, x/y panning, x/y repeat (walls) — all
+  preserved verbatim from the MAP record. Nothing is interpreted: no UVs, no
+  flag behaviour, no Duke semantics; heinum and tags are deliberately not
+  appearance. Consumer-level test reads the actual emitted surfaces
+  field-by-field against the source records (negative shade, nonzero
+  panning/pal, awkward stat words). Uninterpreted fields stay raw rather than
+  inventing behaviour (§15 — masking, flips, alignment, expansion wait for
+  their slices).
+- **Flag semantics pinned** (§2): `heinum != 0` with the slope flag CLEAR
+  produces perfectly flat geometry and no slope note — geometry honours the
+  flag, never the heinum alone. The pin is written to stay green after the
+  evaluator lands (flag-clear sectors are flat by definition).
+- **Separation pinned statically** (§9): `structural.{hpp,cpp}` may not
+  include atlas/asset/ART/palette headers — the structural world derives from
+  MapData alone; tile dimensions and texels meet it at the M6.2 seam.
+  Negative-tested (forbidden include → guard red). No
+  `build_structural_world(MapData, AssetSet)` exists or may exist in this
+  slice.
+- **M6.2 seam defined, not implemented** (§10): StructuralWorld (geometry +
+  raw appearance) + IndexedAtlas/AssetSet → UV/material packing → ArrayMesh +
+  indexed shader. Documented in RENDERING_CONTRACT.md; the accepted
+  `present_world(StructuralWorld)` signature is unchanged, and no Godot,
+  texture, UV, shader, or sprite work landed (§14).
+- **Slope probe fixtures and the Mapster black-box experiment: RETIRED
+  2026-08-26.** Seven `slope_probe_*` fixtures and their matrix-only tests
+  existed solely to feed a human black-box experiment that was abandoned in
+  favour of the provenance-backed ramp contract below. They gated no
+  production behaviour once the evaluator landed — the ramp oracles, the
+  deterministic corpus, wide-Z, the degenerate-hinge case and the wall-seam
+  and wedge tests cover it — so keeping them preserved experiment
+  archaeology, not evidence. Removed with their fixtures, dispatch entries and
+  the shared probe helper. The reasoning that led to them is worth one line:
+  the first probe set could not separate first-wall direction from winding
+  because reversing a loop flips both, and a later revision was still run
+  inside an inverted room. Both were caught by review before any conclusion
+  was drawn from them.
+
+**SLOPE EVALUATOR LANDED 2026-08-25 — Mapster experiment abandoned.** The
+black-box route was retired in favour of a minimal provenance-backed ramp
+contract. Accepted for implementation from PROVENANCE row 9: `stat & 0x0002`
+enables slope; heinum is signed rise/run with 4096 = 45 degrees; the sector's
+FIRST WALL is the hinge; base floorz/ceilingz is the height on that hinge.
+
+    perp  = cross(B-A, P-A) / |B-A|          signed perpendicular distance
+    z(P)  = base_z + perp * heinum / 256
+
+The 256 is derived, not chosen: 45 degrees means physical rise equals
+physical run, and under the ratified 16:1 metric a run of d Build XY units is
+16d Build Z units, so delta = d * 16 * heinum/4096 = d * heinum/256.
+
+**Sign convention (current compatibility convention).** The sign is the 2D
+cross product of (B-A) and (P-A) — points left of the directed hinge get
+positive perp. Winding is NOT an additional factor: changing which wall is
+first changes the hinge, but reversing an otherwise equivalent polygon does
+not independently flip anything beyond that directed first wall. If real
+content later shows the signed direction is globally reversed, that is a
+one-line change plus fixture updates.
+
+**Arithmetic and determinism.** The cross product and squared hinge length
+are exact in 128-bit integers. The definition contains a length, so it is
+irrational and cannot be fully integral; the single division by that length
+uses `double`. binary64 is the chosen deterministic numeric lane for the
+supported toolchains — IEEE-754 specifies division and sqrt as correctly
+rounded, and `long double` is deliberately avoided because it is 80-bit on
+x86 and 64-bit on arm64 — and the claim is proven by the pinned corpus below
+rather than asserted. Rounding to integer Build Z is symmetric (half away
+from zero), which is exactly what makes negating the heinum negate the
+result. The earlier 2^53 gate on OPERANDS was over-strict — only the
+quotient's relative precision matters — and the largest derived |z| reachable
+from int32 coordinates is about 2^39.5, so no result is ever out of range.
+
+The precision boundary is stated rather than hidden: while the cross product
+fits in 2^53 the evaluation is exact to the unit. Beyond it — a hinge spanning
+most of the int32 range — the result stays accurate to one Build Z unit and
+symmetry is preserved, but a mathematically exact half-tie can round to the
+other neighbour. Pinned by the `int32_span_half_tie` corpus case, whose exact
+value is 1048577.5 and whose binary64 value is 1048577.4999999998. Real
+content is nowhere near this: its cross products sit around 2^40 against a
+2^53 budget.
+
+**Topology.** Whether a span is emitted *at all* remains a decision about the
+flat interval. Slope then determines its SHAPE: a span it closes at one
+endpoint becomes a triangular wedge, and one it closes at both is omitted —
+see the wall-span section below, which corrected E1L1's baseline.
+
+**Gates.** A hinge invariance (both endpoints, and every point on the hinge
+line, hold base Z); B 45-degree ramp (1024 perpendicular units give exactly
+16384 Build Z, and equal rise/run at the render boundary); C negative heinum
+(equal magnitude, opposite delta, at four distances); D flag clear (stale
+heinum stays perfectly flat); E shared authority (every sloped vertex
+re-derives through `surface_z_at`, plus a static tripwire pinning `heinum` to
+the one evaluator region); F wall seam (wall endpoints sit exactly on the
+sloped planes at the same XY, including the neighbour's planes across a
+portal); G E1L1 topology.
+
+**Gate G as originally written — "E1L1 topology unchanged" — turned out to
+rest on an invalid assumption, and review caught it.** The premise was that
+slope moves vertices and therefore cannot change how many surfaces a world
+has. That holds for floors and ceilings, but not for wall spans: an evaluated
+plane can close a span at one endpoint or along its whole length. Emitting a
+quad regardless produced zero-area triangles, so the "unchanged" count was
+itself counting degenerate geometry. The gate is now: **E1L1 derives
+317 / 1937 / 1929 / 5111 / 0, notes 252** — sectors, walls, floors, ceilings,
+solid spans and diagnostics unchanged, with only degenerate portal geometry
+gone. See the wall-span section below for the enumerated spans. M5's
+flat-preview result of 1936 / 5134 remains historically correct: slopes did
+not exist then, and those triangles were not degenerate in that world.
+
+Negative-tested, each observed red: omitting the flag check (stale-heinum
+fixture red); reversing the signed perpendicular (ramp sign tests red); using
+base Z on walls (seam test red); a second divergent equation in generation
+(layering tripwire red, naming file and line). The flag-check sabotage was
+first rejected by `-Werror` as an unused variable and re-run so it actually
+compiled — a failed build is not a failed test.
+
+**Residual closeout 2026-08-25 — wide Z, policy, determinism.**
+
+- **int64 derived Z reaches render space unnarrowed.** `to_render_space` now
+  takes `std::int64_t z` (source X/Y stay int32). An int32 z promotes exactly,
+  so ordinary MAP behaviour is byte-identical. Exactness holds for
+  |z| <= 2^53; `render_z_is_exact` guards it, and from int32 MAP coordinates
+  the largest reachable derived |z| is about 2^39.5, so the limit is
+  unreachable from valid content. Fixtures `slope_wide_z_pos`/`_neg` evaluate
+  to +/-3,200,000,000 — outside int32 in both directions — and the emitted
+  surface carries -97656.25 render units. Negative-tested: restoring the
+  `static_cast<std::int32_t>` at the call site gives `0 == -97656.2` red.
+- **The numeric domain limit was over-strict and is gone.** The evaluator
+  previously rejected operands above 2^53 on the theory that they had to be
+  exactly representable. Only the RELATIVE precision of the quotient matters;
+  binary64 gives ~2^-53 relative at any operand magnitude. Removing it left
+  exactly one underivable case: a flagged plane whose first wall is
+  degenerate.
+- **Underivable slopes are omitted, not flattened — D0019 ACCEPTED
+  2026-08-25.** Flat emission was described as failing closed; it is not — it
+  is a specific, knowingly incorrect answer, and a diagnostic does not make it
+  safe. Ratification narrowed the scope: the failing unit is the PLANE, not
+  the sector. A surface is omitted only when its placement actually depends on
+  the undefined plane, and a vertical endpoint is never fabricated from base Z
+  to keep a span alive:
+
+  | surface | depends on | omitted when |
+  |---|---|---|
+  | floor | own floor plane | that plane is undefined |
+  | ceiling | own ceiling plane | that plane is undefined |
+  | solid wall span | own floor AND ceiling | either is undefined |
+  | portal upper span | own + neighbour CEILING | either is undefined |
+  | portal lower span | own + neighbour FLOOR | either is undefined |
+
+  Pinned by `slope_degenerate_hinge`: a square with a duplicated first vertex,
+  so the polygon keeps its AREA — otherwise D0018's zero-area rule would omit
+  both planes and the test would pass for the wrong reason. Its sloped floor
+  has a zero-length hinge and its ceiling is ordinary and flat. Observed:
+  floor omitted, one `slope_hinge_degenerate` naming sector and plane, **flat
+  ceiling retained at its authored height**, solid spans omitted, world not
+  aborted. Negative-tested by restoring the whole-sector skip: the
+  independent-ceiling regression goes red (`ceilings == 1` → `0 == 1`).
+  **No owned map hits this case: 0 across all six.**
+- **Determinism claim corrected and proven.** The earlier wording implied C++
+  guarantees cross-platform bit identity because division and sqrt are used.
+  It does not, and nothing now claims it. binary64 is documented as the chosen
+  deterministic numeric lane for the supported toolchains, and the claim is
+  backed by a 15-case corpus — axis-aligned, 3/4/5, irrational-length, both
+  heinum signs, both sides of the hinge, points exactly on the rounding half
+  boundary and either side of it, a one-unit hinge, and a point on the hinge —
+  pinned to integers derived independently in Python from the documented
+  recipe. It runs in dev, asan and release, and in CI on Linux x86_64, macOS
+  arm64 and Windows MSVC. No platform tolerance is permitted.
+  **The corpus immediately earned its place:** it caught a real bug in the
+  128-bit-to-double conversion, which converted the two's complement limbs
+  directly and so destroyed small negative values (-2000000 is hi = -1,
+  lo = 2^64 - 2000000; lo loses its low bits at that magnitude and the limbs
+  very nearly cancel). Fixed by converting the magnitude and reapplying the
+  sign.
+
+**Wall spans that slope closes (2026-08-26) — and an E1L1 baseline
+correction.** An evaluated slope can close a span at one endpoint. The derived
+shape is then a triangular WEDGE:
+
+| endpoints | emitted |
+|---|---|
+| open at both | quad, two triangles |
+| closed at exactly one | wedge, one triangle |
+| closed at both | nothing |
+
+Both failure modes are real and opposite: emitting a quad anyway staples a
+zero-area triangle onto it, and dropping the span entirely throws away valid
+geometry. Applied identically to SolidWall, PortalUpper and PortalLower.
+
+Covered by `portal_slope_collapse`: a sloped central sector with three flat
+neighbours whose BASE intervals are all open, so every case is produced by
+slope evaluation rather than the flat decision. Its wall 0 stays an ordinary
+quad; walls 1 and 3 run perpendicular to the hinge from opposite sides and
+give upper and lower wedges closing at opposite endpoints; wall 2 runs
+PARALLEL to the hinge, so both endpoints share a perpendicular distance and
+its spans are omitted. Which endpoint closed is derived from the evaluator in
+the test, not read off the emitted vertices. Negative-tested: restoring
+unconditional quad emission trips the zero-area gate (`dot(n, n) > 0.0` →
+`0 > 0`).
+
+**This changed E1L1, and the previous baseline was the thing that was wrong.**
+1936 → 1929 surfaces, 5134 → 5111 triangles. Enumerated exactly: **7 portal
+spans closed at both endpoints** (sector[108] wall[499], sector[110]
+wall[507], sector[127] wall[591], sector[263] walls[1442..1444], sector[269]
+wall[1499]) and **9 spans closed at one endpoint**, now wedges. 7 × 2 + 9 = 23
+triangles, and 5134 − 23 = 5111 exactly. So the accepted baseline had been
+counting **23 zero-area triangles** — 14 from wholly degenerate spans, 9 from
+spans carrying one degenerate face. Sector/wall counts, floors, ceilings,
+solid spans and diagnostics are all unchanged; only degenerate portal geometry
+went. The baseline is corrected rather than defended.
+
+*Real-content scan (dev evidence, aggregate only):*
+
+| map | sloped planes | stale heinum | max \|z−base\| | max negative Δz | surfaces | tris | diags |
+|---|---|---|---|---|---|---|---|
+| E1L1 | 69 | 22 | 24576 | 15360 | 1929 | 5111 | 0 |
+| E1L2 | 67 | 7 | 44544 | 24576 | 1709 | 4649 | 0 |
+| E1L3 | 252 | 57 | 40960 | 40960 | 3026 | 8190 | 0 |
+| E1L4 | 278 | 287 | 60407 | 60407 | 3435 | 9189 | 0 |
+| E1L5 | 302 | 49 | 152056 | 152056 | 3078 | 8723 | 0 |
+| E1L6 | 206 | 27 | 78200 | 78200 | 1845 | 4741 | 2 |
+
+Surface and triangle counts are post-wedge-rule; every map shed degenerate
+portal geometry it had previously been counting.
+
+Every map exercises substantial NEGATIVE deltas, which is why the scan is
+meaningful evidence that the sign-conversion bug is gone: the same aggregates
+were produced independently by the earlier exact-integer conversion path and
+by the current magnitude-plus-sign one.
+
+E1L1's note count fell 321 → 252 — exactly the 69 slope-deferral notes that
+slope support retired. Its surface and triangle counts were 1936 / 5134 at
+this point in the slice and moved to **1929 / 5111** once the wall-span wedge
+rule landed (below); the accepted slope-aware baseline is
+**317 / 1937 / 1929 / 5111 / 0, notes 252**. E1L6's 2 diagnostics are the
+pre-existing zero-area sector, confirmed by building the same map on the
+parent commit and getting the identical 1917/4894/2. **287 stale-heinum
+planes in E1L4 alone** is why gate D is load-bearing rather than theoretical.
+
+---
+
+## SUPERSEDED HISTORICAL RECORD — M6.1 provenance STOP (2026-08-25)
+
+> **Everything from here to the end of this M6 slice-1 section is HISTORY, not
+> instructions.** It records the state of knowledge *before* the evaluator
+> landed, and every claim in it about what is unimplemented, pending, or
+> unresolved is **obsolete**. The evaluator was delivered and accepted on
+> 2026-08-26; the binding description is above and in AGENTS.md. The Mapster
+> black-box experiment described below was **abandoned**, its probe fixtures
+> **removed**, and nothing here should be acted on. It is kept because how a
+> question was settled — including a stop that turned out to be unnecessary —
+> is evidence about the process, and deleting it would hide that the
+> implementation waited for provenance rather than guessing.
+
+**[HISTORICAL] STOPPED — slope evaluator not implemented (slice brief §3).**
+At the time of writing, the exact evaluation equation was not provenance-safe
+in the repository:
+
+- *Published, approved (PROVENANCE row 9):* heinum is "rise/run; 0 =
+  parallel to floor, 4096 = 45 degrees"; sector stat bit 0x0002 = sloped
+  (n=4,900 corroboration, M3); floorz/ceilingz is the height "at first point
+  of sector"; the CONVMAP7 note confirms heinum is zeroed when the slope bit
+  is clear.
+- *Not established by any approved source:* **(a)** the tilt axis/direction
+  — world X, world Y, or first-wall-relative; **(b)** the sign convention —
+  which heinum sign moves Z which way along it; **(c)** the evaluation
+  equation and its rounding as an executable statement. The natural reading
+  of "4096 = 45°" is the ratio heinum/4096 against horizontal Build units
+  (z_delta = heinum·d/4096, exact integer arithmetic, 4096 = 2^12), but the
+  page never states the equation, and without (a) the distance d has no
+  defined axis. Source-port memory of the answer is exactly the input the
+  clean-room rules forbid, so it is not used even where it agrees.
+
+*Published hypothesis (hypothesis only):* for a flagged surface,
+z(x,y) = z_anchor + heinum·d/4096 where z_anchor is the surface's base Z at
+the sector's first point, d is signed horizontal Build distance along the
+unknown tilt direction, int64 arithmetic widened before multiply, explicit
+rounding at the divide (NUMERICS requires the rounding policy be named and
+tested — itself an open black-box item).
+
+
+**Visual protocol (no M32 scripting, no height readout).** For each file:
+open it, enter 3D mode, and *without moving*, record which way the flagged
+surface tilts relative to your spawn facing — rises ahead / behind / left /
+right. Then note whether it tilts along the room's long axis or its short
+one. That is the entire observation; four words per probe.
+
+| record per probe | |
+|---|---|
+| high side | ahead / behind / left / right |
+| axis | long (1024) or short (512) |
+
+Read the four comparisons off the table afterwards:
+
+| compare | holds fixed | tells you |
+|---|---|---|
+| `px` vs `py_ccw` | winding (CCW) | does the FIRST WALL set the direction? |
+| `px` vs `px_cw` | first wall (+X) | does WINDING set it? |
+| `px` vs `rx` | neither (both flip) | consistency check against the two above |
+| `px` vs `neg` | everything but heinum sign | the sign convention |
+| `px` vs `ceiling_px` | everything but which surface | does the ceiling match or oppose the floor? |
+
+Only the first comparison changes → first-wall-relative. Only the second →
+winding or surface normal. Neither → world-axis-aligned. **Both → none of the
+simple candidates hold**, which is a result to report, not to resolve by
+picking the reading that looks familiar.
+
+*The four open questions,* and nothing more: (1) which direction the surface
+tilts relative to the first wall; (2) whether winding changes that
+relationship; (3) the heinum sign convention; (4) whether the ceiling uses
+the same or the opposite convention as the floor. The rise magnitude is NOT
+an open question — the published description already fixes 4096 as 45°
+rise/run, and that becomes an exact integer CI oracle once the direction and
+sign are attested.
+
+*Do not promote a formula until the observations distinguish the
+candidates.* Visual observations are
+HUMAN-ATTESTED; once recorded, the numbers become exact integer CI oracles in
+the probe fixtures (e.g. heinum 4096 ⇒ z delta exactly equal to horizontal
+distance along the attested axis), and only then do the evaluator, the
+geometry consumption, the shared-function tripwire, and sabotages 1–5 land.
+
+M6 remains IN_PROGRESS. Slice 2 (textured surfaces + UV) is not started.
 
 ## M7 — Sector lookup and vertical world queries — NOT_STARTED
 

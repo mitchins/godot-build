@@ -636,7 +636,12 @@ const char* surface_kind_name(SurfaceKind kind) {
     return "unknown";
 }
 
-StructuralVertex to_render_space(std::int32_t x, std::int32_t y, std::int32_t z,
+bool render_z_is_exact(std::int64_t z) {
+    constexpr std::int64_t kExactIntegerDouble = 1LL << 53;
+    return z >= -kExactIntegerDouble && z <= kExactIntegerDouble;
+}
+
+StructuralVertex to_render_space(std::int32_t x, std::int32_t y, std::int64_t z,
                                  const StructuralOptions& options) {
     // Power-of-two scale keeps the mapping exact (D0016): the product of an
     // int32 and 2^-k is exactly representable and reversible. Internal misuse
@@ -647,12 +652,157 @@ StructuralVertex to_render_space(std::int32_t x, std::int32_t y, std::int32_t z,
     // and the exactness/reversibility contract is unchanged.
     const double vertical_scale = options.scale / kBuildVerticalUnitsPerHorizontal;
     FB_CHECK(scale_is_power_of_two(vertical_scale));
+    // Derived Z must not be silently narrowed on its way to render space.
+    FB_CHECK(render_z_is_exact(z));
     StructuralVertex v;
     v.x = static_cast<double>(x) * options.scale;
     v.y = -static_cast<double>(z) * vertical_scale;
     v.z = static_cast<double>(y) * options.scale;
     return v;
 }
+
+// --- slope evaluator (single authority) ------------------------------------
+// `heinum` may appear NOWHERE else in this file; ci/check_layering.py pins it.
+
+namespace {
+
+// Exact 128-bit -> binary64. All-binary64 arithmetic, so the result is
+// reproducible on every supported toolchain.
+//
+// An earlier version rejected operands above 2^53 on the theory that they had
+// to be exactly representable. That was over-strict: only the RELATIVE
+// precision of the quotient matters, and binary64 delivers ~2^-53 relative
+// whatever the operand magnitude. The bound that actually matters is on the
+// RESULT, and from int32 MAP coordinates the largest reachable |z| is about
+// 2^39.5 -- far inside the exactly-representable integer range.
+double s128_to_double(const S128& v) {
+    constexpr double kTwo64 = 18446744073709551616.0; // 2^64, exact
+    // Convert the MAGNITUDE and reapply the sign. Converting the two's
+    // complement limbs directly is catastrophically lossy for small negative
+    // values: -2000000 is stored as hi = -1, lo = 2^64 - 2000000, and lo
+    // loses its low bits to rounding at that magnitude, so the two limbs
+    // very nearly cancel and the small true value is destroyed.
+    S128 magnitude = v;
+    const bool negative = magnitude.sign() < 0;
+    if (negative) {
+        magnitude.negate();
+    }
+    const double value =
+        static_cast<double>(magnitude.hi) * kTwo64 + static_cast<double>(magnitude.lo);
+    return negative ? -value : value;
+}
+
+// Flagged for slope with a nonzero heinum, irrespective of hinge usability.
+bool slope_flagged(const fauxbuild::mapv7::MapData& map, std::int16_t sector_index,
+                   fauxbuild::SurfacePlane plane) {
+    const auto si = static_cast<std::size_t>(sector_index);
+    if (sector_index < 0 || si >= map.sectors.size()) {
+        return false;
+    }
+    const fauxbuild::mapv7::Sector& sector = map.sectors[si];
+    const bool ceiling = plane == fauxbuild::SurfacePlane::Ceiling;
+    const std::int16_t stat = ceiling ? sector.ceilingstat : sector.floorstat;
+    const std::int16_t heinum = ceiling ? sector.ceilingheinum : sector.floorheinum;
+    return (stat & fauxbuild::mapv7::kStatSloped) != 0 && heinum != 0;
+}
+
+struct SlopeInputs {
+    std::int32_t base_z = 0;
+    std::int16_t heinum = 0;
+    std::int64_t ax = 0, ay = 0, dx = 0, dy = 0;
+    bool sloped = false;
+};
+
+SlopeInputs slope_inputs(const fauxbuild::mapv7::MapData& map, std::int16_t sector_index,
+                         fauxbuild::SurfacePlane plane) {
+    SlopeInputs in;
+    const auto si = static_cast<std::size_t>(sector_index);
+    if (sector_index < 0 || si >= map.sectors.size()) {
+        return in;
+    }
+    const fauxbuild::mapv7::Sector& sector = map.sectors[si];
+    const bool ceiling = plane == fauxbuild::SurfacePlane::Ceiling;
+    in.base_z = ceiling ? sector.ceilingz : sector.floorz;
+    const std::int16_t stat = ceiling ? sector.ceilingstat : sector.floorstat;
+    in.heinum = ceiling ? sector.ceilingheinum : sector.floorheinum;
+
+    // Geometry honours the flag, never the heinum alone.
+    if ((stat & fauxbuild::mapv7::kStatSloped) == 0 || in.heinum == 0) {
+        return in;
+    }
+    if (sector.wallnum < 2 || sector.wallptr < 0) {
+        return in; // no hinge to tilt about
+    }
+    const auto first = static_cast<std::size_t>(sector.wallptr);
+    if (first >= map.walls.size()) {
+        return in;
+    }
+    const auto second = static_cast<std::size_t>(map.walls[first].point2);
+    if (second >= map.walls.size()) {
+        return in;
+    }
+    in.ax = map.walls[first].x;
+    in.ay = map.walls[first].y;
+    in.dx = static_cast<std::int64_t>(map.walls[second].x) - in.ax;
+    in.dy = static_cast<std::int64_t>(map.walls[second].y) - in.ay;
+    if (in.dx == 0 && in.dy == 0) {
+        return in; // degenerate hinge
+    }
+    in.sloped = true;
+    return in;
+}
+
+} // namespace
+
+bool slope_is_evaluable(const fauxbuild::mapv7::MapData& map, std::int16_t sector_index,
+                        fauxbuild::SurfacePlane plane) {
+    const SlopeInputs in = slope_inputs(map, sector_index, plane);
+    if (in.sloped) {
+        return true; // hinge present and non-degenerate
+    }
+    // `sloped` is false either because the plane carries no slope (nothing to
+    // evaluate; base Z is exact and correct) or because a FLAGGED plane has no
+    // usable hinge. Only the latter is a failure.
+    return !slope_flagged(map, sector_index, plane);
+}
+
+std::int64_t surface_z_at(const fauxbuild::mapv7::MapData& map, std::int16_t sector_index,
+                          fauxbuild::SurfacePlane plane, std::int32_t x, std::int32_t y) {
+    const SlopeInputs in = slope_inputs(map, sector_index, plane);
+    if (!in.sloped) {
+        return in.base_z;
+    }
+
+    // Exact: signed cross product of the hinge direction with (P - A), and the
+    // squared hinge length.
+    S128 cross;
+    cross.add_product(in.dx, static_cast<std::int64_t>(y) - in.ay);
+    cross.add_product(-in.dy, static_cast<std::int64_t>(x) - in.ax);
+    S128 length_squared;
+    length_squared.add_product(in.dx, in.dx);
+    length_squared.add_product(in.dy, in.dy);
+
+    if (cross.sign() == 0) {
+        return in.base_z; // exactly on the hinge line: invariant, any heinum
+    }
+
+    // The inexact steps, all binary64. See the header for exactly what is and
+    // is not being claimed about reproducibility.
+    const double perpendicular = s128_to_double(cross) / std::sqrt(s128_to_double(length_squared));
+    const double delta = perpendicular * static_cast<double>(in.heinum) / 256.0;
+    if (!std::isfinite(delta)) {
+        return in.base_z;
+    }
+
+    // Symmetric rounding (half away from zero): this is what makes negating
+    // the heinum negate the result exactly, which the ramp fixtures pin.
+    const double magnitude = std::floor(std::fabs(delta) + 0.5);
+    const std::int64_t rounded =
+        delta < 0.0 ? -static_cast<std::int64_t>(magnitude) : static_cast<std::int64_t>(magnitude);
+    return static_cast<std::int64_t>(in.base_z) + rounded;
+}
+
+// --- end slope evaluator ---------------------------------------------------
 
 Result<StructuralWorld> build_structural_world(const mapv7::MapData& map,
                                                const StructuralOptions& options) {
@@ -687,6 +837,18 @@ Result<StructuralWorld> build_structural_world(const mapv7::MapData& map,
 
     StructuralWorld world;
 
+    // Raw sector-level appearance, filled BEFORE the emission loop so the
+    // table is total: a sector that emits no surface (degenerate floor plane,
+    // say) still occupies its own index, and `surface.sector` indexes this
+    // vector directly. Verbatim copy; nothing here is interpreted (M10 owns
+    // visibility's behaviour).
+    world.sector_appearance.reserve(map.sectors.size());
+    for (const mapv7::Sector& sector : map.sectors) {
+        StructuralSectorAppearance appearance;
+        appearance.visibility = sector.visibility;
+        world.sector_appearance.push_back(appearance);
+    }
+
     for (std::size_t s = 0; s < map.sectors.size(); ++s) {
         const mapv7::Sector& sector = map.sectors[s];
         const auto begin = static_cast<std::int64_t>(sector.wallptr);
@@ -697,20 +859,24 @@ Result<StructuralWorld> build_structural_world(const mapv7::MapData& map,
             return Result<StructuralWorld>::err(loops.error());
         }
 
-        // --- Deferred-feature notes (non-fatal) ---------------------------
-        if ((sector.floorstat & mapv7::kStatSloped) != 0) {
-            world.notes.push_back(
-                {"sector[" + std::to_string(s) + "]",
-                 "floor slope present (heinum=" + std::to_string(sector.floorheinum) +
-                     "); M5 structural preview uses flat base Z; "
-                     "M6 owns slope semantics"});
+        // --- Slope evaluability (D0019) -----------------------------------
+        // A flagged plane whose first-wall hinge has zero length has no
+        // defined slope plane. It is never flattened as a substitute, and it
+        // never aborts the rest of an otherwise valid world. What is omitted
+        // is exactly the geometry whose PLACEMENT depends on that undefined
+        // plane; everything independently derivable is retained. Endpoints are
+        // never fabricated from base Z.
+        const bool floor_plane_defined =
+            slope_is_evaluable(map, static_cast<std::int16_t>(s), SurfacePlane::Floor);
+        const bool ceiling_plane_defined =
+            slope_is_evaluable(map, static_cast<std::int16_t>(s), SurfacePlane::Ceiling);
+        if (!floor_plane_defined) {
+            world.diagnostics.push_back(
+                {"sector[" + std::to_string(s) + "]", "floor", "slope_hinge_degenerate"});
         }
-        if ((sector.ceilingstat & mapv7::kStatSloped) != 0) {
-            world.notes.push_back(
-                {"sector[" + std::to_string(s) + "]",
-                 "ceiling slope present (heinum=" + std::to_string(sector.ceilingheinum) +
-                     "); M5 structural preview uses flat base Z; "
-                     "M6 owns slope semantics"});
+        if (!ceiling_plane_defined) {
+            world.diagnostics.push_back(
+                {"sector[" + std::to_string(s) + "]", "ceiling", "slope_hinge_degenerate"});
         }
         if (sector.ceilingz > sector.floorz) {
             world.notes.push_back({"sector[" + std::to_string(s) + "]",
@@ -737,35 +903,57 @@ Result<StructuralWorld> build_structural_world(const mapv7::MapData& map,
             world.diagnostics.push_back({record, "ceiling", "zero_area"});
         } else {
 
-            StructuralSurface floor;
-            floor.kind = SurfaceKind::Floor;
-            floor.sector = static_cast<std::int16_t>(s);
-            floor.wall = -1;
-            floor.picnum = sector.floorpicnum;
-            floor.vertices.reserve(tri.value().points.size());
-            for (const Pt& p : tri.value().points) {
-                floor.vertices.push_back(to_render_space(static_cast<std::int32_t>(p.x),
-                                                         static_cast<std::int32_t>(p.y),
-                                                         sector.floorz, options));
-            }
-            floor.indices =
-                floor_reversed ? flipped_triangles(tri.value().triangles) : tri.value().triangles;
-            world.surfaces.push_back(std::move(floor));
+            if (floor_plane_defined) {
 
-            StructuralSurface ceiling;
-            ceiling.kind = SurfaceKind::Ceiling;
-            ceiling.sector = static_cast<std::int16_t>(s);
-            ceiling.wall = -1;
-            ceiling.picnum = sector.ceilingpicnum;
-            ceiling.vertices.reserve(tri.value().points.size());
-            for (const Pt& p : tri.value().points) {
-                ceiling.vertices.push_back(to_render_space(static_cast<std::int32_t>(p.x),
-                                                           static_cast<std::int32_t>(p.y),
-                                                           sector.ceilingz, options));
+                StructuralSurface floor;
+                floor.kind = SurfaceKind::Floor;
+                floor.sector = static_cast<std::int16_t>(s);
+                floor.wall = -1;
+                floor.appearance.picnum = sector.floorpicnum;
+                floor.appearance.raw_stat = sector.floorstat;
+                floor.appearance.shade = sector.floorshade;
+                floor.appearance.pal = sector.floorpal;
+                floor.appearance.xpanning = sector.floorxpanning;
+                floor.appearance.ypanning = sector.floorypanning;
+                floor.vertices.reserve(tri.value().points.size());
+                for (const Pt& p : tri.value().points) {
+                    const std::int64_t z = surface_z_at(
+                        map, static_cast<std::int16_t>(s), SurfacePlane::Floor,
+                        static_cast<std::int32_t>(p.x), static_cast<std::int32_t>(p.y));
+                    floor.vertices.push_back(to_render_space(static_cast<std::int32_t>(p.x),
+                                                             static_cast<std::int32_t>(p.y), z,
+                                                             options));
+                }
+                floor.indices = floor_reversed ? flipped_triangles(tri.value().triangles)
+                                               : tri.value().triangles;
+                world.surfaces.push_back(std::move(floor));
             }
-            ceiling.indices =
-                floor_reversed ? tri.value().triangles : flipped_triangles(tri.value().triangles);
-            world.surfaces.push_back(std::move(ceiling));
+
+            if (ceiling_plane_defined) {
+
+                StructuralSurface ceiling;
+                ceiling.kind = SurfaceKind::Ceiling;
+                ceiling.sector = static_cast<std::int16_t>(s);
+                ceiling.wall = -1;
+                ceiling.appearance.picnum = sector.ceilingpicnum;
+                ceiling.appearance.raw_stat = sector.ceilingstat;
+                ceiling.appearance.shade = sector.ceilingshade;
+                ceiling.appearance.pal = sector.ceilingpal;
+                ceiling.appearance.xpanning = sector.ceilingxpanning;
+                ceiling.appearance.ypanning = sector.ceilingypanning;
+                ceiling.vertices.reserve(tri.value().points.size());
+                for (const Pt& p : tri.value().points) {
+                    const std::int64_t z = surface_z_at(
+                        map, static_cast<std::int16_t>(s), SurfacePlane::Ceiling,
+                        static_cast<std::int32_t>(p.x), static_cast<std::int32_t>(p.y));
+                    ceiling.vertices.push_back(to_render_space(static_cast<std::int32_t>(p.x),
+                                                               static_cast<std::int32_t>(p.y), z,
+                                                               options));
+                }
+                ceiling.indices = floor_reversed ? tri.value().triangles
+                                                 : flipped_triangles(tri.value().triangles);
+                world.surfaces.push_back(std::move(ceiling));
+            }
         } // end non-degenerate floor/ceiling emission
 
         // --- Wall spans ----------------------------------------------------
@@ -785,8 +973,15 @@ Result<StructuralWorld> build_structural_world(const mapv7::MapData& map,
         std::int64_t first_uninterpreted_wall = -1;
         std::int16_t first_uninterpreted_cstat = 0;
 
+        // Whether a span is emitted at all stays a decision about the FLAT
+        // interval, exactly as before the evaluator existed. Slope moves
+        // vertices; it must not silently change how many surfaces a world has
+        // (M6.1 gate G pins E1L1's topology across this change). A later slice
+        // owns any refinement of that rule.
         auto emit_span = [&](SurfaceKind kind, std::int16_t wall_index, const mapv7::Wall& wall,
-                             std::int64_t z_a, std::int64_t z_b, bool left) {
+                             std::int64_t z_a, std::int64_t z_b, std::int64_t za_top,
+                             std::int64_t za_bottom, std::int64_t zb_top, std::int64_t zb_bottom,
+                             bool left) {
             // Solid spans always present the full interval (normalize inverted
             // sectors); portal spans are only emitted for positive extents.
             if (kind != SurfaceKind::SolidWall && z_a >= z_b) {
@@ -797,24 +992,58 @@ Result<StructuralWorld> build_structural_world(const mapv7::MapData& map,
             if (zt >= zb) {
                 return;
             }
+            // Per-endpoint heights from THE evaluator, so a wall meets a sloped
+            // floor or ceiling exactly at the shared XY.
+            const std::int64_t a_lo = std::min(za_top, za_bottom);
+            const std::int64_t a_hi = std::max(za_top, za_bottom);
+            const std::int64_t b_lo = std::min(zb_top, zb_bottom);
+            const std::int64_t b_hi = std::max(zb_top, zb_bottom);
             const mapv7::Wall& target = map.walls[static_cast<std::size_t>(wall.point2)];
             StructuralSurface surface;
             surface.kind = kind;
             surface.sector = static_cast<std::int16_t>(s);
             surface.wall = wall_index;
-            surface.picnum = wall.picnum;
-            surface.vertices.push_back(
-                to_render_space(wall.x, wall.y, static_cast<std::int32_t>(zt), options));
-            surface.vertices.push_back(
-                to_render_space(target.x, target.y, static_cast<std::int32_t>(zt), options));
-            surface.vertices.push_back(
-                to_render_space(target.x, target.y, static_cast<std::int32_t>(zb), options));
-            surface.vertices.push_back(
-                to_render_space(wall.x, wall.y, static_cast<std::int32_t>(zb), options));
-            if (left) {
-                surface.indices = {0, 2, 1, 0, 3, 2};
+            surface.appearance.picnum = wall.picnum;
+            surface.appearance.overpicnum = wall.overpicnum;
+            surface.appearance.raw_stat = wall.cstat;
+            surface.appearance.shade = wall.shade;
+            surface.appearance.pal = wall.pal;
+            surface.appearance.xrepeat = wall.xrepeat;
+            surface.appearance.yrepeat = wall.yrepeat;
+            surface.appearance.xpanning = wall.xpanning;
+            surface.appearance.ypanning = wall.ypanning;
+            // A sloped plane can close the span at one end. The derived shape
+            // is then a triangular WEDGE, not a quad with a zero-area triangle
+            // stapled to it -- and a wedge is perfectly good geometry that must
+            // not be discarded just because one endpoint closes.
+            //
+            //   open at A and B       -> quad, two triangles
+            //   closed at exactly one -> wedge, one triangle
+            //   closed at both        -> nothing to emit
+            //
+            // Winding follows the quad each case degenerates from, so `left`
+            // keeps meaning exactly what it did before.
+            const bool open_a = a_lo != a_hi;
+            const bool open_b = b_lo != b_hi;
+            if (!open_a && !open_b) {
+                return; // the span closes along its whole length
+            }
+            surface.vertices.push_back(to_render_space(wall.x, wall.y, a_lo, options));
+            surface.vertices.push_back(to_render_space(target.x, target.y, b_lo, options));
+            if (open_a && open_b) {
+                surface.vertices.push_back(to_render_space(target.x, target.y, b_hi, options));
+                surface.vertices.push_back(to_render_space(wall.x, wall.y, a_hi, options));
+                surface.indices = left ? std::vector<std::uint32_t>{0, 2, 1, 0, 3, 2}
+                                       : std::vector<std::uint32_t>{0, 1, 2, 0, 2, 3};
             } else {
-                surface.indices = {0, 1, 2, 0, 2, 3};
+                // Closed at A: its two vertices coincide, so the quad's second
+                // face vanishes and the first survives. Closed at B: the
+                // reverse. Either way one triangle remains.
+                surface.vertices.push_back(
+                    open_a ? to_render_space(wall.x, wall.y, a_hi, options)
+                           : to_render_space(target.x, target.y, b_hi, options));
+                surface.indices = left ? std::vector<std::uint32_t>{0, 2, 1}
+                                       : std::vector<std::uint32_t>{0, 1, 2};
             }
             world.surfaces.push_back(std::move(surface));
         };
@@ -823,9 +1052,23 @@ Result<StructuralWorld> build_structural_world(const mapv7::MapData& map,
             const mapv7::Wall& wall = map.walls[static_cast<std::size_t>(wi)];
             const bool left = interior_left[static_cast<std::size_t>(wi - begin)] != 0;
 
+            const mapv7::Wall& far = map.walls[static_cast<std::size_t>(wall.point2)];
+            const auto si = static_cast<std::int16_t>(s);
+            // Both endpoints, both planes, through the one evaluator.
+            const std::int64_t ceil_a =
+                surface_z_at(map, si, SurfacePlane::Ceiling, wall.x, wall.y);
+            const std::int64_t ceil_b = surface_z_at(map, si, SurfacePlane::Ceiling, far.x, far.y);
+            const std::int64_t floor_a = surface_z_at(map, si, SurfacePlane::Floor, wall.x, wall.y);
+            const std::int64_t floor_b = surface_z_at(map, si, SurfacePlane::Floor, far.x, far.y);
+
             if (wall.nextsector == mapv7::kNoIndex) {
-                emit_span(SurfaceKind::SolidWall, static_cast<std::int16_t>(wi), wall,
-                          sector.ceilingz, sector.floorz, left);
+                // A solid span needs BOTH of this sector's planes for its
+                // vertical endpoints (D0019).
+                if (floor_plane_defined && ceiling_plane_defined) {
+                    emit_span(SurfaceKind::SolidWall, static_cast<std::int16_t>(wi), wall,
+                              sector.ceilingz, sector.floorz, ceil_a, floor_a, ceil_b, floor_b,
+                              left);
+                }
             } else {
                 // Structural portal spans: only the parts of the own wall
                 // outside the vertical opening shared with the neighbour
@@ -836,10 +1079,33 @@ Result<StructuralWorld> build_structural_world(const mapv7::MapData& map,
                     std::max<std::int64_t>(sector.ceilingz, neighbour.ceilingz);
                 const std::int64_t opening_bottom =
                     std::min<std::int64_t>(sector.floorz, neighbour.floorz);
-                emit_span(SurfaceKind::PortalUpper, static_cast<std::int16_t>(wi), wall,
-                          sector.ceilingz, opening_top, left);
-                emit_span(SurfaceKind::PortalLower, static_cast<std::int16_t>(wi), wall,
-                          opening_bottom, sector.floorz, left);
+                // The neighbour's planes are evaluated at the SAME XY, so a
+                // portal edge meets the adjoining sloped surface exactly.
+                const auto ni = static_cast<std::int16_t>(wall.nextsector);
+                const std::int64_t n_ceil_a =
+                    surface_z_at(map, ni, SurfacePlane::Ceiling, wall.x, wall.y);
+                const std::int64_t n_ceil_b =
+                    surface_z_at(map, ni, SurfacePlane::Ceiling, far.x, far.y);
+                const std::int64_t n_floor_a =
+                    surface_z_at(map, ni, SurfacePlane::Floor, wall.x, wall.y);
+                const std::int64_t n_floor_b =
+                    surface_z_at(map, ni, SurfacePlane::Floor, far.x, far.y);
+                // Each portal span depends only on the CEILING planes or only
+                // on the FLOOR planes, of this sector and its neighbour. An
+                // undefined plane removes exactly the spans that need it
+                // (D0019); the others remain independently derivable.
+                const bool n_ceiling_defined = slope_is_evaluable(map, ni, SurfacePlane::Ceiling);
+                const bool n_floor_defined = slope_is_evaluable(map, ni, SurfacePlane::Floor);
+                if (ceiling_plane_defined && n_ceiling_defined) {
+                    emit_span(SurfaceKind::PortalUpper, static_cast<std::int16_t>(wi), wall,
+                              sector.ceilingz, opening_top, ceil_a, std::max(ceil_a, n_ceil_a),
+                              ceil_b, std::max(ceil_b, n_ceil_b), left);
+                }
+                if (floor_plane_defined && n_floor_defined) {
+                    emit_span(SurfaceKind::PortalLower, static_cast<std::int16_t>(wi), wall,
+                              opening_bottom, sector.floorz, std::min(floor_a, n_floor_a), floor_a,
+                              std::min(floor_b, n_floor_b), floor_b, left);
+                }
             }
 
             if ((wall.cstat & mapv7::kWallCstatMasked) != 0) {

@@ -247,6 +247,154 @@ mapv7::MapData slope_metadata_world() {
     return map;
 }
 
+// Ramp fixture geometry (M6.1 slope oracles).
+constexpr std::int32_t kRampRun = 1024;
+constexpr std::int32_t kRampFloorZ = 32768;
+constexpr std::int32_t kRampCeilingZ = -32768;
+
+// M6.1 ramp fixtures: the authoritative slope oracles. A right triangle whose
+// first wall A->B IS the hinge, with the third corner C exactly 1024 units
+// perpendicular to it:
+//
+//     A = (0,0)   B = (1024,0)   C = (0,1024)
+//
+// A and B sit on the hinge, so they must hold base Z whatever the heinum. C
+// is 1024 units away, so at heinum 4096 (45 degrees) it must differ by
+// 1024 * 4096 / 256 = 16384 Build Z units -- equal physical rise and run
+// under the 16:1 metric. Every quantity here is derived from the published
+// definition, not from the implementation.
+// Wall-span collapse coverage (M6.1 residual). A central sloped sector with
+// three flat neighbours, arranged so that evaluated slope heights close a
+// portal span at one endpoint, at the other, or along its whole length --
+// while the BASE interval says the span is open, so each case is genuinely
+// produced by slope evaluation rather than by the flat decision.
+//
+// Sector 0 is 1024x1024 with its first wall (0,0)->(1024,0) as the hinge, a
+// ceiling sloping down away from it and a floor sloping up. Its wall 1
+// (perpendicular to the hinge) and wall 3 (also perpendicular, opposite side)
+// have endpoints at different perpendicular distances, so their spans close at
+// one end. Its wall 2 runs PARALLEL to the hinge, so both endpoints share a
+// perpendicular distance and its span closes along its whole length.
+mapv7::MapData portal_slope_collapse_world() {
+    mapv7::MapData map;
+    const std::int32_t u = 1024;
+    const std::int32_t ax[] = {0, u, u, 0};
+    const std::int32_t ay[] = {0, 0, u, u};
+    add_loop(map, ax, ay, 4); // sector 0, walls 0..3
+    const std::int32_t bx[] = {u, 2 * u, 2 * u, u};
+    const std::int32_t by[] = {0, 0, u, u};
+    add_loop(map, bx, by, 4); // sector 1 (east), walls 4..7
+    const std::int32_t cx[] = {0, u, u, 0};
+    const std::int32_t cy[] = {u, u, 2 * u, 2 * u};
+    add_loop(map, cx, cy, 4); // sector 2 (north), walls 8..11
+    const std::int32_t dx[] = {-u, 0, 0, -u};
+    const std::int32_t dy[] = {0, 0, u, u};
+    add_loop(map, dx, dy, 4); // sector 3 (west), walls 12..15
+
+    map.walls[1].nextwall = 7; // (u,0)->(u,u) shared with sector 1
+    map.walls[1].nextsector = 1;
+    map.walls[7].nextwall = 1;
+    map.walls[7].nextsector = 0;
+    map.walls[2].nextwall = 8; // (u,u)->(0,u) shared with sector 2
+    map.walls[2].nextsector = 2;
+    map.walls[8].nextwall = 2;
+    map.walls[8].nextsector = 0;
+    map.walls[3].nextwall = 13; // (0,u)->(0,0) shared with sector 3
+    map.walls[3].nextsector = 3;
+    map.walls[13].nextwall = 3;
+    map.walls[13].nextsector = 0;
+
+    // Central sector: both planes sloped about the first wall.
+    map.sectors.push_back(make_sector(0, 4, 32768, -16384));
+    map.sectors[0].ceilingstat |= mapv7::kStatSloped;
+    map.sectors[0].ceilingheinum = 4096;
+    map.sectors[0].floorstat |= mapv7::kStatSloped;
+    map.sectors[0].floorheinum = -4096;
+    // Flat neighbours whose planes sit inside the central sector's base
+    // interval, so every span below is open on the flat decision.
+    for (int i = 0; i < 3; ++i) {
+        map.sectors.push_back(make_sector(static_cast<std::int16_t>(4 + 4 * i), 4, 16384, 0));
+    }
+    map.start = {u / 2, u / 2, 8192, 0, 0};
+    return map;
+}
+
+mapv7::MapData ramp_world(bool ceiling_slope, std::int16_t heinum) {
+    mapv7::MapData map;
+    const std::int32_t xs[] = {0, kRampRun, 0};
+    const std::int32_t ys[] = {0, 0, kRampRun};
+    add_loop(map, xs, ys, 3);
+    map.sectors.push_back(make_sector(0, 3, kRampFloorZ, kRampCeilingZ));
+    auto& sector = map.sectors[0];
+    if (ceiling_slope) {
+        sector.ceilingstat |= mapv7::kStatSloped;
+        sector.ceilingheinum = heinum;
+    } else {
+        sector.floorstat |= mapv7::kStatSloped;
+        sector.floorheinum = heinum;
+    }
+    map.start = {kRampRun / 4, kRampRun / 4, 0, 0, 0};
+    return map;
+}
+// Wide-Z ramps: the evaluated Z deliberately leaves the int32 range the MAP
+// stores its base Z in, proving the derived value reaches render space without
+// a silent narrowing. Hinge A->B along X, apex 200,000,000 units away, so at
+// heinum 4096 the delta is 200000000 * 16 = 3,200,000,000 -- beyond INT32_MAX;
+// the negative variant goes beyond INT32_MIN.
+mapv7::MapData wide_z_ramp_world(std::int16_t heinum) {
+    mapv7::MapData map;
+    const std::int32_t xs[] = {0, 65536, 0};
+    const std::int32_t ys[] = {0, 0, 200000000};
+    add_loop(map, xs, ys, 3);
+    map.sectors.push_back(make_sector(0, 3, 0, -65536));
+    map.sectors[0].floorstat |= mapv7::kStatSloped;
+    map.sectors[0].floorheinum = heinum;
+    map.start = {1024, 1024, -32768, 0, 0};
+    return map;
+}
+mapv7::MapData slope_wide_z_pos_world() {
+    return wide_z_ramp_world(4096);
+}
+mapv7::MapData slope_wide_z_neg_world() {
+    return wide_z_ramp_world(-4096);
+}
+// A flagged FLOOR whose first-wall hinge has zero length: the hinge, and so
+// the floor height, is undefined (D0019). The polygon is a square with a
+// duplicated first vertex, so its AREA is unaffected -- otherwise D0018's
+// zero-area rule would omit both planes and the test would pass for the wrong
+// reason. The CEILING is ordinary and flat, and must survive: it does not
+// depend on the undefined plane.
+mapv7::MapData slope_degenerate_hinge_world() {
+    mapv7::MapData map;
+    const std::int32_t side = 1024;
+    const std::int32_t xs[] = {0, 0, side, side, 0};
+    const std::int32_t ys[] = {0, 0, 0, side, side};
+    add_loop(map, xs, ys, 5); // wall 0 -> wall 1 is a zero-length hinge
+    map.sectors.push_back(make_sector(0, 5, 32768, -32768));
+    map.sectors[0].floorstat |= mapv7::kStatSloped;
+    map.sectors[0].floorheinum = 4096;
+    // ceilingstat / ceilingheinum stay 0: an ordinary flat ceiling.
+    map.start = {side / 2, side / 2, 0, 0, 0};
+    return map;
+}
+
+mapv7::MapData ramp_floor_pos_world() {
+    return ramp_world(false, 4096);
+}
+mapv7::MapData ramp_floor_neg_world() {
+    return ramp_world(false, -4096);
+}
+mapv7::MapData ramp_ceiling_world() {
+    return ramp_world(true, 4096);
+}
+// A nonzero heinum with the slope flag CLEAR: real content treats this as an
+// ignored leftover (M3, n=4,900), so the surface must stay perfectly flat.
+mapv7::MapData ramp_stale_heinum_world() {
+    mapv7::MapData map = ramp_world(false, 4096);
+    map.sectors[0].floorstat = 0; // flag cleared, heinum deliberately left set
+    return map;
+}
+
 mapv7::MapData masked_wall_world() {
     mapv7::MapData map = two_sector_portal_world();
     // Masking flag on both sides of the shared edge. 0x0002 was used here
@@ -310,6 +458,22 @@ Result<mapv7::MapData> map_fixture(const std::string& name) {
     mapv7::MapData map;
     if (name == "minimal") {
         map = minimal_world();
+    } else if (name == "portal_slope_collapse") {
+        map = portal_slope_collapse_world();
+    } else if (name == "slope_wide_z_pos") {
+        map = slope_wide_z_pos_world();
+    } else if (name == "slope_wide_z_neg") {
+        map = slope_wide_z_neg_world();
+    } else if (name == "slope_degenerate_hinge") {
+        map = slope_degenerate_hinge_world();
+    } else if (name == "ramp_floor_pos") {
+        map = ramp_floor_pos_world();
+    } else if (name == "ramp_floor_neg") {
+        map = ramp_floor_neg_world();
+    } else if (name == "ramp_ceiling") {
+        map = ramp_ceiling_world();
+    } else if (name == "ramp_stale_heinum") {
+        map = ramp_stale_heinum_world();
     } else if (name == "metric_cube") {
         map = metric_cube_world();
     } else if (name == "square_room") {

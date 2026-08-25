@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Layering guards: core/ must never reference Godot (AGENTS.md, plan §2.2),
 the indexed atlas must keep its authoritative storage one-byte-per-texel
-(M4 slice 4 RGBA tripwire), and the production FauxBuildView must stay a
+(M4 slice 4 RGBA tripwire), structural derivation must stay asset-free
+(M6 slice 1 separation pin), and the production FauxBuildView must stay a
 consumer of fauxbuild::StructuralWorld only (M5 slice 2 viewer guard)."""
 
 import pathlib
@@ -29,6 +30,23 @@ pin = re.compile(r'std::vector<std::uint8_t>\s+pixels\s*;')
 if not pin.search(atlas_hpp.read_text(encoding="utf-8")):
     violations.append("core/include/fauxbuild/atlas.hpp: authoritative "
                       "'std::vector<std::uint8_t> pixels;' declaration missing")
+
+# M6 slice 1 separation pin: the structural world derives from MAP data
+# ALONE. Geometry and raw appearance must never depend on the asset side
+# (atlas, asset set, ART, palette): tile dimensions and indexed texels meet
+# the world at the later rendering/presentation seam (M6.2), not inside
+# core structural derivation. build_structural_world must stay callable
+# without any assets loaded.
+structural_files = [
+    core / "include/fauxbuild/structural.hpp",
+    core / "src/structural.cpp",
+]
+asset_include = re.compile(r'#\s*include\s*[<"]fauxbuild/(atlas|asset_set|art|palette)\.hpp')
+for path in structural_files:
+    for lineno, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+        if asset_include.search(line):
+            violations.append(f"{path.relative_to(root)}:{lineno}: structural derivation must "
+                              f"not depend on the asset side: {line.strip()}")
 
 # M5 slice 2 viewer guard: pin the architectural seam, not a style. The
 # production FauxBuildView is a pure consumer of
@@ -88,6 +106,39 @@ if "present_world(" not in source_cpp:
     violations.append("extension/src/faux_structural_source.cpp: must hand worlds to "
                       "FauxBuildView.present_world (the view seam), not present on its own")
 
+# M6.1 shared slope authority: `heinum` may appear ONLY inside the marked
+# evaluator region of structural.cpp. A second slope equation anywhere in the
+# derivation -- even one that happens to agree today -- is the defect this
+# pins, because the two drift apart the first time either is touched.
+structural_cpp = root / "core/src/structural.cpp"
+structural_text = structural_cpp.read_text(encoding="utf-8")
+begin_marker = "// --- slope evaluator (single authority) ---"
+end_marker = "// --- end slope evaluator ---"
+begin = structural_text.find(begin_marker)
+end = structural_text.find(end_marker)
+if begin < 0 or end < 0 or end < begin:
+    violations.append("core/src/structural.cpp: the slope evaluator's region markers are "
+                      "missing; the single-authority tripwire cannot run")
+else:
+    # Track each line's ACTUAL offset. Searching for the line's text would
+    # resolve a repeated line to its first occurrence, so an out-of-region
+    # `heinum` line identical to one inside the evaluator would silently
+    # inherit the inside offset and escape this gate entirely.
+    offset = 0
+    for lineno, line in enumerate(structural_text.splitlines(keepends=True), 1):
+        line_offset = offset
+        offset += len(line)
+        line = line.rstrip("\n")
+        if "heinum" not in line:
+            continue
+        if line_offset < begin or line_offset > end:
+            violations.append(
+                f"core/src/structural.cpp:{lineno}: slope arithmetic must live only in the "
+                f"one evaluator (M6.1): {line.strip()}")
+    if "surface_z_at(" not in structural_text[end:]:
+        violations.append("core/src/structural.cpp: geometry generation must call "
+                          "surface_z_at; no sloped vertex may be placed another way")
+
 if violations:
     print("layering check FAILED:")
     for v in violations:
@@ -95,5 +146,6 @@ if violations:
     sys.exit(1)
 
 print("layering check: core/ contains no Godot references; atlas payload is indexed; "
-      "FauxBuildView consumes StructuralWorld only; the content route lives in "
-      "FauxStructuralSource")
+      "slope arithmetic has one authority; "
+      "structural derivation stays asset-free; FauxBuildView consumes StructuralWorld "
+      "only; the content route lives in FauxStructuralSource")

@@ -18,11 +18,15 @@
 // no Godot types, no scene, no renderer (slice 2 owns presentation).
 
 using fauxbuild::build_structural_world;
+using fauxbuild::render_z_is_exact;
+using fauxbuild::slope_is_evaluable;
 using fauxbuild::StructuralOptions;
 using fauxbuild::StructuralSurface;
 using fauxbuild::StructuralVertex;
 using fauxbuild::StructuralWorld;
+using fauxbuild::surface_z_at;
 using fauxbuild::SurfaceKind;
+using fauxbuild::SurfacePlane;
 using fauxbuild::to_render_space;
 using fauxbuild::synth::map_fixture;
 
@@ -265,7 +269,7 @@ TEST_CASE("square room: floor, ceiling, four solid walls, facing inwards") {
 
     const StructuralSurface& floor = world.surfaces[0];
     CHECK(floor.wall == -1);
-    CHECK(floor.picnum == 101); // inert source metadata preserved
+    CHECK(floor.appearance.picnum == 101); // inert source metadata preserved
     REQUIRE(floor.indices.size() == 6);
     CHECK(floor.vertices.size() == 4);
 
@@ -631,33 +635,445 @@ TEST_CASE("a hole loop outside the outer loop fails closed") {
 // H. Slope-marked sectors are diagnosed, not interpreted
 // ---------------------------------------------------------------------------
 
-TEST_CASE("slope metadata is deferred with notes and flat base Z") {
-    const StructuralWorld world = build_fixture("slope_metadata");
-    check_triangles_wellformed(world);
+TEST_CASE("slope evaluator: hinge invariance, 45-degree ramp, sign, and flag") {
+    // The ramp fixture is a right triangle A=(0,0) B=(1024,0) C=(0,1024) with
+    // the first wall A->B as the hinge, floorz 32768. Every expected number
+    // below comes from the published definition (heinum 4096 = 45 degrees)
+    // and the ratified 16:1 metric, NOT from the implementation.
+    auto map = map_fixture("ramp_floor_pos");
+    REQUIRE(map.is_ok());
+    const auto& source = map.value();
+    const std::int64_t base = 32768;
 
-    std::size_t slope_notes = 0;
-    for (const auto& note : world.notes) {
-        if (note.detail.find("slope present") != std::string::npos) {
-            ++slope_notes;
-            CHECK(note.detail.find("M6 owns slope semantics") != std::string::npos);
-            CHECK(note.detail.find("flat base Z") != std::string::npos);
-            CHECK(note.record == std::string("sector[0]"));
-        }
+    // A. Hinge invariance: both hinge endpoints hold base Z.
+    CHECK(surface_z_at(source, 0, SurfacePlane::Floor, 0, 0) == base);
+    CHECK(surface_z_at(source, 0, SurfacePlane::Floor, 1024, 0) == base);
+    // ...and so does every other point ON the hinge line, including beyond it.
+    CHECK(surface_z_at(source, 0, SurfacePlane::Floor, 512, 0) == base);
+    CHECK(surface_z_at(source, 0, SurfacePlane::Floor, -4096, 0) == base);
+
+    // B. 45 degrees: 1024 units perpendicular must give exactly
+    //    1024 * 4096 / 256 = 16384 Build Z, i.e. equal physical rise and run.
+    CHECK(surface_z_at(source, 0, SurfacePlane::Floor, 0, 1024) == base + 16384);
+    // Linear in the perpendicular distance.
+    CHECK(surface_z_at(source, 0, SurfacePlane::Floor, 0, 512) == base + 8192);
+    CHECK(surface_z_at(source, 0, SurfacePlane::Floor, 700, 256) == base + 4096);
+    // The sign follows cross((B-A), (P-A)): the far side is the other way.
+    CHECK(surface_z_at(source, 0, SurfacePlane::Floor, 0, -1024) == base - 16384);
+
+    // Equal physical rise and run, stated at the render boundary.
+    const StructuralVertex hinge = to_render_space(0, 0, static_cast<std::int32_t>(base));
+    const StructuralVertex apex = to_render_space(
+        0, 1024, static_cast<std::int32_t>(surface_z_at(source, 0, SurfacePlane::Floor, 0, 1024)));
+    CHECK(std::fabs(apex.y - hinge.y) == std::fabs(apex.z - hinge.z));
+
+    // C. Negative heinum: equal magnitude, opposite delta, exactly.
+    auto negative = map_fixture("ramp_floor_neg");
+    REQUIRE(negative.is_ok());
+    for (const std::int32_t probe : {0, 128, 512, 1024}) {
+        const std::int64_t up = surface_z_at(source, 0, SurfacePlane::Floor, 0, probe) - base;
+        const std::int64_t down =
+            surface_z_at(negative.value(), 0, SurfacePlane::Floor, 0, probe) - base;
+        CHECK(up == -down);
     }
-    CHECK(slope_notes == 2); // floor and ceiling
 
-    // Flat planes at the declared Z; heinum ignored (M3 established the flag,
-    // not the magnitude, carries meaning).
+    // D. Flag clear: the same nonzero heinum is an ignored leftover.
+    auto stale = map_fixture("ramp_stale_heinum");
+    REQUIRE(stale.is_ok());
+    CHECK(stale.value().sectors[0].floorheinum == 4096); // still set in the record
+    CHECK((stale.value().sectors[0].floorstat & fauxbuild::mapv7::kStatSloped) == 0);
+    for (const std::int32_t probe : {0, 512, 1024}) {
+        CHECK(surface_z_at(stale.value(), 0, SurfacePlane::Floor, 0, probe) == base);
+    }
+    const StructuralWorld flat = build_fixture("ramp_stale_heinum");
+    const StructuralSurface* flat_floor = find_surface(flat, SurfaceKind::Floor, 0, -1);
+    REQUIRE(flat_floor != nullptr);
+    for (const auto& v : flat_floor->vertices) {
+        CHECK(v.y == -32768.0 / 32768.0);
+    }
+
+    // The ceiling plane uses the same evaluator and the same convention.
+    auto ceiling_map = map_fixture("ramp_ceiling");
+    REQUIRE(ceiling_map.is_ok());
+    const std::int64_t ceiling_base = -32768;
+    CHECK(surface_z_at(ceiling_map.value(), 0, SurfacePlane::Ceiling, 0, 0) == ceiling_base);
+    CHECK(surface_z_at(ceiling_map.value(), 0, SurfacePlane::Ceiling, 1024, 0) == ceiling_base);
+    CHECK(surface_z_at(ceiling_map.value(), 0, SurfacePlane::Ceiling, 0, 1024) ==
+          ceiling_base + 16384);
+    // The floor of that same fixture is unflagged and stays flat.
+    CHECK(surface_z_at(ceiling_map.value(), 0, SurfacePlane::Floor, 0, 1024) == 32768);
+}
+
+TEST_CASE("slope evaluator: deterministic corpus with independently derived oracles") {
+    // The expected values are NOT read back from this implementation: they
+    // were produced in Python, a different language and runtime, by applying
+    // the documented recipe (exact integer cross product and squared length,
+    // one binary64 division and sqrt, symmetric rounding). Agreement means the
+    // C++ matches the specification, not merely itself.
+    //
+    // These same integers must hold in dev, asan and release here, and on
+    // Linux x86_64, macOS arm64 and Windows MSVC in CI. No platform tolerance
+    // is allowed: a mismatch is a real divergence to investigate, not noise.
+    struct SlopeCase {
+        const char* label;
+        std::int32_t ax, ay, bx, by; // hinge A -> B
+        std::int32_t px, py;         // query point
+        std::int16_t heinum;
+        std::int64_t expected_delta; // from base Z 0
+    };
+    static const SlopeCase kCases[] = {
+        {"axis_x_pos", 0, 0, 1024, 0, 0, 1024, 4096, 16384},
+        {"axis_x_neg_side", 0, 0, 1024, 0, 0, -1024, 4096, -16384},
+        {"axis_x_neg_heinum", 0, 0, 1024, 0, 0, 1024, -4096, -16384},
+        {"axis_y", 0, 0, 0, 1024, 1024, 0, 4096, -16384},
+        {"pyth_345", 0, 0, 3000, 4000, -4000, 3000, 4096, 80000},
+        {"pyth_345_far", 0, 0, 3000, 4000, 8000, -6000, 2048, -80000},
+        {"irrational_diag", 0, 0, 1000, 1000, -1000, 1000, 4096, 22627},
+        {"irrational_diag_n", 0, 0, 1000, 1000, 1000, -1000, 4096, -22627},
+        {"exact_half_pos", 0, 0, 1024, 0, 0, 1, 1664, 7},
+        {"exact_half_neg", 0, 0, 1024, 0, 0, 1, -1664, -7},
+        {"just_below_half", 0, 0, 1024, 0, 0, 1, 1663, 6},
+        {"just_above_half", 0, 0, 1024, 0, 0, 1, 1665, 7},
+        {"tiny_hinge", 0, 0, 1, 0, 0, 7, 4096, 112},
+        {"on_hinge", 0, 0, 1024, 0, 512, 0, 4096, 0},
+        // Extreme coordinates: a hinge spanning the whole int32 range. The
+        // EXACT result here is 1048577.5, a true half-tie, but the cross
+        // product is 9007212137545725 -- just past 2^53 -- so binary64 sees
+        // 1048577.4999999998 and rounds to 1048577. Pinned to the behaviour
+        // that actually occurs, with the limit stated rather than hidden:
+        // beyond 2^53 the result is accurate to one Build Z unit, and the
+        // symmetry check below still holds exactly. Unreachable from real
+        // content, where cross products sit around 2^40.
+        {"int32_span_half_tie", -2147483647 - 1, 0, 2147483647, 0, 0, 2097155, 128, 1048577},
+    };
+
+    for (const SlopeCase& c : kCases) {
+        // A bare three-wall sector whose FIRST wall is the hinge under test.
+        fauxbuild::mapv7::MapData map;
+        fauxbuild::mapv7::Wall a;
+        a.x = c.ax;
+        a.y = c.ay;
+        a.point2 = 1;
+        fauxbuild::mapv7::Wall b;
+        b.x = c.bx;
+        b.y = c.by;
+        b.point2 = 2;
+        fauxbuild::mapv7::Wall third;
+        third.x = c.ax;
+        third.y = c.by + 1;
+        third.point2 = 0;
+        map.walls = {a, b, third};
+        fauxbuild::mapv7::Sector sector;
+        sector.wallptr = 0;
+        sector.wallnum = 3;
+        sector.floorz = 0;
+        sector.floorstat = fauxbuild::mapv7::kStatSloped;
+        sector.floorheinum = c.heinum;
+        map.sectors = {sector};
+
+        const std::int64_t got = surface_z_at(map, 0, SurfacePlane::Floor, c.px, c.py);
+        INFO("case: " << c.label);
+        CHECK(got == c.expected_delta);
+
+        // Symmetry: negating the heinum negates the result exactly. This is
+        // what the symmetric rounding policy buys, and it must hold even at a
+        // half boundary.
+        map.sectors[0].floorheinum = static_cast<std::int16_t>(-c.heinum);
+        const std::int64_t mirrored = surface_z_at(map, 0, SurfacePlane::Floor, c.px, c.py);
+        CHECK(mirrored == -c.expected_delta);
+    }
+}
+
+TEST_CASE("derived slope Z wider than int32 reaches render space unnarrowed") {
+    // The MAP stores base Z as int32, but an evaluated slope Z is derived and
+    // is not bounded by it. The apex of this fixture is 200,000,000 units from
+    // the hinge, so at heinum 4096 the delta is 200000000 * 16 =
+    // 3,200,000,000 -- outside int32 in both directions.
+    constexpr std::int64_t kApexDelta = 3200000000LL;
+    static_assert(kApexDelta > INT32_MAX, "the fixture must actually leave int32");
+
+    auto positive = map_fixture("slope_wide_z_pos");
+    REQUIRE(positive.is_ok());
+    const std::int64_t up = surface_z_at(positive.value(), 0, SurfacePlane::Floor, 0, 200000000);
+    CHECK(up == kApexDelta);
+    CHECK(up > INT32_MAX);
+
+    auto negative = map_fixture("slope_wide_z_neg");
+    REQUIRE(negative.is_ok());
+    const std::int64_t down = surface_z_at(negative.value(), 0, SurfacePlane::Floor, 0, 200000000);
+    CHECK(down == -kApexDelta);
+    CHECK(down < INT32_MIN);
+
+    // The render conversion carries the wide value: 3.2e9 / 32768 = 97656.25,
+    // exactly representable. A silent int32 narrowing would wrap to a
+    // completely different height.
+    CHECK(render_z_is_exact(kApexDelta));
+    const StructuralVertex wide = to_render_space(0, 200000000, kApexDelta);
+    CHECK(wide.y == -3200000000.0 / 32768.0);
+    CHECK(wide.y == -97656.25);
+    const StructuralVertex narrowed =
+        to_render_space(0, 200000000, static_cast<std::int32_t>(kApexDelta));
+    CHECK(narrowed.y != wide.y); // the old path really did lose the value
+
+    // ...and the emitted surface carries it, not just the evaluator.
+    const StructuralWorld world = build_fixture("slope_wide_z_pos");
+    CHECK(world.diagnostics.empty());
     const StructuralSurface* floor = find_surface(world, SurfaceKind::Floor, 0, -1);
     REQUIRE(floor != nullptr);
+    double lowest = 0.0;
     for (const auto& v : floor->vertices) {
-        CHECK(v.y == 0.0);
+        lowest = std::min(lowest, v.y);
     }
+    CHECK(lowest == -97656.25);
+}
+
+TEST_CASE("slope-collapsed wall spans become wedges, not zero-area quads") {
+    // Evaluated slope heights can close a span at one endpoint. The derived
+    // shape is then a triangular WEDGE. Emitting a quad anyway staples a
+    // zero-area triangle onto it; discarding the span entirely throws away
+    // real geometry. Both are wrong, in opposite directions.
+    //
+    //   open at A and B       -> quad, two triangles
+    //   closed at exactly one -> wedge, one triangle
+    //   closed at both        -> omitted
+    //
+    // The fixture's BASE intervals are all open, so every case below is
+    // produced by slope evaluation and not by the flat decision.
+    auto map = map_fixture("portal_slope_collapse");
+    REQUIRE(map.is_ok());
+    const StructuralWorld world = build_fixture("portal_slope_collapse");
+
+    // The zero-area gate: every emitted triangle, in every surface.
+    check_triangles_wellformed(world);
+
+    auto span_for = [&](SurfaceKind kind, std::int16_t wall) -> const StructuralSurface* {
+        for (const auto& surface : world.surfaces) {
+            if (surface.kind == kind && surface.sector == 0 && surface.wall == wall) {
+                return &surface;
+            }
+        }
+        return nullptr;
+    };
+    auto plane_z = [&](SurfacePlane plane, std::int16_t sector, std::int32_t x, std::int32_t y) {
+        return surface_z_at(map.value(), sector, plane, x, y);
+    };
+
+    // Wall 0 is solid and its span is open at both ends: an ordinary quad.
+    const StructuralSurface* solid = span_for(SurfaceKind::SolidWall, 0);
+    REQUIRE(solid != nullptr);
+    CHECK(solid->vertices.size() == 4);
+    CHECK(solid->indices.size() == 6);
+
+    // Walls 1 and 3 run perpendicular to the hinge from opposite sides, so
+    // their spans close at opposite endpoints. Between them they cover both.
+    int closed_at_a = 0;
+    int closed_at_b = 0;
+    for (const std::int16_t wall : {std::int16_t{1}, std::int16_t{3}}) {
+        const auto& near_wall = map.value().walls[static_cast<std::size_t>(wall)];
+        const auto& far_wall = map.value().walls[static_cast<std::size_t>(near_wall.point2)];
+        const std::int16_t neighbour = near_wall.nextsector;
+        REQUIRE(neighbour >= 0);
+
+        for (const SurfaceKind kind : {SurfaceKind::PortalUpper, SurfaceKind::PortalLower}) {
+            const StructuralSurface* span = span_for(kind, wall);
+            REQUIRE(span != nullptr);
+            // A wedge: three vertices, exactly one triangle.
+            CHECK(span->vertices.size() == 3);
+            CHECK(span->indices.size() == 3);
+
+            // Which endpoint closed, derived from the evaluator rather than
+            // read off the emitted vertices.
+            const SurfacePlane plane =
+                kind == SurfaceKind::PortalUpper ? SurfacePlane::Ceiling : SurfacePlane::Floor;
+            const std::int64_t own_a = plane_z(plane, 0, near_wall.x, near_wall.y);
+            const std::int64_t own_b = plane_z(plane, 0, far_wall.x, far_wall.y);
+            const std::int64_t other_a = plane_z(plane, neighbour, near_wall.x, near_wall.y);
+            const std::int64_t other_b = plane_z(plane, neighbour, far_wall.x, far_wall.y);
+            const std::int64_t bound_a = kind == SurfaceKind::PortalUpper
+                                             ? std::max(own_a, other_a)
+                                             : std::min(own_a, other_a);
+            const std::int64_t bound_b = kind == SurfaceKind::PortalUpper
+                                             ? std::max(own_b, other_b)
+                                             : std::min(own_b, other_b);
+            const bool a_closed = own_a == bound_a;
+            const bool b_closed = own_b == bound_b;
+            CHECK(a_closed != b_closed); // exactly one, or it would not be a wedge
+            if (a_closed) {
+                ++closed_at_a;
+            } else {
+                ++closed_at_b;
+            }
+        }
+    }
+    CHECK(closed_at_a == 2); // upper and lower on one wall
+    CHECK(closed_at_b == 2); // upper and lower on the other
+
+    // Wall 2 runs PARALLEL to the hinge, so both endpoints sit at the same
+    // perpendicular distance and the span closes along its whole length.
+    // Omitted entirely -- not emitted as a pair of zero-area triangles.
+    CHECK(span_for(SurfaceKind::PortalUpper, 2) == nullptr);
+    CHECK(span_for(SurfaceKind::PortalLower, 2) == nullptr);
+}
+
+TEST_CASE("no emitted triangle anywhere has zero area") {
+    // The blunt version of the same guarantee, across every fixture that
+    // slopes: a degenerate triangle must never reach a consumer.
+    for (const char* name : {"portal_slope_collapse", "ramp_floor_pos", "ramp_floor_neg",
+                             "ramp_ceiling", "slope_wide_z_pos", "two_sector_portal",
+                             "portal_heights", "portal_step_floor", "multi_loop"}) {
+        const StructuralWorld world = build_fixture(name);
+        INFO("fixture: " << name);
+        check_triangles_wellformed(world);
+    }
+}
+
+TEST_CASE("an undefined slope plane omits only what depends on it") {
+    // D0019 (accepted). A flagged plane whose first-wall hinge has zero length
+    // has no defined slope plane. It is never flattened as a substitute and it
+    // never aborts the rest of an otherwise valid world: what goes is exactly
+    // the geometry whose placement needs that plane.
+    //
+    // The fixture is a square with a duplicated first vertex, so the polygon
+    // keeps its AREA -- otherwise D0018's zero-area rule would omit both
+    // planes and this test would pass for the wrong reason. Its floor is
+    // sloped with the degenerate hinge; its ceiling is ordinary and flat.
+    auto map = map_fixture("slope_degenerate_hinge");
+    REQUIRE(map.is_ok());
+    const auto& sector = map.value().sectors[0];
+    CHECK((sector.floorstat & fauxbuild::mapv7::kStatSloped) != 0);
+    CHECK(sector.floorheinum == 4096);
+    CHECK((sector.ceilingstat & fauxbuild::mapv7::kStatSloped) == 0); // ordinary ceiling
+    CHECK(map.value().walls[0].x == map.value().walls[1].x);
+    CHECK(map.value().walls[0].y == map.value().walls[1].y);
+
+    CHECK_FALSE(slope_is_evaluable(map.value(), 0, SurfacePlane::Floor));
+    CHECK(slope_is_evaluable(map.value(), 0, SurfacePlane::Ceiling));
+
+    auto built = build_structural_world(map.value());
+    REQUIRE(built.is_ok()); // the world is NOT aborted
+    const StructuralWorld world = built.take();
+
+    // The diagnostic names the sector and the affected plane, and only it.
+    std::size_t degenerate_diagnostics = 0;
+    for (const auto& d : world.diagnostics) {
+        if (d.reason == "slope_hinge_degenerate") {
+            ++degenerate_diagnostics;
+            CHECK(d.record == "sector[0]");
+            CHECK(d.surface == "floor");
+        }
+    }
+    CHECK(degenerate_diagnostics == 1);
+
+    std::size_t floors = 0;
+    std::size_t ceilings = 0;
+    std::size_t spans = 0;
+    for (const auto& surface : world.surfaces) {
+        switch (surface.kind) {
+        case SurfaceKind::Floor:
+            ++floors;
+            break;
+        case SurfaceKind::Ceiling:
+            ++ceilings;
+            break;
+        default:
+            ++spans;
+            break;
+        }
+    }
+    CHECK(floors == 0);   // depends on the undefined plane
+    CHECK(ceilings == 1); // independently derivable: RETAINED
+    // Solid spans need both of this sector's planes for their endpoints, and
+    // fabricating a base-Z endpoint is exactly what D0019 forbids.
+    CHECK(spans == 0);
+
+    // The retained ceiling is real geometry at its authored height, not a
+    // placeholder.
     const StructuralSurface* ceiling = find_surface(world, SurfaceKind::Ceiling, 0, -1);
     REQUIRE(ceiling != nullptr);
+    CHECK(ceiling->indices.size() >= 3);
     for (const auto& v : ceiling->vertices) {
-        CHECK(v.y == -16384.0 / 32768.0);
+        CHECK(v.y == 32768.0 / 32768.0); // ceilingz -32768
     }
+}
+
+TEST_CASE("sloped geometry comes from the evaluator, and walls meet it exactly") {
+    // E. Every sloped surface vertex must equal the evaluator at its own XY.
+    //    Reading the emitted world back and re-deriving through surface_z_at
+    //    is what catches a second, divergent equation in generation.
+    for (const char* name : {"ramp_floor_pos", "ramp_floor_neg", "ramp_ceiling"}) {
+        auto map = map_fixture(name);
+        REQUIRE(map.is_ok());
+        const StructuralWorld world = build_fixture(name);
+        check_triangles_wellformed(world);
+
+        bool saw_non_base = false;
+        for (const auto& surface : world.surfaces) {
+            const bool is_ceiling = surface.kind == SurfaceKind::Ceiling;
+            if (surface.kind != SurfaceKind::Floor && !is_ceiling) {
+                continue;
+            }
+            const SurfacePlane plane = is_ceiling ? SurfacePlane::Ceiling : SurfacePlane::Floor;
+            for (const auto& v : surface.vertices) {
+                // Render space back to Build XY: x * 2048, z * 2048.
+                const auto bx = static_cast<std::int32_t>(std::llround(v.x * 2048.0));
+                const auto by = static_cast<std::int32_t>(std::llround(v.z * 2048.0));
+                const std::int64_t expected =
+                    surface_z_at(map.value(), surface.sector, plane, bx, by);
+                const StructuralVertex want =
+                    to_render_space(bx, by, static_cast<std::int32_t>(expected));
+                CHECK(v.y == want.y);
+                if (expected != (is_ceiling ? map.value().sectors[0].ceilingz
+                                            : map.value().sectors[0].floorz)) {
+                    saw_non_base = true;
+                }
+            }
+        }
+        CHECK(saw_non_base); // the fixture really does slope
+    }
+
+    // F. Wall seam: a wall's endpoints must sit exactly on the sloped planes
+    //    at the same XY, so no crack opens between a wall and its floor.
+    auto map = map_fixture("ramp_floor_pos");
+    REQUIRE(map.is_ok());
+    const StructuralWorld world = build_fixture("ramp_floor_pos");
+    std::size_t checked = 0;
+    for (const auto& surface : world.surfaces) {
+        if (surface.kind != SurfaceKind::SolidWall) {
+            continue;
+        }
+        for (const auto& v : surface.vertices) {
+            const auto bx = static_cast<std::int32_t>(std::llround(v.x * 2048.0));
+            const auto by = static_cast<std::int32_t>(std::llround(v.z * 2048.0));
+            const std::int64_t floor_z =
+                surface_z_at(map.value(), surface.sector, SurfacePlane::Floor, bx, by);
+            const std::int64_t ceiling_z =
+                surface_z_at(map.value(), surface.sector, SurfacePlane::Ceiling, bx, by);
+            const StructuralVertex on_floor =
+                to_render_space(bx, by, static_cast<std::int32_t>(floor_z));
+            const StructuralVertex on_ceiling =
+                to_render_space(bx, by, static_cast<std::int32_t>(ceiling_z));
+            CHECK((v.y == on_floor.y || v.y == on_ceiling.y));
+            ++checked;
+        }
+    }
+    CHECK(checked == 12); // three walls, four corners each
+
+    // The seam test must not be passing merely because everything is flat.
+    // Deliberately direction-agnostic: which way +heinum moves the surface is
+    // the documented sign convention, not something this test should restate.
+    std::vector<double> wall_heights;
+    for (const auto& surface : world.surfaces) {
+        if (surface.kind != SurfaceKind::SolidWall) {
+            continue;
+        }
+        for (const auto& v : surface.vertices) {
+            wall_heights.push_back(v.y);
+        }
+    }
+    std::sort(wall_heights.begin(), wall_heights.end());
+    wall_heights.erase(std::unique(wall_heights.begin(), wall_heights.end()), wall_heights.end());
+    // Flat walls would give exactly two heights (base floor, base ceiling).
+    CHECK(wall_heights.size() > 2);
 }
 
 TEST_CASE("masked walls are noted as deferred, spans stay plain") {
@@ -675,6 +1091,157 @@ TEST_CASE("masked walls are noted as deferred, spans stay plain") {
     // all beyond the notes.
     CHECK(count_kind(world, SurfaceKind::PortalUpper) == 0);
     CHECK(count_kind(world, SurfaceKind::PortalLower) == 0);
+}
+
+// ---------------------------------------------------------------------------
+// I. M6 slice 1: raw appearance contract and the slope-flag pin
+// ---------------------------------------------------------------------------
+
+TEST_CASE("appearance facts are preserved raw on emitted surfaces") {
+    // The consumer is the pure-C++ StructuralWorld: read the emitted surfaces
+    // themselves, field by field, against the source MAP records. No
+    // interpretation may creep in: every value below is the source field
+    // verbatim (M6 slice 1 §8).
+    auto map = map_fixture("square_room");
+    REQUIRE(map.is_ok());
+    auto& sector = map.value().sectors[0];
+    // Distinct, deliberately awkward source values (negative shade, nonzero
+    // panning/pal) so a transposed or truncated field is loud.
+    sector.ceilingpicnum = 111;
+    sector.floorpicnum = 222;
+    sector.ceilingshade = -13;
+    sector.floorshade = 17;
+    sector.ceilingpal = 3;
+    sector.floorpal = 4;
+    sector.ceilingxpanning = 11;
+    sector.ceilingypanning = 13;
+    sector.floorxpanning = 17;
+    sector.floorypanning = 19;
+    sector.ceilingstat = 0x0044; // uninterpreted bits stay raw (slope bit clear)
+    sector.floorstat = 0x0018;
+    for (auto& wall : map.value().walls) {
+        wall.picnum = 333;
+        wall.overpicnum = 444;
+        wall.cstat = 0x0108;
+        wall.shade = -5;
+        wall.pal = 6;
+        wall.xrepeat = 9;
+        wall.yrepeat = 10;
+        wall.xpanning = 21;
+        wall.ypanning = 23;
+    }
+    const StructuralWorld world = build_structural_world(map.value()).value();
+
+    const StructuralSurface* floor = find_surface(world, SurfaceKind::Floor, 0, -1);
+    REQUIRE(floor != nullptr);
+    CHECK(floor->appearance.picnum == 222);
+    CHECK(floor->appearance.overpicnum == 0); // not a wall field
+    CHECK(floor->appearance.raw_stat == 0x0018);
+    CHECK(floor->appearance.shade == 17);
+    CHECK(floor->appearance.pal == 4);
+    CHECK(floor->appearance.xpanning == 17);
+    CHECK(floor->appearance.ypanning == 19);
+    CHECK(floor->appearance.xrepeat == 0); // not a floor/ceiling field
+    CHECK(floor->appearance.yrepeat == 0);
+
+    const StructuralSurface* ceiling = find_surface(world, SurfaceKind::Ceiling, 0, -1);
+    REQUIRE(ceiling != nullptr);
+    CHECK(ceiling->appearance.picnum == 111);
+    CHECK(ceiling->appearance.raw_stat == 0x0044);
+    CHECK(ceiling->appearance.shade == -13);
+    CHECK(ceiling->appearance.pal == 3);
+    CHECK(ceiling->appearance.xpanning == 11);
+    CHECK(ceiling->appearance.ypanning == 13);
+
+    for (std::int16_t w = 0; w < 4; ++w) {
+        const StructuralSurface* wall = find_surface(world, SurfaceKind::SolidWall, 0, w);
+        REQUIRE(wall != nullptr);
+        CHECK(wall->appearance.picnum == 333);
+        CHECK(wall->appearance.overpicnum == 444);
+        CHECK(wall->appearance.raw_stat == 0x0108);
+        CHECK(wall->appearance.shade == -5);
+        CHECK(wall->appearance.pal == 6);
+        CHECK(wall->appearance.xrepeat == 9);
+        CHECK(wall->appearance.yrepeat == 10);
+        CHECK(wall->appearance.xpanning == 21);
+        CHECK(wall->appearance.ypanning == 23);
+    }
+
+    // Geometry is untouched by appearance: the floor plane stays at its base
+    // Z (no slope bit set; heinum irrelevant here and zero).
+    for (const auto& v : floor->vertices) {
+        CHECK(v.y == 0.0);
+    }
+}
+
+TEST_CASE("heinum without the slope flag stays perfectly flat") {
+    // M6 slice 1 §2 pin (fixture matrix B): M3 established that stat 0x0002
+    // marks a slope and that a nonzero heinum without it is an ignored
+    // leftover in real content (n=4,900 surfaces). Geometry must honour the
+    // flag, never the heinum alone — this case stays green after the slope
+    // evaluator lands, because flag-clear sectors remain flat by definition.
+    auto map = map_fixture("minimal");
+    REQUIRE(map.is_ok());
+    map.value().sectors[0].floorheinum = 1000;
+    map.value().sectors[0].ceilingheinum = -1000;
+    // Flag deliberately NOT set.
+    const StructuralWorld world = build_structural_world(map.value()).value();
+
+    for (const auto& note : world.notes) {
+        CHECK(note.detail.find("slope present") == std::string::npos);
+    }
+    const StructuralSurface* floor = find_surface(world, SurfaceKind::Floor, 0, -1);
+    REQUIRE(floor != nullptr);
+    for (const auto& v : floor->vertices) {
+        CHECK(v.y == 0.0);
+    }
+    const StructuralSurface* ceiling = find_surface(world, SurfaceKind::Ceiling, 0, -1);
+    REQUIRE(ceiling != nullptr);
+    for (const auto& v : ceiling->vertices) {
+        CHECK(v.y == -16384.0 / 32768.0);
+    }
+}
+
+TEST_CASE("raw sector visibility reaches the consumer through StructuralWorld") {
+    // M6 preserves the value verbatim; M10 owns its behavioural and render
+    // interpretation. The point of the test is index correspondence, so the
+    // sectors are given distinct visibilities before deriving -- a table that
+    // is merely the right length, or that copies one value everywhere, must
+    // not pass.
+    auto map = map_fixture("two_sector_portal");
+    REQUIRE(map.is_ok());
+    REQUIRE(map.value().sectors.size() >= 2);
+    auto source = map.take();
+    for (std::size_t i = 0; i < source.sectors.size(); ++i) {
+        source.sectors[i].visibility = static_cast<std::uint8_t>(17 + 5 * i);
+    }
+
+    auto built = build_structural_world(source);
+    REQUIRE(built.is_ok());
+    const StructuralWorld world = built.take();
+
+    REQUIRE(world.sector_appearance.size() == source.sectors.size());
+    for (std::size_t i = 0; i < source.sectors.size(); ++i) {
+        CHECK(world.sector_appearance[i].visibility == source.sectors[i].visibility);
+    }
+    // Distinct by construction, so a broadcast copy cannot satisfy the above.
+    CHECK(world.sector_appearance[0].visibility != world.sector_appearance[1].visibility);
+
+    // A surface indexes its own sector's entry directly.
+    for (const auto& surface : world.surfaces) {
+        REQUIRE(surface.sector >= 0);
+        REQUIRE(static_cast<std::size_t>(surface.sector) < world.sector_appearance.size());
+        CHECK(world.sector_appearance[static_cast<std::size_t>(surface.sector)].visibility ==
+              source.sectors[static_cast<std::size_t>(surface.sector)].visibility);
+    }
+
+    // The table is total: every source sector has an entry even when a sector
+    // emits no surface at all.
+    const StructuralWorld degenerate = build_fixture("square_room");
+    auto square = map_fixture("square_room");
+    REQUIRE(square.is_ok());
+    CHECK(degenerate.sector_appearance.size() == square.value().sectors.size());
+    CHECK(degenerate.sector_appearance[0].visibility == square.value().sectors[0].visibility);
 }
 
 // ---------------------------------------------------------------------------
