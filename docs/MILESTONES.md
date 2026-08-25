@@ -1674,17 +1674,20 @@ one-line change plus fixture updates.
 **Arithmetic and determinism.** The cross product and squared hinge length
 are exact in 128-bit integers. The definition contains a length, so it is
 irrational and cannot be fully integral; the single division by that length
-uses `double`, because IEEE-754 *requires* division and sqrt to be correctly
-rounded — unlike `long double`, which is 80-bit on x86 and 64-bit on arm64
-and would make vertices differ per platform. Rounding to integer Build Z is
-symmetric (half away from zero), which is exactly what makes negating the
-heinum negate the result. Operands wider than 2^53 fail closed: the plane is
-emitted flat with a `slope_hinge_out_of_domain` diagnostic rather than
-silently approximated.
+uses `double`. binary64 is the chosen deterministic numeric lane for the
+supported toolchains — IEEE-754 specifies division and sqrt as correctly
+rounded, and `long double` is deliberately avoided because it is 80-bit on
+x86 and 64-bit on arm64 — and the claim is proven by the pinned corpus below
+rather than asserted. Rounding to integer Build Z is symmetric (half away
+from zero), which is exactly what makes negating the heinum negate the
+result. There is no operand-width limit: the earlier 2^53 gate was
+over-strict (only the quotient's relative precision matters) and the largest
+derived |z| reachable from int32 coordinates is about 2^39.5.
 
-**Topology is deliberately unaffected.** Whether a wall span is emitted
-remains a decision about the flat interval. Slope moves vertices; it must not
-change how many surfaces a world has.
+**Topology.** Whether a span is emitted *at all* remains a decision about the
+flat interval. Slope then determines its SHAPE: a span it closes at one
+endpoint becomes a triangular wedge, and one it closes at both is omitted —
+see the wall-span section below, which corrected E1L1's baseline.
 
 **Gates.** A hinge invariance (both endpoints, and every point on the hinge
 line, hold base Z); B 45-degree ramp (1024 perpendicular units give exactly
