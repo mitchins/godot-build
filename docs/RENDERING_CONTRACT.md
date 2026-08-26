@@ -43,10 +43,8 @@ Becomes binding at M5/M10 (first binding content at M5 slice 1). Rules fixed by 
   The source path is never authority: generated Godot state remains
   disposable and re-presenting from the source recreates the shell.
 - One authoritative slope evaluator feeds floor/ceiling rendering, grounding, clearance,
-  hitscan, sprite placement, movers (plan §8.3). **M6 slice 1 checkpoint (2026-08-25): the
-  evaluator is deliberately NOT implemented.** The approved published description fixes the
-  heinum scale (rise/run, 0 = flat, 4096 = 45°) and the slope flag (sector stat 0x0002).
-  **The evaluator landed in M6 slice 1.** The sector's FIRST WALL A->B is the hinge; the
+  hitscan, sprite placement, movers (plan §8.3). **The evaluator landed in M6 slice 1 and
+  was accepted 2026-08-26.** The sector's FIRST WALL A->B is the hinge; the
   plane passes through it at the surface's base floorz/ceilingz and tilts about it:
 
       perp = cross(B-A, P-A) / |B-A|

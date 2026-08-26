@@ -1601,7 +1601,7 @@ M6 (slopes, indexed textures, UV/flags, sprites) is next and is where the
 shell stops looking like a CAD model.
 
 Next milestone work was not started.
-## M6 — Slopes, indexed textures, flags, and sprites — IN_PROGRESS (slice 1 ACCEPTED 2026-08-26; slice 2 not started)
+## M6 — Slopes, indexed textures, flags, and sprites — IN_PROGRESS (slice 1 ACCEPTED 2026-08-26; slice 2A STOPPED at the UV provenance gate 2026-08-26, see below; slice 2 not implemented)
 
 Gate summary: slope query and render share one function; UV/sprite-flag/palette-shade matrix
 fixtures pass; local E1L1 immediately recognizable; unsupported features listed explicitly.
@@ -1873,6 +1873,107 @@ rule landed (below); the accepted slope-aware baseline is
 pre-existing zero-area sector, confirmed by building the same map on the
 parent commit and getting the identical 1917/4894/2. **287 stale-heinum
 planes in E1L4 alone** is why gate D is load-bearing rather than theoretical.
+
+### Slice 2A — baseline indexed-texture seam — PROVENANCE STOP 2026-08-26
+
+**STOPPED before any code.** The slice's own brief orders provenance first
+for UV semantics and forbids compensating with a familiar formula. The
+approved documentation search is exhausted and does not establish the exact
+baseline scaling equations, so no `prepare_world` layer, no UVs, no shader,
+no fixtures, and no D0020 landed. Delivered: the pre-flight documentation
+fix (the stale "M6.1 evaluator deliberately not implemented" sentence in
+RENDERING_CONTRACT.md — the surrounding text already recorded the accepted
+evaluator), three new provenance rows for the documentation actually
+consulted, and this record.
+
+**Established from published, approved sources** (rows 9/10/11 previously;
+rows 14/15/16 added by this stop):
+
+- Field meanings and flag bits, including floor/ceiling swap-XY,
+  expansion/smoosh, flips, first-wall-relative alignment and x/y panning,
+  and wall x/y repeat, x/y panning, alignment and flips (ModdingWiki row 9;
+  BUILDINF row 14).
+- Wall/sprite repeat is a pixel-size control ("used to change the size of
+  pixels (stretch textures)"), and **the default repeat value is 64** —
+  BUILD.TXT: the `/` key "set both repeats of the sprite to the default
+  size of 64" and "not only reset the repeats of walls, but also for
+  sprites" (row 15).
+- Wall paste adjusts xrepeat "so the pixels of the bitmaps have a
+  square-aspect ratio" — a qualitative U/V consistency constraint, not an
+  equation (row 15).
+- Floors/ceilings have NO repeat fields: their default texel size is
+  engine-fixed, anchored to "the normal 64*64 area"/"the pixel size ... the
+  same as the normal 64*64 ceiling/floor", with the E flag smooshing "the
+  texture size by 2" (BUILD.TXT + BUILD2.TXT, row 15).
+- Floor/ceiling textures are anchored to ABSOLUTE world coordinates in the
+  default mode — "ceiling/floor textures remain stationary while sectors
+  are moved", except under relative alignment (InfoSuite, row 16).
+- Walls are oriented from the top by default (BUILD.TXT `O` key, row 15);
+  the 16:1 vertical metric is independently corroborated by "Z coordinates
+  are all shifted up 4" (BUILDINF, row 14).
+
+**NOT established by any approved source — the exact missing facts
+(stop conditions, verbatim class):**
+
+1. **Baseline world-coordinate → floor/ceiling texel scale.** How many
+   world XY units one texel — or one whole 64×64 tile — spans at default
+   flags. The published "normal 64*64 area" phrases anchor tile-relative
+   equality between differently sized tiles; they never state the area in
+   world units.
+2. **Wall world-length → texture-U relationship / xrepeat scaling.** The
+   constant linking a wall's horizontal world length to texel count at a
+   given xrepeat. Published: default 64 + "repeat changes pixel size";
+   not published: the equation or constant.
+3. **Wall vertical coordinate → texture-V relationship / yrepeat
+   scaling.** The same constant for Build Z at a given yrepeat, including
+   how the ratified 16:1 vertical metric combines with it. The
+   "square-aspect ratio" statements are qualitative only.
+4. **Baseline orientation conventions.** Which direction U runs along a
+   wall's directed A→B span; whether V counts down from the top (suggested
+   by the `O`-key text, not stated as an equation); which world axes floor
+   U/V follow and with which signs (world-anchoring is published; the axis
+   assignment is not).
+
+Panning units were not needed: M6.2A is a zero-panning baseline slice.
+
+**Why no formula was used.** Specific constants for units-per-texel at a
+given repeat are engine-internal knowledge whose provenance is the forbidden
+class (source ports, engine source, remembered implementations). Adopting
+any of them unattested would be exactly the compensation the brief forbids;
+the clean-room rule holds even where memory claims to agree.
+
+*Published hypothesis (hypothesis only, not implemented):* the most natural
+reading of the collected facts — "the normal 64*64 area" as 64×64 world XY
+units, default repeat 64, and square-aspect pixels — is a 1:1 baseline
+(one texel = one XY unit for a 64-pixel tile on floors; one texel = one XY
+unit horizontally and 16 Build Z units vertically on walls at repeat 64).
+Competing readings differ by a constant factor. Resolution is one integer
+measurement, not a design choice.
+
+*Candidate black-box experiment (HUMAN-ATTESTED; original synthetic content
+only, needs no proprietary data):*
+
+1. Generate at least two deliberately asymmetric original tiles (every
+   corner/row distinct — no checkerboards) with the existing M4 tile
+   tooling, and a flat synthetic room: floorz 0, ceilingz −16384
+   (= 1024 XY-equivalent), one wall exactly 1024 XY units long,
+   floorstat/ceilingstat = 0, wall cstat = 0, panning = 0, xrepeat/yrepeat
+   = 64/64 (the published defaults), plus one wall variant each at repeat
+   32 and 128.
+2. Open it in Mapster32 (8-bit classic renderer) and observe.
+
+*Exact quantities to record:* (1) tile copies spanning the 1024-unit wall
+horizontally at xrepeat 64 → the U texel XY size; (2) tile copies spanning
+the 16384-Z height at yrepeat 64 → the V texel Z size; (3) tile copies
+spanning 1024 XY units across the floor at default flags → the floor texel
+XY size; (4) which tile edge leads at the wall's first (A) end → U
+direction; (5) which tile row sits at the top of the wall span → V
+direction/anchor; (6) which tile corner sits at the world origin on the
+floor → floor axis assignment; (7) the copy-count change at repeat 32 and
+128 → linearity in repeat. Once attested, these numbers become exact
+integer CI oracles in the synthetic fixtures, and only then do the
+evaluator-style UV layer, the D0020 presentation seam, the R8/palette
+shader path, and the negative/sabotage matrix land.
 
 ---
 

@@ -40,7 +40,17 @@ Slope changes wall spans, not just vertices: a span an evaluated plane closes
 at ONE endpoint becomes a triangular wedge (one triangle), and one closed at
 BOTH endpoints is omitted entirely. No zero-area triangle reaches a consumer.
 
-**M6.2 (textures, UVs, sprites) has not started.**
+**M6.2A (baseline indexed-texture seam) STOPPED at the UV provenance gate
+(2026-08-26) — no UV code landed.** Approved documentation establishes the
+relative semantics (repeat is a pixel-size control, default repeat 64,
+floors anchored to "the normal 64*64 area", floor textures world-anchored,
+walls top-oriented) but NOT the absolute world↔texel scaling equations for
+floors or wall U/V, nor the baseline orientation conventions. Per the brief,
+no familiar formula was used to compensate. Resolution: a published source,
+or the HUMAN-ATTESTED black-box Mapster32 experiment recorded in
+MILESTONES.md (M6.2A stop section). The planned pure-C++ `prepare_world`
+seam (D0020 candidate) is documented there and must not be implemented
+before the scale facts are provenance-safe.
 
 **M5 — Static structural world viewer: ACCEPTED 2026-08-25.** All three
 slices accepted. Slice 1: pure-C++ structural derivation from authoritative
@@ -71,7 +81,8 @@ Slopes landed in M6 slice 1: one authoritative evaluator (`surface_z_at`),
 first-wall hinge, activated by stat 0x0002, sign from the directed hinge's 2D
 cross product, `heinum/256` from the 16:1 metric. A plane with no usable hinge
 is diagnosed and its dependent geometry omitted, never flattened (D0019).
-Textures/UVs/sprites (M6.2) and visibility (M10) are not started.
+Textures/UVs/sprites are not implemented (M6.2A stopped at the UV
+provenance gate — see above); visibility (M10) is not started.
 
 M4 (ART, palette, lookup, tile tooling and the indexed atlas) was **ACCEPTED
 2026-08-24**: all six gate items met, D0013/D0014/D0015 ratified, and two
