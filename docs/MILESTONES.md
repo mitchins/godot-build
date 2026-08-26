@@ -1654,7 +1654,8 @@ Delivered (provenance-safe, formula-independent):
   Negative-tested (forbidden include → guard red). No
   `build_structural_world(MapData, AssetSet)` exists or may exist in this
   slice.
-- **M6.2 seam defined, not implemented** (§10): StructuralWorld (geometry +
+- **M6.2 seam defined, not implemented at the time of slice 1** (§10; it
+  landed in slice 2A as D0020, accepted 2026-08-26): StructuralWorld (geometry +
   raw appearance) + IndexedAtlas/AssetSet → UV/material packing → ArrayMesh +
   indexed shader. Documented in RENDERING_CONTRACT.md; the accepted
   `present_world(StructuralWorld)` signature is unchanged, and no Godot,
@@ -1874,9 +1875,23 @@ pre-existing zero-area sector, confirmed by building the same map on the
 parent commit and getting the identical 1917/4894/2. **287 stale-heinum
 planes in E1L4 alone** is why gate D is load-bearing rather than theoretical.
 
-### Slice 2A — baseline indexed-texture seam — PROVENANCE STOP 2026-08-26
+### [SUPERSEDED HISTORY] Slice 2A — the provenance stop, 2026-08-26
 
-**STOPPED before any code.** The slice's own brief orders provenance first
+> **This section is HISTORY, not current state.** It records why slice 2A
+> initially stopped before writing any code, and every claim in it about what
+> is unimplemented — no `prepare_world`, no UVs, no shader, no D0020 — is
+> **obsolete**. The stop was later lifted by ruling: isolating undocumented
+> rendering constants cost more than the risk it controlled, and the
+> compatibility gate became the rendered level. **Slice 2A was delivered,
+> HUMAN-ATTESTED on E1L1, and ACCEPTED 2026-08-26; D0020 is accepted.** The
+> binding description is in the accepted slice-2A section above and in
+> AGENTS.md.
+>
+> It is kept because the reasoning is the evidence: the implementation waited
+> for provenance, refused to compensate with a familiar formula, and only
+> proceeded when a human ruling changed what counted as the gate.
+
+**[HISTORICAL] STOPPED before any code.** The slice's own brief orders provenance first
 for UV semantics and forbids compensating with a familiar formula. The
 approved documentation search is exhausted and does not establish the exact
 baseline scaling equations, so no `prepare_world` layer, no UVs, no shader,
