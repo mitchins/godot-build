@@ -44,6 +44,8 @@ void FauxStructuralFixture::_bind_methods() {
     ClassDB::bind_method(godot::D_METHOD("prepared_vertices"),
                          &FauxStructuralFixture::prepared_vertices);
     ClassDB::bind_method(godot::D_METHOD("prepared_uvs"), &FauxStructuralFixture::prepared_uvs);
+    ClassDB::bind_method(godot::D_METHOD("present_prepared_with_page", "view", "page"),
+                         &FauxStructuralFixture::present_prepared_with_page);
     ClassDB::bind_method(godot::D_METHOD("get_last_error"), &FauxStructuralFixture::get_last_error);
     ClassDB::bind_method(godot::D_METHOD("expected_surface_count", "kind"),
                          &FauxStructuralFixture::expected_surface_count);
@@ -406,6 +408,7 @@ bool FauxStructuralFixture::prepare_from_dir(const godot::String& dir_path,
         last_error_ = godot::String("prepare: ") + prepared.error().to_string().c_str();
         return false;
     }
+    prepared_world_ = std::make_shared<const fauxbuild::PreparedWorld>(prepared.value());
     for (const auto& surface : prepared.value().surfaces) {
         for (std::size_t i = 0; i < surface.vertices.size(); ++i) {
             const auto& v = surface.vertices[i];
@@ -423,6 +426,19 @@ godot::PackedVector3Array FauxStructuralFixture::prepared_vertices() const {
 
 godot::PackedVector2Array FauxStructuralFixture::prepared_uvs() const {
     return prepared_uvs_;
+}
+
+bool FauxStructuralFixture::present_prepared_with_page(FauxBuildView* view, std::int32_t page) {
+    last_error_ = "";
+    if (view == nullptr || prepared_world_ == nullptr) {
+        last_error_ = "present_prepared_with_page needs a view and a prepared world";
+        return false;
+    }
+    fauxbuild::PreparedWorld copy = *prepared_world_;
+    for (auto& surface : copy.surfaces) {
+        surface.page = page;
+    }
+    return view->present_prepared_world(copy);
 }
 
 } // namespace fauxbuild_godot

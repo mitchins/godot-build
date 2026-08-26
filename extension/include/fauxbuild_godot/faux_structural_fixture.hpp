@@ -10,6 +10,7 @@
 
 #include <memory>
 
+#include "fauxbuild/prepared.hpp"
 #include "fauxbuild/structural.hpp"
 
 namespace fauxbuild_godot {
@@ -78,6 +79,13 @@ class FauxStructuralFixture : public godot::RefCounted {
     godot::PackedVector3Array prepared_vertices() const;
     godot::PackedVector2Array prepared_uvs() const;
 
+    // Present the retained prepared world with every surface's atlas page
+    // forced to `page`. Test infrastructure for the transactional page-range
+    // regression: it lets the scene drive an INVALID prepared world through
+    // the real seam and observe a clean refusal, rather than inferring safety
+    // from the absence of a crash.
+    bool present_prepared_with_page(FauxBuildView* view, std::int32_t page);
+
     // The EXPECTED side of the consumer-boundary test: vertices and indices
     // derived directly from the retained StructuralWorld by this harness's
     // own packing — deliberately independent of FauxBuildView's packing, so
@@ -95,6 +103,7 @@ class FauxStructuralFixture : public godot::RefCounted {
     godot::String last_error_;
     godot::PackedVector3Array prepared_vertices_;
     godot::PackedVector2Array prepared_uvs_;
+    std::shared_ptr<const fauxbuild::PreparedWorld> prepared_world_;
 };
 
 } // namespace fauxbuild_godot

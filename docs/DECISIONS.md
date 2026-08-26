@@ -602,11 +602,34 @@ world is exactly what D0018 was created to avoid.
 Rejected: emitting the plane flat, with or without a diagnostic. No accepted
 decision authorises that degradation, and M6.1's brief explicitly forbids it.
 
-### D0020 — Prepared render world: the geometry/asset seam (M6.2A) — PROPOSED
+### D0020 — Prepared render world: the geometry/asset seam (M6.2A)
 
-Status: **proposed 2026-08-26.** The architecture is delivered and the baseline
-is HUMAN-ATTESTED PASS on untouched E1L1; ratification of the decision itself
-is the human's.
+Status: **accepted — human ratification 2026-08-26** by mitchellcurrie.
+
+Ratification basis:
+
+- the synthetic architecture gates are green (geometry passes through
+  preparation untouched; picnum resolves to the exact atlas tile; one UV per
+  vertex; UVs depend on the one authority; an unusable picnum fails
+  deliberately; the payload stays R8; the ArrayMesh UVs are the prepared UVs
+  verbatim; nearest sampling; a failed load preserves the previous
+  presentation), with every one negative-tested;
+- untouched E1L1, through the production GRP/VFS textured route, was
+  **immediately recognisable**, with coherent global scale, orientation and
+  indexed palette path;
+- no map-, tile- or level-specific branch exists anywhere in the path;
+- the residual local misalignment corresponds to semantics **explicitly
+  deferred to M6.2B** (panning, alignment, flips).
+
+**Scope of the acceptance — read this before citing D0020.** It accepts the
+prepared-render architecture, the tile-local UV contract, indexed R8
+presentation, and the single UV authority. It does **NOT** convert the
+provisional world-to-texel constants into historically proven facts. Those
+remain provisional compatibility conventions: the approved documentation still
+does not establish a world-to-texel scale, the U/V directions, or the default
+repeat, and the visual gate corroborates the constants without proving them. A
+later source or measurement may still move them, and the single-authority rule
+exists precisely so that stays a one-line change.
 
 Context: M6.2 has to put textures on the structural shell. Two things must meet
 that had deliberately never met: derived geometry (`StructuralWorld`, M5) and

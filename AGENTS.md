@@ -40,20 +40,36 @@ Slope changes wall spans, not just vertices: a span an evaluated plane closes
 at ONE endpoint becomes a triangular wedge (one triangle), and one closed at
 BOTH endpoints is omitted entirely. No zero-area triangle reaches a consumer.
 
-**M6.2A (baseline indexed-texture seam) STOPPED at the UV provenance gate
-(2026-08-26) — no UV code landed.** Approved documentation establishes the
-relative semantics (repeat is a pixel-size control, panning is an alignment
-offset, floor/ceiling textures are world-anchored by default, and keys exist
-to reset repeats, switch wall orientation and expand/compress floor textures)
-but NOT the absolute world↔texel scaling equations for floors or wall U/V,
-nor the baseline orientation conventions, nor — after the 2026-08-26
-provenance withdrawal — the numeric default repeat or the default wall
-orientation. Per the brief,
-no familiar formula was used to compensate. Resolution: a published source,
-or the HUMAN-ATTESTED black-box Mapster32 experiment recorded in
-MILESTONES.md (M6.2A stop section). The planned pure-C++ `prepare_world`
-seam (D0020 candidate) is documented there and must not be implemented
-before the scale facts are provenance-safe.
+**M6.2A — baseline indexed-texture presentation: DELIVERED and ACCEPTED
+2026-08-26.** **D0020 is accepted.**
+
+- `prepare_world(StructuralWorld, IndexedAtlas, PaletteData, UvConventions)`
+  is the pure-C++ geometry+asset seam. No Godot type appears in it.
+- `StructuralWorld` remains **asset-free**; the dependency runs one way.
+- `PreparedWorld` owns the prepared UV and material facts: geometry verbatim,
+  one UV per vertex, atlas page and tile rect per surface.
+- `FauxBuildView` **consumes** those facts rather than interpreting any Build
+  UV semantics — it computes no UV, resolves no picnum, reads no appearance
+  field. `ci/check_layering.py` pins that.
+- The indexed atlas stays **R8 data**: one palette index per byte, uploaded as
+  `FORMAT_R8`, sampled nearest. The atlas sampler is deliberately NOT
+  `source_color` (that hint would apply an sRGB transfer to indices).
+- The **base palette path is live** (256×1 LUT); pal and shade stay at their
+  baseline for this slice.
+- **E1L1 is HUMAN-ATTESTED recognisable** through the production GRP/VFS
+  textured route, with coherent global scale, orientation and palette.
+
+**The world↔texel scale and orientation constants remain PROVISIONAL generic
+compatibility conventions.** Accepting D0020 accepted the architecture and the
+seam — not a claim that those historical constants are proven exactly. They
+live in `UvConventions`, are applied only in `core/src/prepared.cpp`, and a
+change is a single-site edit. No map-, tile- or level-specific value is
+permitted anywhere.
+
+Deferred: **panning, alignment and flip semantics are M6.2B**; sprites,
+masked/one-way walls and translucency are later M6 slices; visibility is M10.
+Residual local misalignment on authored multi-surface detail is those
+unimplemented semantics, not a defect in the baseline.
 
 **M5 — Static structural world viewer: ACCEPTED 2026-08-25.** All three
 slices accepted. Slice 1: pure-C++ structural derivation from authoritative
@@ -84,8 +100,9 @@ Slopes landed in M6 slice 1: one authoritative evaluator (`surface_z_at`),
 first-wall hinge, activated by stat 0x0002, sign from the directed hinge's 2D
 cross product, `heinum/256` from the 16:1 metric. A plane with no usable hinge
 is diagnosed and its dependent geometry omitted, never flattened (D0019).
-Textures/UVs/sprites are not implemented (M6.2A stopped at the UV
-provenance gate — see above); visibility (M10) is not started.
+Baseline indexed textures landed in M6.2A (accepted; see above).
+Panning/alignment/flips (M6.2B), sprites, masked/one-way walls and
+translucency are not implemented; visibility (M10) is not started.
 
 M4 (ART, palette, lookup, tile tooling and the indexed atlas) was **ACCEPTED
 2026-08-24**: all six gate items met, D0013/D0014/D0015 ratified, and two

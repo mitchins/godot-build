@@ -276,6 +276,17 @@ bool FauxBuildView::present_prepared_world(const fauxbuild::PreparedWorld& prepa
                 "FauxBuildView: prepared surface has one UV per vertex violated");
             return false;
         }
+        // The page index must be validated HERE, in the initial pass, not at
+        // the point of use: pages[] is indexed after discard_presentation(),
+        // so an out-of-range page would take the previous presentation down
+        // with it and then read out of bounds. Rejecting up front keeps the
+        // seam transactional.
+        if (surface.page < 0 || surface.page >= prepared.page_count) {
+            godot::UtilityFunctions::push_error(
+                "FauxBuildView: prepared surface names atlas page " + godot::itos(surface.page) +
+                ", outside [0, " + godot::itos(prepared.page_count) + ")");
+            return false;
+        }
     }
 
     // Build every group before touching the scene: a failure must leave the

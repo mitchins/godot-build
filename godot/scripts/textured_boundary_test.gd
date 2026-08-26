@@ -52,6 +52,8 @@ func _ready() -> void:
 		_test_indexed_upload()
 	if failures == 0:
 		_test_transactional_failure(map_name)
+	if failures == 0:
+		_test_page_range_rejection(map_name)
 
 	if failures == 0:
 		print("M6.2A textured consumer boundary: OK")
@@ -203,3 +205,39 @@ func _test_transactional_failure(map_name: String) -> void:
 	var after := _mesh_pairs()
 	check(after == before, "a failed textured load replaced the previous presentation")
 	check(view.get_group_names() == groups_before, "group set changed after a failed load")
+
+
+func _test_page_range_rejection(map_name: String) -> void:
+	# An out-of-range atlas page must be rejected in the INITIAL validation
+	# pass. The page index is used only after discard_presentation(), so a
+	# check at the point of use would tear down the previous presentation and
+	# then read out of bounds — losing the world AND crashing.
+	#
+	# The probe drives an invalid prepared world through the real seam and
+	# requires a clean refusal. Absence of a crash is deliberately NOT the
+	# assertion: the test observes the return value and the surviving
+	# presentation, so it detects the bad path safely.
+	check(source.present_dir_textured(dir, map_name, view),
+		"page-range: baseline presentation failed: " + source.get_last_error())
+	check(harness.prepare_from_dir(dir, map_name),
+		"page-range: core preparation failed: " + harness.get_last_error())
+
+	var before := _mesh_pairs()
+	var groups_before: PackedStringArray = view.get_group_names()
+	check(before.size() > 0, "page-range: nothing presented before the probe")
+
+	# Below the range, and one past the last valid page. The fixture atlas is
+	# single-page, so page_count == 1 and page 1 is the first invalid index.
+	for bad_page in [-1, 1]:
+		check(not harness.present_prepared_with_page(view, bad_page),
+			"page-range: page %d must be rejected" % bad_page)
+		check(_mesh_pairs() == before,
+			"page-range: rejected page %d replaced the previous presentation" % bad_page)
+		check(view.get_group_names() == groups_before,
+			"page-range: rejected page %d changed the group set" % bad_page)
+
+	# A valid page still presents, so the check is a range test and not a
+	# blanket refusal.
+	check(harness.present_prepared_with_page(view, 0),
+		"page-range: page 0 must still be accepted")
+	check(_mesh_pairs() == before, "page-range: re-presenting page 0 changed the arrays")

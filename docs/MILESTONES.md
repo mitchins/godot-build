@@ -2064,7 +2064,7 @@ undocumented rendering constants cost more than the risk it controlled. The
 compatibility gate is now the rendered real level itself. The boards below are
 retained as history only.
 
-**D0020 prepared-world API** (`core/include/fauxbuild/prepared.hpp`):
+**D0020 prepared-world API** (accepted 2026-08-26) (`core/include/fauxbuild/prepared.hpp`):
 
     prepare_world(StructuralWorld, IndexedAtlas, PaletteData, UvConventions)
         -> Result<PreparedWorld>
