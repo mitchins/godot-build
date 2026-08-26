@@ -208,6 +208,12 @@ namespace {
 // index per texel, sampled with NEAREST and never filtered, then looked up in
 // a 256x1 base-palette texture. No RGBA form is authoritative anywhere.
 //
+// atlas_page carries DATA, not colour, so it must NOT be `source_color`:
+// that hint asks the renderer to treat the sampled value as sRGB and apply a
+// transfer curve, which would silently corrupt palette indices into
+// almost-right ones -- the worst failure mode, because it still looks like a
+// texture. palette_lut IS colour and keeps the hint. A gate pins the split.
+//
 // UVs arrive TILE-LOCAL, so fract() wraps inside the tile and the result is
 // mapped into the tile's rect within the page. Wrapping across the whole page
 // would bleed neighbouring tiles into each other -- which is why the rect is a
@@ -215,7 +221,7 @@ namespace {
 constexpr const char* kIndexedShader = R"(shader_type spatial;
 render_mode unshaded, cull_disabled;
 
-uniform sampler2D atlas_page : source_color, filter_nearest, repeat_disable;
+uniform sampler2D atlas_page : filter_nearest, repeat_disable;
 uniform sampler2D palette_lut : source_color, filter_nearest, repeat_disable;
 uniform vec4 tile_rect = vec4(0.0, 0.0, 1.0, 1.0);
 
@@ -302,6 +308,27 @@ bool FauxBuildView::present_prepared_world(const fauxbuild::PreparedWorld& prepa
     for (const auto& surface : prepared.surfaces) {
         Group& g = group_for(surface);
         const auto base = static_cast<std::int64_t>(g.vertices.size());
+        // Same checked packing as present_world: a source index must address
+        // its OWN surface's vertices, and base + index must be validated
+        // before narrowing to int32. Checked here, while nothing in the scene
+        // has been touched, so a rejection leaves the previous presentation
+        // exactly as it was.
+        const auto source_vertices = static_cast<std::int64_t>(surface.vertices.size());
+        if (base + source_vertices > kMaxMeshIndex) {
+            godot::UtilityFunctions::push_error(
+                "FauxBuildView: accumulated vertex count for a prepared group exceeds Godot's "
+                "index representation");
+            return false;
+        }
+        for (const std::uint32_t index : surface.indices) {
+            const std::int64_t global = base + static_cast<std::int64_t>(index);
+            if (index >= surface.vertices.size() || global > kMaxMeshIndex) {
+                godot::UtilityFunctions::push_error(
+                    "FauxBuildView: prepared surface index does not address its own vertices, "
+                    "or overflows Godot's index representation");
+                return false;
+            }
+        }
         for (std::size_t i = 0; i < surface.vertices.size(); ++i) {
             const auto& v = surface.vertices[i];
             g.vertices.push_back(godot::Vector3(static_cast<float>(v.x), static_cast<float>(v.y),
@@ -315,6 +342,20 @@ bool FauxBuildView::present_prepared_world(const fauxbuild::PreparedWorld& prepa
     }
 
     const godot::Ref<godot::ImageTexture> palette = make_palette_texture(prepared.palette_rgb);
+
+    // One texture per PAGE, not per group: E1L1 is 173 groups over 3 pages,
+    // and uploading a full page per group would be 173 copies of the same
+    // megabytes. Likewise one Shader, shared -- only tile_rect differs per
+    // group, and that is a material parameter.
+    std::vector<godot::Ref<godot::ImageTexture>> pages;
+    pages.reserve(static_cast<std::size_t>(prepared.page_count));
+    for (std::int32_t page = 0; page < prepared.page_count; ++page) {
+        pages.push_back(make_page_texture(prepared.atlas_pixels, page, prepared.page_width,
+                                          prepared.page_height));
+    }
+    godot::Ref<godot::Shader> shader;
+    shader.instantiate();
+    shader->set_code(kIndexedShader);
 
     discard_presentation();
     int ordinal = 0;
@@ -331,15 +372,10 @@ bool FauxBuildView::present_prepared_world(const fauxbuild::PreparedWorld& prepa
         arrays[godot::Mesh::ARRAY_INDEX] = g.indices;
         mesh->add_surface_from_arrays(godot::Mesh::PRIMITIVE_TRIANGLES, arrays);
 
-        godot::Ref<godot::Shader> shader;
-        shader.instantiate();
-        shader->set_code(kIndexedShader);
         godot::Ref<godot::ShaderMaterial> material;
         material.instantiate();
         material->set_shader(shader);
-        material->set_shader_parameter("atlas_page", make_page_texture(prepared.atlas_pixels,
-                                                                       g.page, prepared.page_width,
-                                                                       prepared.page_height));
+        material->set_shader_parameter("atlas_page", pages[static_cast<std::size_t>(g.page)]);
         material->set_shader_parameter("palette_lut", palette);
         material->set_shader_parameter("tile_rect", g.rect);
 

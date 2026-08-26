@@ -2093,12 +2093,35 @@ default repeat remains missing fact 5; `reference_repeat` is the point the
 constants are stated at, not a claim about defaults.
 
 **Indexed Godot path.** `FauxBuildView::present_prepared_world` uploads the
-prepared arrays unchanged and computes nothing. Each group gets a
-`ShaderMaterial` whose atlas page is `Image::FORMAT_R8` — one palette index
-per byte, authoritative — sampled `filter_nearest, repeat_disable`, with a
-256x1 base-palette LUT. The fragment stage is `fract(UV)` into the tile rect,
-index lookup, palette lookup. `present_world(StructuralWorld)` is untouched
-and still available.
+prepared arrays unchanged and computes nothing. The atlas page is
+`Image::FORMAT_R8` — one palette index per byte, authoritative — sampled
+`filter_nearest, repeat_disable`, with a 256x1 base-palette LUT. The fragment
+stage is `fract(UV)` into the tile rect, index lookup, palette lookup.
+`present_world(StructuralWorld)` is untouched and still available.
+
+`atlas_page` carries **DATA and is deliberately NOT `source_color`**: that hint
+asks the renderer to apply an sRGB transfer to what are palette INDICES,
+producing almost-right ones — the worst failure mode, because the result still
+looks like a texture and would survive a visual inspection. `palette_lut` IS
+colour and keeps the hint. A gate pins the split in both directions.
+
+**Resource reuse:** one `ImageTexture` per atlas PAGE and one shared `Shader`
+for the whole presentation; only the per-group `ShaderMaterial` differs,
+because `tile_rect` does. E1L1 is 173 groups over 3 pages, so per-group uploads
+meant 173 copies of the same megabytes. A gate requires distinct page textures
+to be fewer than groups and the shader count to be exactly one.
+
+> The sharing fix did not take on the first attempt: the edit that was supposed
+> to remove the per-group creation silently failed to match (clang-format had
+> reflowed the target), so the shared objects were built and then ignored while
+> the per-group site survived. The new gate caught it — `3 textures for 3
+> groups`, `3 distinct shaders` — which is the whole point of adding it.
+
+**Checked index packing**, at parity with `present_world`: a source index must
+address its own `PreparedSurface`'s vertices, and `base + index` is validated
+against Godot's index representation **before** narrowing to int32. Both checks
+run while nothing in the scene has been touched, so a rejection leaves the
+previous presentation intact.
 
 **Production route.** `present_grp_textured` / `present_dir_textured` load
 assets from the **same Vfs** the map came from, and remain transactional: the
@@ -2117,7 +2140,9 @@ filtering, and a failed textured load preserves the previous presentation.
 
 **Sabotages observed red:** duplicate UV computation in the view → "the
 ArrayMesh UVs are not the prepared UVs verbatim"; RGBA-authoritative atlas →
-"atlas page must be FORMAT_R8, got 5".
+"atlas page must be FORMAT_R8, got 5"; `source_color` on the atlas sampler →
+"atlas_page is indexed DATA and must not be source_color"; per-group page
+upload → "each group uploaded its own atlas page (3 textures for 3 groups)".
 
 > **Where sabotage 12 is caught, and why it matters.** Reordering structural
 > vertices during preparation goes red in the CORE gate (159 → 158) and NOT in

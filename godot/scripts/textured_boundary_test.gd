@@ -146,8 +146,48 @@ func _test_indexed_upload() -> void:
 		check(not code.contains("filter_linear"), "linear filtering must not appear")
 		check(code.contains("palette_lut"), "shader must map indices through the palette")
 		check(code.contains("tile_rect"), "shader must wrap within the tile rect")
+
+		# The atlas sampler carries DATA. `source_color` would ask the renderer
+		# to apply an sRGB transfer to palette INDICES, quietly turning them
+		# into almost-right ones -- which still looks like a texture, so it
+		# would survive a visual inspection. The palette LUT is colour and
+		# keeps the hint.
+		for line in code.split("\n"):
+			if line.contains("atlas_page") and line.contains("uniform"):
+				check(not line.contains("source_color"),
+					"atlas_page is indexed DATA and must not be source_color: " + line.strip_edges())
+				check(line.contains("filter_nearest"),
+					"atlas_page must be sampled nearest: " + line.strip_edges())
+			if line.contains("palette_lut") and line.contains("uniform"):
+				check(line.contains("source_color"),
+					"palette_lut IS colour and should keep source_color: " + line.strip_edges())
 		checked += 1
 	check(checked > 0, "no textured group was inspected")
+
+	# Resource reuse: one texture per PAGE and one shared Shader, not one of
+	# each per group. E1L1 is 173 groups over 3 pages; per-group uploads would
+	# be 173 copies of the same megabytes.
+	var page_textures := {}
+	var shaders := {}
+	var groups := 0
+	for child in view.get_children():
+		if not (child is MeshInstance3D):
+			continue
+		var m = child.material_override
+		if not (m is ShaderMaterial):
+			continue
+		groups += 1
+		var tex = m.get_shader_parameter("atlas_page")
+		if tex != null:
+			page_textures[tex.get_instance_id()] = true
+		if m.shader != null:
+			shaders[m.shader.get_instance_id()] = true
+	check(groups > 1, "need several groups for the sharing check to mean anything")
+	check(page_textures.size() < groups,
+		"each group uploaded its own atlas page (%d textures for %d groups)"
+			% [page_textures.size(), groups])
+	check(shaders.size() == 1,
+		"the indexed shader must be shared, got %d distinct shaders" % shaders.size())
 
 
 func _test_transactional_failure(map_name: String) -> void:
