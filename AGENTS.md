@@ -66,7 +66,7 @@ live in `UvConventions`, are applied only in `core/src/prepared.cpp`, and a
 change is a single-site edit. No map-, tile- or level-specific value is
 permitted anywhere.
 
-Deferred: **panning, alignment and flip semantics are M6.2B**; sprites,
+Deferred: **panning, alignment and flip semantics are M6.2B — the next slice, not started**; sprites,
 masked/one-way walls and translucency are later M6 slices; visibility is M10.
 Residual local misalignment on authored multi-surface detail is those
 unimplemented semantics, not a defect in the baseline.

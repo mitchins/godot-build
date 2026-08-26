@@ -2057,7 +2057,7 @@ questions and neither substitutes for the other.
    5), which is no longer established by any clean source and must now be
    measured rather than assumed.
 
-### Slice 2A — textured presentation (D0020) — HUMAN-ATTESTED PASS 2026-08-26
+### Slice 2A — textured presentation (D0020) — ACCEPTED 2026-08-26
 
 The Mapster UV calibration programme was **abandoned by ruling**: isolating
 undocumented rendering constants cost more than the risk it controlled. The
@@ -2199,6 +2199,37 @@ What that attestation is worth, and what it is not:
   the right place: if the scale or orientation constants were wrong, the
   failure would be everywhere, not on the details that carry the unsupported
   flags.
+
+**Slice 2A — ACCEPTED 2026-08-26** by mitchellcurrie; PR #9 merged with zero
+unresolved threads and all ten CI checks green. D0020 ratified.
+
+What the slice settled, and what it deliberately did not:
+
+- The **global** UV model is right. A wrong scale constant or a swapped axis
+  cannot render a recognisable level across 173 distinct tiles by accident, so
+  the visual gate is stronger evidence than the abandoned per-constant
+  measurement would have been.
+- The constants are still **provisional**, still centralised, still a one-line
+  change. Accepting D0020 accepted the architecture and the seam, not a claim
+  that the historical constants are exact.
+- **No more UV-scale archaeology.** The route that produced this slice — a
+  provenance stop, a confounded experiment, withdrawn sourcing, and finally a
+  ruling that replaced measurement with the rendered level — is closed. The
+  remaining texture work is about authored controls, not about rediscovering
+  engine constants.
+
+### Slice 2B — authored texture placement (next, NOT started)
+
+Scope: **make authored texture placement behave properly — panning, flips, and
+alignment flags.** These are the fields M6.2A preserved verbatim in
+`SurfaceAppearance` and deliberately did not interpret.
+
+The vent and similar authored multi-surface detail on E1L1 are the **human
+regression symptom**, not a target. The rule is unchanged and matters here more
+than anywhere: implement the generic authored controls, then reopen E1L1 and
+see whether such details snap into alignment. If making one of them look right
+needs a map-specific branch, a tile-ID exception, or a per-level tolerance, the
+generic model is wrong and the slice stops.
 
 Assigned to **M6.2B**: panning, alignment and flip semantics.
 
