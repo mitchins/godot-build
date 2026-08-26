@@ -55,6 +55,16 @@ class FauxStructuralSource : public godot::RefCounted {
     bool present_dir(const godot::String& dir_path, const godot::String& map_name,
                      FauxBuildView* view);
 
+    // Textured variants (M6 slice 2A). Identical route, plus assets loaded
+    // from the SAME VFS the map came from -- never a second mount, never a
+    // path the caller supplies separately. Transactional exactly like the
+    // untextured path: the view is handed a prepared world only after the
+    // whole chain succeeds.
+    bool present_grp_textured(const godot::String& grp_path, const godot::String& map_name,
+                              FauxBuildView* view);
+    bool present_dir_textured(const godot::String& dir_path, const godot::String& map_name,
+                              FauxBuildView* view);
+
     // Reporting facts for the last SUCCESSFUL load (diagnostic state only).
     godot::String get_source_description() const; // e.g. "grp:<path>" / "dir:<path>"
     godot::String get_map_name() const;           // normalized VFS name that was read
@@ -79,7 +89,7 @@ class FauxStructuralSource : public godot::RefCounted {
   private:
     godot::Vector3 start_position_;
     bool present_from_mount(std::unique_ptr<fauxbuild::Mount> mount, const godot::String& map_name,
-                            FauxBuildView* view);
+                            bool textured, FauxBuildView* view);
 
     godot::String source_description_;
     godot::String map_name_;

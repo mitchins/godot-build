@@ -514,7 +514,7 @@ spans are 1024-1924, consistent with a coarser vertical unit. These are
 aggregate statistics over legally owned content; no extracted bytes,
 coordinates, or hashes are committed.
 
-Decision (proposed):
+Decision:
 1. **One base render scale for X/Y; the vertical scale is derived from it as
    `scale / 16`.** Both factors are powers of two, so D0016's exactness and
    reversibility property is unchanged — each axis reverses with its own
@@ -601,6 +601,94 @@ world is exactly what D0018 was created to avoid.
 
 Rejected: emitting the plane flat, with or without a diagnostic. No accepted
 decision authorises that degradation, and M6.1's brief explicitly forbids it.
+
+### D0020 — Prepared render world: the geometry/asset seam (M6.2A)
+
+Status: **accepted — human ratification 2026-08-26** by mitchellcurrie.
+
+Ratification basis:
+
+- the synthetic architecture gates are green (geometry passes through
+  preparation untouched; picnum resolves to the exact atlas tile; one UV per
+  vertex; UVs depend on the one authority; an unusable picnum fails
+  deliberately; the payload stays R8; the ArrayMesh UVs are the prepared UVs
+  verbatim; nearest sampling; a failed load preserves the previous
+  presentation), with every one negative-tested;
+- untouched E1L1, through the production GRP/VFS textured route, was
+  **immediately recognisable**, with coherent global scale, orientation and
+  indexed palette path;
+- no map-, tile- or level-specific branch exists anywhere in the path;
+- the residual local misalignment corresponds to semantics **explicitly
+  deferred to M6.2B** (panning, alignment, flips).
+
+**Scope of the acceptance — read this before citing D0020.** It accepts the
+prepared-render architecture, the tile-local UV contract, indexed R8
+presentation, and the single UV authority. It does **NOT** convert the
+provisional world-to-texel constants into historically proven facts. Those
+remain provisional compatibility conventions: the approved documentation still
+does not establish a world-to-texel scale, the U/V directions, or the default
+repeat, and the visual gate corroborates the constants without proving them. A
+later source or measurement may still move them, and the single-authority rule
+exists precisely so that stays a one-line change.
+
+Context: M6.2 has to put textures on the structural shell. Two things must meet
+that had deliberately never met: derived geometry (`StructuralWorld`, M5) and
+derived assets (`IndexedAtlas`, M4). Doing that inside either one would have
+undone a property each was built for — `structural.*` is asset-free, and the
+atlas knows nothing about worlds.
+
+Decision:
+
+1. **A third, pure-C++ layer owns the meeting.**
+
+       prepare_world(StructuralWorld, IndexedAtlas, PaletteData, UvConventions)
+           -> Result<PreparedWorld>
+
+   No Godot type appears in it. `structural.*` stays asset-free and the
+   dependency runs one way. `FauxBuildView::present_prepared_world` uploads the
+   result verbatim: it computes no UV, resolves no picnum, and interprets no
+   appearance field.
+2. **Preparation may not change geometry.** Vertices and indices pass through
+   in the same order; a CI gate compares the prepared world against the
+   `StructuralWorld` directly, which is the only place that defect can be seen.
+3. **One UV authority.** Every provisional convention lives in `UvConventions`
+   and is applied only in `core/src/prepared.cpp`. `ci/check_layering.py` pins
+   that no other core or extension source names the UV tokens, and that the
+   view names neither `prepare_world` nor `UvConventions`. Changing a constant,
+   a sign, or an axis is a single-site edit — which is the entire point, since
+   these constants were expected to move.
+4. **UVs are tile-local; the consumer wraps inside the tile's rect.** Wrapping
+   across a whole atlas page would bleed neighbouring tiles into each other.
+   That is why presentation groups are (kind, picnum): the rect is a per-group
+   uniform. One texture per atlas PAGE and one shared shader — E1L1 is 173
+   groups over 3 pages.
+5. **The indexed payload stays authoritative.** The atlas page uploads as
+   `FORMAT_R8`, one palette index per byte, sampled nearest, with a 256×1 base
+   palette LUT. The atlas sampler is **data and must not be `source_color`**:
+   that hint applies an sRGB transfer to indices and yields almost-right ones,
+   which still look like a texture and would survive a visual inspection. The
+   palette LUT is colour and keeps it. Gated both ways.
+6. **An unusable picnum fails deliberately.** No placeholder tile, no index-0
+   fallback: a wrong-but-present texture is exactly the plausible-looking
+   result that hides bugs.
+7. **The untextured seam survives.** `present_world(StructuralWorld)` is
+   unchanged and still available.
+
+On the UV constants themselves: they are **provisional and remain so**. The
+approved documentation establishes that repeat is a pixel-size control and
+panning an alignment offset; it does not establish a world-to-texel scale, the
+U/V directions, or the default repeat (see the M6.2A provenance stop, and rows
+14/15 withdrawn under rule 1a). The human visual gate corroborates them —
+a wrong constant or swapped axis cannot render a recognisable level across 173
+tiles by accident — but corroboration is not proof, and nothing may present
+them as established. Residual local misalignment on authored detail is the
+unimplemented panning/alignment/flip semantics (M6.2B), and its being *local*
+rather than global is itself evidence the global constants are right.
+
+Rejected: interpreting UVs in the view (two divergent authorities the moment
+either is touched); an RGBA atlas at the boundary (makes a derived preview
+authoritative, contradicting M4); and substituting a placeholder for a missing
+tile.
 
 ### D0017 — Structural polygon triangulation pipeline (M5)
 

@@ -6,7 +6,10 @@
 #include <string_view>
 #include <utility>
 
+#include "fauxbuild/asset_set.hpp"
+#include "fauxbuild/atlas.hpp"
 #include "fauxbuild/map_io.hpp"
+#include "fauxbuild/prepared.hpp"
 #include "fauxbuild/structural.hpp"
 #include "fauxbuild/vfs.hpp"
 #include "fauxbuild_godot/fauxbuild_view.hpp"
@@ -29,6 +32,10 @@ void FauxStructuralSource::_bind_methods() {
                          &FauxStructuralSource::present_grp);
     ClassDB::bind_method(godot::D_METHOD("present_dir", "dir_path", "map_name", "view"),
                          &FauxStructuralSource::present_dir);
+    ClassDB::bind_method(godot::D_METHOD("present_grp_textured", "grp_path", "map_name", "view"),
+                         &FauxStructuralSource::present_grp_textured);
+    ClassDB::bind_method(godot::D_METHOD("present_dir_textured", "dir_path", "map_name", "view"),
+                         &FauxStructuralSource::present_dir_textured);
     ClassDB::bind_method(godot::D_METHOD("get_source_description"),
                          &FauxStructuralSource::get_source_description);
     ClassDB::bind_method(godot::D_METHOD("get_map_name"), &FauxStructuralSource::get_map_name);
@@ -54,7 +61,7 @@ bool FauxStructuralSource::present_grp(const godot::String& grp_path, const godo
         last_error_ = stage_error("grp mount", mount.error());
         return false;
     }
-    return present_from_mount(std::move(mount.value()), map_name, view);
+    return present_from_mount(std::move(mount.value()), map_name, false, view);
 }
 
 bool FauxStructuralSource::present_dir(const godot::String& dir_path, const godot::String& map_name,
@@ -64,11 +71,34 @@ bool FauxStructuralSource::present_dir(const godot::String& dir_path, const godo
         last_error_ = stage_error("directory mount", mount.error());
         return false;
     }
-    return present_from_mount(std::move(mount.value()), map_name, view);
+    return present_from_mount(std::move(mount.value()), map_name, false, view);
+}
+
+bool FauxStructuralSource::present_grp_textured(const godot::String& grp_path,
+                                                const godot::String& map_name,
+                                                FauxBuildView* view) {
+    auto mount = fauxbuild::GrpMount::create(grp_path.utf8().get_data());
+    if (!mount.is_ok()) {
+        last_error_ = stage_error("grp mount", mount.error());
+        return false;
+    }
+    return present_from_mount(std::move(mount.value()), map_name, true, view);
+}
+
+bool FauxStructuralSource::present_dir_textured(const godot::String& dir_path,
+                                                const godot::String& map_name,
+                                                FauxBuildView* view) {
+    auto mount = fauxbuild::DirectoryMount::create(dir_path.utf8().get_data());
+    if (!mount.is_ok()) {
+        last_error_ = stage_error("directory mount", mount.error());
+        return false;
+    }
+    return present_from_mount(std::move(mount.value()), map_name, true, view);
 }
 
 bool FauxStructuralSource::present_from_mount(std::unique_ptr<fauxbuild::Mount> mount,
-                                              const godot::String& map_name, FauxBuildView* view) {
+                                              const godot::String& map_name, bool textured,
+                                              FauxBuildView* view) {
     if (view == nullptr) {
         last_error_ = "no FauxBuildView given";
         return false;
@@ -101,7 +131,29 @@ bool FauxStructuralSource::present_from_mount(std::unique_ptr<fauxbuild::Mount> 
         return false;
     }
 
-    if (!view->present_world(world.value())) {
+    if (textured) {
+        // Assets come from the SAME Vfs the map was read through.
+        auto assets = fauxbuild::load_asset_set(vfs);
+        if (!assets.is_ok()) {
+            last_error_ = stage_error("asset load", assets.error());
+            return false;
+        }
+        auto atlas = fauxbuild::build_indexed_atlas(assets.value().arts, {});
+        if (!atlas.is_ok()) {
+            last_error_ = stage_error("atlas", atlas.error());
+            return false;
+        }
+        auto prepared =
+            fauxbuild::prepare_world(world.value(), atlas.value(), assets.value().palette);
+        if (!prepared.is_ok()) {
+            last_error_ = stage_error("prepare", prepared.error());
+            return false;
+        }
+        if (!view->present_prepared_world(prepared.value())) {
+            last_error_ = "view rejected the prepared world (see errors above)";
+            return false;
+        }
+    } else if (!view->present_world(world.value())) {
         last_error_ = "view rejected the world (see errors above)";
         return false;
     }

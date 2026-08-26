@@ -367,6 +367,26 @@ def main() -> int:
     if not check_start_pose_focus(godot):
         return 1
 
+    # M6.2A: the textured consumer boundary. The expected side is CORE's
+    # prepared world; the actual side is the ArrayMesh. Architecture only --
+    # the provisional UV constants are settled by the human visual gate.
+    textured = run_godot(
+        godot, ["res://scenes/textured_boundary_test.tscn", "--quit-after", "10", "--"])
+    output = textured.stdout + textured.stderr
+    if textured.returncode != 0 or "M6.2A textured consumer boundary: OK" not in output:
+        print(f"scene-check FAILED: textured consumer boundary (exit "
+              f"{textured.returncode})", file=sys.stderr)
+        print(output[-3000:], file=sys.stderr)
+        return 1
+    guarded_tex = run_godot(
+        godot, ["res://scenes/textured_boundary_test.tscn", "--quit-after", "3", "--",
+                "--grp", "/nonexistent.grp"])
+    if guarded_tex.returncode != 2 or "refuses real-content arguments" \
+            not in (guarded_tex.stdout + guarded_tex.stderr):
+        print(f"scene-check FAILED: the textured CI test did not refuse --grp "
+              f"(exit {guarded_tex.returncode}, expected 2)", file=sys.stderr)
+        return 1
+
     # ...and the CI structural test must refuse real-content input too.
     struct_guarded = run_godot(
         godot, ["res://scenes/structural_view_test.tscn", "--quit-after", "3", "--",
@@ -439,6 +459,7 @@ def main() -> int:
     print("scene-check: production source route verified; human viewer source modes hold")
     print("scene-check: human viewer framing is finite and aimed; ceiling toggle rebuilds nothing")
     print("scene-check: real-content overview aims at the start pose; P lands on it exactly")
+    print("scene-check: textured boundary uploads the prepared UVs verbatim from an R8 atlas")
     return 0
 
 

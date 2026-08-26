@@ -57,7 +57,7 @@ const TOGGLE_KEYS := {
 	KEY_4: "PortalUpper",
 	KEY_5: "PortalLower",
 }
-const USAGE := "usage: [--fixture NAME] | [--grp PATH | --dir PATH] --map VFS_NAME"
+const USAGE := "usage: [--fixture NAME] | [--grp PATH | --dir PATH] --map VFS_NAME [--textured]"
 
 var view: FauxBuildView
 var camera: Camera3D
@@ -66,6 +66,7 @@ var fixture_given := false
 var grp_path := ""
 var dir_path := ""
 var map_name := ""
+var textured := false
 var move_speed := SPEED
 var focus_target := Vector3.ZERO
 var focus_is_start := false
@@ -85,6 +86,10 @@ func _parse_args() -> bool:
 	var i := 0
 	while i < args.size():
 		var a := args[i]
+		if a == "--textured":
+			textured = true
+			i += 1
+			continue
 		if a != "--fixture" and a != "--grp" and a != "--dir" and a != "--map":
 			_usage_error("unknown argument '%s'" % a)
 			return false
@@ -165,10 +170,14 @@ func _ready() -> void:
 func _present_source() -> bool:
 	var source := FauxStructuralSource.new()
 	var ok := false
+	# --textured loads ART and PALETTE.DAT from the SAME mount the map came
+	# from, prepares UVs in core, and hands the view an already-prepared world.
 	if grp_path != "":
-		ok = source.present_grp(grp_path, map_name, view)
+		ok = source.present_grp_textured(grp_path, map_name, view) if textured \
+			else source.present_grp(grp_path, map_name, view)
 	else:
-		ok = source.present_dir(dir_path, map_name, view)
+		ok = source.present_dir_textured(dir_path, map_name, view) if textured \
+			else source.present_dir(dir_path, map_name, view)
 	if not ok:
 		push_error("structural-view: source failed to load/present: " + source.get_last_error())
 		get_tree().quit(1)
@@ -182,7 +191,8 @@ func _present_source() -> bool:
 	print("triangles: %d" % source.get_triangle_count())
 	print("notes: %d" % source.get_note_count())
 	print("diagnostics: %d" % source.get_diagnostic_count())
-	print("groups: %s" % ", ".join(view.get_group_names()))
+	print("textured: %s" % ("yes" if textured else "no"))
+	print("presentation groups: %d" % view.get_group_names().size())
 	# Real content aims at the map's own parsed start position (through the
 	# single core transform), not the centre of the whole shell: a level's
 	# AABB centre is usually solid rock. The start ANGLE is not used --
@@ -232,13 +242,16 @@ func _bounds() -> AABB:
 	# AABB over the presented meshes; presentation-only convenience. Groups
 	# hidden for readability still contribute, so the framing does not jump
 	# when a toggle is pressed.
+	# Iterate the view's ACTUAL children rather than a fixed name list: the
+	# textured path groups by (kind, picnum), so its nodes are named
+	# "Floors_123_0" and a name-based lookup silently returns an empty AABB --
+	# which parks the camera at the origin and makes the human gate useless.
 	var bounds := AABB()
 	var have := false
-	for group in GROUPS:
-		var inst := view.get_node_or_null(group)
-		if inst == null or inst.mesh == null:
+	for child in view.get_children():
+		if not (child is MeshInstance3D) or child.mesh == null:
 			continue
-		var box: AABB = inst.global_transform * inst.mesh.get_aabb()
+		var box: AABB = child.global_transform * child.mesh.get_aabb()
 		bounds = box if not have else bounds.merge(box)
 		have = true
 	return bounds if have else AABB()
@@ -257,6 +270,12 @@ func _apply_presentation() -> void:
 	world_environment.environment = environment
 	add_child(world_environment)
 
+	if textured:
+		# The indexed shader IS the thing under inspection; overriding it with
+		# a flat readability colour would hide exactly what the gate checks.
+		print("structural-view: textured mode — palette override and group "
+			+ "toggles are disabled")
+		return
 	for group in GROUPS:
 		var inst := view.get_node_or_null(group)
 		if inst == null:

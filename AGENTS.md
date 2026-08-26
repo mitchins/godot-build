@@ -40,7 +40,36 @@ Slope changes wall spans, not just vertices: a span an evaluated plane closes
 at ONE endpoint becomes a triangular wedge (one triangle), and one closed at
 BOTH endpoints is omitted entirely. No zero-area triangle reaches a consumer.
 
-**M6.2 (textures, UVs, sprites) has not started.**
+**M6.2A — baseline indexed-texture presentation: DELIVERED and ACCEPTED
+2026-08-26.** **D0020 is accepted.**
+
+- `prepare_world(StructuralWorld, IndexedAtlas, PaletteData, UvConventions)`
+  is the pure-C++ geometry+asset seam. No Godot type appears in it.
+- `StructuralWorld` remains **asset-free**; the dependency runs one way.
+- `PreparedWorld` owns the prepared UV and material facts: geometry verbatim,
+  one UV per vertex, atlas page and tile rect per surface.
+- `FauxBuildView` **consumes** those facts rather than interpreting any Build
+  UV semantics — it computes no UV, resolves no picnum, reads no appearance
+  field. `ci/check_layering.py` pins that.
+- The indexed atlas stays **R8 data**: one palette index per byte, uploaded as
+  `FORMAT_R8`, sampled nearest. The atlas sampler is deliberately NOT
+  `source_color` (that hint would apply an sRGB transfer to indices).
+- The **base palette path is live** (256×1 LUT); pal and shade stay at their
+  baseline for this slice.
+- **E1L1 is HUMAN-ATTESTED recognisable** through the production GRP/VFS
+  textured route, with coherent global scale, orientation and palette.
+
+**The world↔texel scale and orientation constants remain PROVISIONAL generic
+compatibility conventions.** Accepting D0020 accepted the architecture and the
+seam — not a claim that those historical constants are proven exactly. They
+live in `UvConventions`, are applied only in `core/src/prepared.cpp`, and a
+change is a single-site edit. No map-, tile- or level-specific value is
+permitted anywhere.
+
+Deferred: **panning, alignment and flip semantics are M6.2B**; sprites,
+masked/one-way walls and translucency are later M6 slices; visibility is M10.
+Residual local misalignment on authored multi-surface detail is those
+unimplemented semantics, not a defect in the baseline.
 
 **M5 — Static structural world viewer: ACCEPTED 2026-08-25.** All three
 slices accepted. Slice 1: pure-C++ structural derivation from authoritative
@@ -71,7 +100,9 @@ Slopes landed in M6 slice 1: one authoritative evaluator (`surface_z_at`),
 first-wall hinge, activated by stat 0x0002, sign from the directed hinge's 2D
 cross product, `heinum/256` from the 16:1 metric. A plane with no usable hinge
 is diagnosed and its dependent geometry omitted, never flattened (D0019).
-Textures/UVs/sprites (M6.2) and visibility (M10) are not started.
+Baseline indexed textures landed in M6.2A (accepted; see above).
+Panning/alignment/flips (M6.2B), sprites, masked/one-way walls and
+translucency are not implemented; visibility (M10) is not started.
 
 M4 (ART, palette, lookup, tile tooling and the indexed atlas) was **ACCEPTED
 2026-08-24**: all six gate items met, D0013/D0014/D0015 ratified, and two
@@ -104,6 +135,26 @@ Duke-specific rendering hack?
 1. Do **not** fetch, read, summarize, or paraphrase code from: Ken Silverman's Build source,
    EDuke32, JFBuild/JFDuke, Chocolate Duke, any game source release, decompilations,
    disassemblies, leaked source, or any code whose provenance cannot be established.
+
+   **1a. ACCEPTED — human ratification 2026-08-26.**
+   Forbidden-source repositories are forbidden **navigation surfaces**, not just forbidden
+   code inputs. Do not clone, browse, fetch, or open files from Build/EDuke32/JFBuild/
+   JFDuke/Chocolate Duke/game-source repositories — **including documentation files stored
+   inside them**. Published documentation must be obtained from the author's or publisher's
+   canonical documentation location, or from an approved independent documentation source.
+
+   If the only available copy of a document requires entering or downloading a mixed
+   source repository or archive, **stop and mark the fact unapproved**. Do not weaken the
+   boundary to obtain it. An author's official pages may be cited to establish authorship
+   or origin, but bundled source must not be inspected to recover missing prose.
+
+   Ratified 2026-08-26 by mitchellcurrie, on the M6.2A closeout that exposed the gap.
+   Rationale: rule 1 as written prohibits reading *code*, which left "documentation stored
+   inside a forbidden repository" to an agent's judgement. That makes the boundary depend
+   on an assertion a reviewer cannot check, when the same facts are usually obtainable from
+   a clean origin. This is a policy clarification, **not** a finding that any agent copied
+   code — M6.2A's rows 14/15 disclosed their route accurately and were withdrawn on the
+   route alone (docs/PROVENANCE.md).
 2. Do **not** ask "how does X source port implement Y". Derive behavior from published
    binary-format descriptions, our own black-box observations, and general geometry.
 3. Do **not** commit proprietary assets (maps, tiles, palettes, audio, screenshots, extracted

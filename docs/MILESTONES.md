@@ -1601,7 +1601,7 @@ M6 (slopes, indexed textures, UV/flags, sprites) is next and is where the
 shell stops looking like a CAD model.
 
 Next milestone work was not started.
-## M6 — Slopes, indexed textures, flags, and sprites — IN_PROGRESS (slice 1 ACCEPTED 2026-08-26; slice 2 not started)
+## M6 — Slopes, indexed textures, flags, and sprites — IN_PROGRESS (slice 1 ACCEPTED 2026-08-26; slice 2A STOPPED at the UV provenance gate 2026-08-26, see below; slice 2 not implemented)
 
 Gate summary: slope query and render share one function; UV/sprite-flag/palette-shade matrix
 fixtures pass; local E1L1 immediately recognizable; unsupported features listed explicitly.
@@ -1873,6 +1873,420 @@ rule landed (below); the accepted slope-aware baseline is
 pre-existing zero-area sector, confirmed by building the same map on the
 parent commit and getting the identical 1917/4894/2. **287 stale-heinum
 planes in E1L4 alone** is why gate D is load-bearing rather than theoretical.
+
+### Slice 2A — baseline indexed-texture seam — PROVENANCE STOP 2026-08-26
+
+**STOPPED before any code.** The slice's own brief orders provenance first
+for UV semantics and forbids compensating with a familiar formula. The
+approved documentation search is exhausted and does not establish the exact
+baseline scaling equations, so no `prepare_world` layer, no UVs, no shader,
+no fixtures, and no D0020 landed. Delivered: the pre-flight documentation
+fix (the stale "M6.1 evaluator deliberately not implemented" sentence in
+RENDERING_CONTRACT.md — the surrounding text already recorded the accepted
+evaluator), three new provenance rows for the documentation actually
+consulted, and this record.
+
+**Established from published, approved sources** (rows 9/10/11 previously;
+row 16 added by this stop — rows 14/15 were withdrawn, see below):
+
+- Field meanings and flag bits, including floor/ceiling swap-XY,
+  expansion/smoosh, flips, first-wall-relative alignment and x/y panning,
+  and wall x/y repeat, x/y panning, alignment and flips (ModdingWiki row 9).
+**Provenance re-sourced 2026-08-26.** Rows 14/15 were reached by navigating a
+forbidden-source repository. No code was read, but the boundary must be
+mechanically checkable rather than resting on an agent's account of which
+files it opened, so both rows are **withdrawn**. Re-sourcing followed the
+ruling's A/B/C order, and the outcome splits the fact set in two.
+
+Established, from clean sources only:
+
+- Repeat is a pixel-size control — "Change pixel size to stretch/shrink
+  textures" (**ModdingWiki MAP page, row 9, already approved**), and keypad
+  2/4/6/8 "adjusts the repeats of the pixel columns/rows (effectively
+  smooshes them together, or spreads them apart)" (**InfoSuite, row 16**).
+- Panning is an alignment offset — "Offset for aligning textures" (row 9).
+- A reset key exists: "/ - Resets a sprite's pixel repeats (size). Resets a
+  wall's panning, pixel repeats (size), and cstat flags" (row 16). **It does
+  not state the value reset to.**
+- Wall orientation is a documented control: "O - Wall orientation. Changes
+  whether the texture aligns to the ceiling or floor" (row 16). **Which
+  alignment is the DEFAULT is not stated.**
+- Floors/ceilings have an expand/compress control: "E - Expand/compress a
+  ceiling or floor texture" (row 16), **with no dimensions given**.
+- Floor/ceiling textures are anchored to ABSOLUTE world coordinates by
+  default — "ceiling/floor textures remain stationary while sectors are
+  moved", except under relative alignment (row 16).
+- "Everything is measured in Z-units of 1024" (row 16) — a granularity fact,
+  not a scale relation.
+
+Withdrawn with rows 14/15 and **NOT usable**: the numeric default repeat = 64;
+the "normal 64*64 area"; the by-2 E smoosh; square-aspect paste; and "Z
+coordinates are all shifted up 4". Ken's canonical page publishes BUILDINF.TXT
+only inside `BUILDSRC.ZIP`, so rule C applied and the archive was not opened.
+
+> **The D0016 corroboration is withdrawn, not kept.** The 2^4 statement was
+> genuinely useful, but its only source is a row we have just rejected, and
+> keeping a fact while retiring its provenance is exactly the move this
+> project does not make. **D0016 is unaffected**: it was ratified on our own
+> black-box measurements over legally owned maps plus the Mapster32
+> `metric_cube` attestation, none of which touched these rows. Nothing is
+> reopened or redefined; the milestone simply loses a corroboration it never
+> depended on. If the statement later appears in a cleanly published
+> document, it can be re-added as corroboration then.
+
+**NOT established by any approved source — the exact missing facts
+(stop conditions, verbatim class):**
+
+1. **Baseline world-coordinate → floor/ceiling texel scale.** How many
+   world XY units one texel — or one whole tile — spans at default flags.
+   No clean source states a texel size in world units at all.
+2. **Wall world-length → texture-U relationship / xrepeat scaling.** The
+   constant linking a wall's horizontal world length to texel count at a
+   given xrepeat. Clean sources establish only that repeat changes pixel
+   size; the equation and the constant are absent.
+3. **Wall vertical coordinate → texture-V relationship / yrepeat
+   scaling.** The same constant for Build Z at a given yrepeat, including
+   how the ratified 16:1 vertical metric combines with it. No clean source
+   addresses the interaction.
+4. **Baseline orientation conventions.** Which direction U runs along a
+   wall's directed A→B span; whether V counts down from the top (suggested
+   by the `O`-key text, not stated as an equation); which world axes floor
+   U/V follow and with which signs (world-anchoring is published; the axis
+   assignment is not).
+
+5. **The default repeat value.** Row 16 documents that a reset key exists
+   but not the value it resets to. The number 64 came only from the
+   withdrawn rows, so it is no longer established — and it was load-bearing
+   for the whole hypothesis. **This is a regression in what we know**, and
+   the experiment below must now measure the default rather than assume it.
+6. **The default wall orientation.** Row 16 documents the `O` key and that
+   it switches between ceiling and floor alignment, but not which is the
+   default. Previously taken from the withdrawn rows.
+
+
+Panning units were not needed: M6.2A is a zero-panning baseline slice.
+
+**Why no formula was used.** Specific constants for units-per-texel at a
+given repeat are engine-internal knowledge whose provenance is the forbidden
+class (source ports, engine source, remembered implementations). Adopting
+any of them unattested would be exactly the compensation the brief forbids;
+the clean-room rule holds even where memory claims to agree.
+
+*Hypothesis — WEAKENED 2026-08-26, and deliberately left weakened.* The
+earlier reading (a 1:1 baseline: one texel per XY unit on 64-pixel floor
+tiles; one XY unit horizontally and 16 Build Z units vertically at repeat 64)
+rested on two facts that the provenance withdrawal removed — the "normal
+64*64 area" wording and the numeric default repeat of 64. Without them it is
+no longer "the most natural reading of the collected facts"; it is one
+candidate among several, and the normalise-to-a-canonical-area model is
+another that the surviving evidence does not exclude.
+It is recorded here only so the experiment has something to falsify, and it
+is **not** to be treated as a leading answer. Resolution is measurement, and
+the measurements must now settle the default repeat as well as the scale.
+
+*Candidate black-box experiment (HUMAN-ATTESTED; original synthetic content
+only, needs no proprietary data):*
+
+1. Generate at least two deliberately asymmetric original tiles (every
+   corner/row distinct — no checkerboards) with the existing M4 tile
+   tooling, and a flat synthetic room: floorz 0, ceilingz −16384
+   (= 1024 XY-equivalent), one wall exactly 1024 XY units long,
+   floorstat/ceilingstat = 0, wall cstat = 0, panning = 0, xrepeat/yrepeat
+   = R = 64, a **fixed experimental repeat**, plus one wall variant each at repeat
+   32 and 128.
+2. Open it in Mapster32 (8-bit classic renderer) and observe.
+
+> **On the number 64 in this experiment.** Wherever the boards below fix a
+> repeat of 64, that is an **arbitrary controlled test value (R = 64)**, not
+> an asserted default. The numeric default repeat was withdrawn with rows
+> 14/15 and is now missing fact 5 — something the default-state oracle
+> below *measures*. Nothing in the design may assume 64 is special.
+
+*Controlled tile set (amended 2026-08-26 — the 64-only design was
+confounded).* The original matrix measured a 64-pixel tile only, where two
+incompatible models predict the **same** count:
+
+| tile width | fixed texel/world scale | normalise every tile to the 64×64 area |
+|---|---|---|
+| **64 px** | 16 copies over 1024 units | 16 copies — **indistinguishable** |
+| 128 px | 8 copies | 16 copies |
+| 32 px | 32 copies | 16 copies |
+
+And the second model is not a strawman: it is what the "smoosh any tile into
+the normal 64*64 area" phrasing points at. Tile SIZE is therefore an
+independent variable, not a constant:
+
+| tile | pixels | isolates |
+|---|---|---|
+| **A** | 64 × 64 | baseline |
+| **B** | 128 × 64 | HORIZONTAL model (A vs B) |
+| **C** | 64 × 128 | VERTICAL model (A vs C) |
+
+Every tile uses deliberately asymmetric indexed pixels — no pattern whose
+halves, axes, or rotations can be confused, so a transpose or a U/V swap is
+visible rather than inferred. **Record the exact pixel dimensions beside every
+observation**; a copy count means nothing without them.
+
+Across each comparison, hold fixed: wall geometry, wall length and height,
+xrepeat and yrepeat, cstat, x/y panning = 0, camera and view, palette and
+shade, and every other MAP field. **Only tile dimensions change.**
+
+Repeat variation is retained as a *separate* axis: tile-size tests answer
+normalisation, repeat tests answer repeat scaling. They are different
+questions and neither substitutes for the other.
+
+*Exact quantities to record,* with tile dimensions noted each time:
+
+1. Tile copies spanning the 1024-unit wall horizontally, for **A, B and C**
+   at a fixed xrepeat → the horizontal model AND the U texel XY size.
+2. Tile copies spanning the 16384-Z height, for **A, B and C** at a fixed
+   yrepeat → the vertical model AND the V texel Z size, including how it
+   interacts with the 16:1 metric.
+3. Tile copies spanning 1024 XY units across the floor, for **A, B and C**
+   at default flags → whether floors normalise to a canonical area or scale
+   with tile size.
+4. Which tile edge leads at the wall's first (A) end → U direction.
+5. Which tile row sits at the top of the wall span → V direction and anchor,
+   and hence the default wall orientation (missing fact 6).
+6. Which tile corner sits at the world origin on the floor → floor axis
+   assignment.
+7. The copy-count change at repeat 32 and 128, for tile A → linearity in
+   repeat.
+8. **The repeat value a freshly placed wall/sprite actually carries**, read
+   from the editor before any adjustment → the default repeat (missing fact
+   5), which is no longer established by any clean source and must now be
+   measured rather than assumed.
+
+### Slice 2A — textured presentation (D0020) — HUMAN-ATTESTED PASS 2026-08-26
+
+The Mapster UV calibration programme was **abandoned by ruling**: isolating
+undocumented rendering constants cost more than the risk it controlled. The
+compatibility gate is now the rendered real level itself. The boards below are
+retained as history only.
+
+**D0020 prepared-world API** (accepted 2026-08-26) (`core/include/fauxbuild/prepared.hpp`):
+
+    prepare_world(StructuralWorld, IndexedAtlas, PaletteData, UvConventions)
+        -> Result<PreparedWorld>
+
+Pure C++, no Godot type. `PreparedSurface` carries the structural vertices and
+indices **verbatim**, one `PreparedUV` per vertex, the atlas page, and the
+tile's page-normalised rect. UVs are **tile-local** (1.0 = one tile repeat,
+values outside [0,1] are normal): the consumer wraps inside the tile's rect,
+because wrapping across a whole atlas page would bleed neighbouring tiles.
+That is why grouping is by (kind, picnum) — a rect is a per-group uniform.
+
+**The one UV authority** is `core/src/prepared.cpp`, pinned by
+`ci/check_layering.py`: the tokens `units_per_texel`, `units_per_tile`,
+`wall_z_per_texel_v`, `reference_repeat` and `repeat_factor` may appear in no
+other core or extension source, and `FauxBuildView` may not name
+`prepare_world` or `UvConventions`.
+
+**Provisional conventions — not proven, and not presented as proven.** All in
+`UvConventions`, one edit each: floor 16 world XY units per texel; wall U 16
+XY units per texel; wall V 256 Build Z per texel; reference repeat 64; U along
+the wall's own A->B direction; V increasing downward in Build Z; floor U/V =
+world X/Y unswapped. The 16 and 256 are consistent with each other under the
+ratified 16:1 metric — 256 Z is 16 XY-equivalent — so texels are square by
+construction; that consistency is a design choice, not evidence. The numeric
+default repeat remains missing fact 5; `reference_repeat` is the point the
+constants are stated at, not a claim about defaults.
+
+**Indexed Godot path.** `FauxBuildView::present_prepared_world` uploads the
+prepared arrays unchanged and computes nothing. The atlas page is
+`Image::FORMAT_R8` — one palette index per byte, authoritative — sampled
+`filter_nearest, repeat_disable`, with a 256x1 base-palette LUT. The fragment
+stage is `fract(UV)` into the tile rect, index lookup, palette lookup.
+`present_world(StructuralWorld)` is untouched and still available.
+
+`atlas_page` carries **DATA and is deliberately NOT `source_color`**: that hint
+asks the renderer to apply an sRGB transfer to what are palette INDICES,
+producing almost-right ones — the worst failure mode, because the result still
+looks like a texture and would survive a visual inspection. `palette_lut` IS
+colour and keeps the hint. A gate pins the split in both directions.
+
+**Resource reuse:** one `ImageTexture` per atlas PAGE and one shared `Shader`
+for the whole presentation; only the per-group `ShaderMaterial` differs,
+because `tile_rect` does. E1L1 is 173 groups over 3 pages, so per-group uploads
+meant 173 copies of the same megabytes. A gate requires distinct page textures
+to be fewer than groups and the shader count to be exactly one.
+
+> The sharing fix did not take on the first attempt: the edit that was supposed
+> to remove the per-group creation silently failed to match (clang-format had
+> reflowed the target), so the shared objects were built and then ignored while
+> the per-group site survived. The new gate caught it — `3 textures for 3
+> groups`, `3 distinct shaders` — which is the whole point of adding it.
+
+**Checked index packing**, at parity with `present_world`: a source index must
+address its own `PreparedSurface`'s vertices, and `base + index` is validated
+against Godot's index representation **before** narrowing to int32. Both checks
+run while nothing in the scene has been touched, so a rejection leaves the
+previous presentation intact.
+
+**Production route.** `present_grp_textured` / `present_dir_textured` load
+assets from the **same Vfs** the map came from, and remain transactional: the
+view is handed a prepared world only after mount, parse, derivation, asset
+load, atlas and preparation all succeed.
+
+**Synthetic CI gates** (159 cases, was 152). Core: geometry passes through
+preparation untouched; picnum resolves to the exact atlas tile (two fixture
+tiles of different width, so a mixed-up resolution cannot pass by chance);
+exactly one UV per vertex; UVs actually depend on the conventions; an unusable
+picnum fails deliberately with no placeholder; the payload stays R8; wall U
+spans the wall and V its height. Scene (`textured_boundary_test`): the
+ArrayMesh (vertex, uv) pairs equal the prepared ones verbatim, the uploaded
+texture is FORMAT_R8 at one byte per texel, sampling is nearest with no linear
+filtering, and a failed textured load preserves the previous presentation.
+
+**Sabotages observed red:** duplicate UV computation in the view → "the
+ArrayMesh UVs are not the prepared UVs verbatim"; RGBA-authoritative atlas →
+"atlas page must be FORMAT_R8, got 5"; `source_color` on the atlas sampler →
+"atlas_page is indexed DATA and must not be source_color"; per-group page
+upload → "each group uploaded its own atlas page (3 textures for 3 groups)".
+
+> **Where sabotage 12 is caught, and why it matters.** Reordering structural
+> vertices during preparation goes red in the CORE gate (159 → 158) and NOT in
+> the scene gate. That is the correct division, not a hole: the scene's
+> expected side is itself produced by `prepare_world`, so both sides move
+> together and it structurally cannot detect a core defect. Only the core gate
+> compares against the `StructuralWorld` directly. A scene gate that appeared
+> to catch it would be the more worrying result.
+
+**Human viewer.** One invocation, no auxiliary tooling:
+
+```sh
+scons config=dev extension
+/Applications/Godot.app/Contents/MacOS/Godot --path godot \
+  res://scenes/structural_view_human.tscn -- \
+  --grp "$PWD/local_reference/duke/DUKE3D.GRP" --map E1L1.MAP --textured
+```
+
+Framing had to be fixed for this: `_bounds()` looked up fixed group names, and
+textured groups are named `Floors_123_0`, so the AABB came back empty and
+parked the camera at the origin. It now walks the view's actual children. In
+textured mode the readability palette override and the 1-5 toggles are
+disabled — overriding the material would hide the very thing under inspection.
+
+**E1L1 (dev evidence):** 317 sectors / 1937 walls / 1929 surfaces / 5111
+triangles / 0 diagnostics, presented as **173 textured groups**; bounds
+52.5615 / 15.7500 / 33.9873, identical to the untextured baseline. Untextured
+mode still presents its 5 groups.
+
+**Slice 2A — HUMAN-ATTESTED PASS 2026-08-26** by mitchellcurrie, on untouched
+E1L1 through `DUKE3D.GRP`. Baseline indexed presentation accepted: the level
+is **immediately recognisable**, and global texture scale, orientation and the
+indexed palette path are coherent.
+
+What that attestation is worth, and what it is not:
+
+- It settles the **global** conventions the M6.2A provenance stop could not.
+  The scale constants, the U/V directions and the floor axis assignment in
+  `UvConventions` produced a coherent real level on the first visual pass, on
+  content with 173 distinct tiles and no map-, tile- or level-specific branch
+  anywhere. That is a far stronger check than the abandoned Mapster
+  measurement would have been: a wrong constant or a swapped axis cannot
+  produce a recognisable level by accident.
+- It does **not** promote those constants to *proven*. They remain
+  provisional, still centralised in the one authority, and still labelled as
+  such. What changed is that they are now corroborated by the only evidence
+  the project ever accepted for rendering semantics — black-box observation of
+  legally owned content — rather than resting on a plausible reading.
+- **The residual is diagnostic, not a defect.** Visible local misalignment on
+  authored multi-surface details (the vent being the clear case) is exactly
+  what a baseline with panning, alignment and flips deliberately unimplemented
+  should look like. That the errors are *local to authored detail* and not
+  global drift is positive evidence that the deferral boundary was drawn in
+  the right place: if the scale or orientation constants were wrong, the
+  failure would be everywhere, not on the details that carry the unsupported
+  flags.
+
+Assigned to **M6.2B**: panning, alignment and flip semantics.
+
+**Still deferred:** panning, flips, alignment flags, masked/one-way walls,
+translucency, sprites, non-zero pal and shade, and visibility — M6.2B and
+later own those. Nothing here branches on a map, a tile ID, or a level.
+
+### [SUPERSEDED — the Mapster UV programme was abandoned 2026-08-26] M6.2A black-box boards — generated 2026-08-26, awaiting HUMAN attestation
+
+All three boards and their assets are ORIGINAL synthetic content in `/tmp/uv/`,
+produced with the existing M4 ART/palette tooling and scratch generators. No
+production feature was added for the experiment, and no proprietary asset is
+involved. Nothing is committed: these are inputs to a human observation.
+
+    /tmp/uv/TILES000.ART   3 calibration tiles   /tmp/uv/PALETTE.DAT
+    /tmp/uv/DEFPROBE.MAP   default-state oracle
+    /tmp/uv/UVCALIB.MAP    tile-size board (A/B/C)
+    /tmp/uv/REPCALIB.MAP   repeat board (tile A only)
+    /tmp/uv/readwall       one-off field reader (not an fbtool feature)
+
+**Calibration tiles.** picnum 0 = `calib_a` 64×64, 1 = `calib_b` 128×64,
+2 = `calib_c` 64×128. Asymmetry comes from a checker whose square (24) does
+NOT divide either dimension: the final band along +X and +Y is truncated
+(64 = 24+24+16), so the narrow band marks the RIGHT and BOTTOM edges and
+doubles as a visible tile-boundary marker for counting copies. Verified
+numerically, not by eye — every tile is distinguishable under a horizontal
+flip and under a vertical flip.
+
+> **Stated limitation.** Tile A is transpose-symmetric: a square checker on a
+> square tile always is. **A therefore cannot answer the axis-assignment
+> question (observation 6), and is not asked to** — B and C answer it, because
+> their differing aspect makes a U/V swap visible. A still answers the counting
+> questions.
+
+**Board 1 — default-state oracle (answers missing facts 5 and 6).** Exact
+fields, not visual interpretation. `DEFPROBE.MAP` wall 0 is authored:
+
+| field | authored |
+|---|---|
+| cstat | `0x0005` (the alignment bit `0x0004` + one other flag) |
+| xrepeat | 37 |
+| yrepeat | 91 |
+| xpanning | 17 |
+| ypanning | 23 |
+
+*Human protocol:* open `DEFPROBE.MAP` in Mapster32; highlight that wall (the
+south wall, running +X from the origin, and the only one using the 128×64
+tile); press `/` **exactly once**; save to a NEW file in `/tmp`; exit. Then:
+
+```sh
+/tmp/uv/readwall /tmp/uv/<saved>.MAP 0
+```
+
+The reported `cstat`, `xrepeat`, `yrepeat`, `xpanning`, `ypanning` ARE the
+answer — reset/default repeats, reset panning, and the default wall
+orientation read from bit `0x0004`. No visual interpretation is permitted for
+these facts.
+
+**Board 2 — UV scale/orientation (`UVCALIB.MAP`).** Three adjacent 256×256
+bays, floor-to-ceiling 4096 Z, viewable in one pass. **256 XY and 4096 Z are
+equal physical extents under the ratified D0016 metric**, so equal copy counts
+horizontally and vertically mean an isotropic texel and unequal counts
+quantify the anisotropy directly. Every wall is identical except picnum:
+cstat 0, panning 0, shade 0, pal 0, and xrepeat = yrepeat = **R = 64, an
+arbitrary controlled test value**. Floors: identical 256×256 geometry,
+floorstat 0, panning 0, only the tile changes.
+
+Record — WALL: (1) horizontal copies on A/B/C; (2) vertical copies on A/B/C;
+(3) which edge of the tile sits at the wall's first (A) end; (4) which row
+sits at the wall's top. FLOOR: (5) copies over 256 XY on A/B/C; (6) which tile
+corner/axes correspond to known world directions — **from B and C**.
+
+**Board 3 — repeat scaling (`REPCALIB.MAP`), run separately.** Same three
+bays, **tile A everywhere**, repeats 32 / 64 / 128. Tile size is constant here;
+only repeat varies. Do not mix this with board 2: tile-size answers
+normalisation, repeat answers repeat scaling.
+
+**Report raw observations first.** No `prepare_world`, no UV function, no
+shader, and no promotion into oracles until the observations have been
+reviewed. **STOP if any observation remains compatible with more than one
+model** — do not interpolate a familiar Build formula to close a gap.
+
+*Do not promote any UV formula unless the measurements distinguish the
+candidate models.* If A, B and C give counts consistent with more than one
+model, that is a result to report, not to resolve by picking the reading that
+looks familiar. Once attested, these numbers become exact integer CI oracles
+in synthetic fixtures, and only then do the UV layer, the D0020 presentation
+seam, the R8/palette shader path, and the negative/sabotage matrix land.
 
 ---
 

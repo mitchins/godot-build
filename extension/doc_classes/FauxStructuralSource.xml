@@ -46,6 +46,34 @@
 				</para>
 			</description>
 		</method>
+		<method name="present_grp_textured">
+			<return type="bool" />
+			<param index="0" name="grp_path" type="String" />
+			<param index="1" name="map_name" type="String" />
+			<param index="2" name="view" type="FauxBuildView" />
+			<description>
+				<para>
+					As [method present_grp], plus assets. ART and PALETTE.DAT are loaded from
+					the [b]same[/b] VFS the map came from — never a second mount, never a path
+					the caller supplies separately — composed into an indexed atlas, and
+					prepared into a [code]PreparedWorld[/code] (D0020) before the view sees
+					anything. Transactional exactly like the untextured path: a failure at any
+					stage leaves the previous presentation and the reporting facts untouched.
+				</para>
+			</description>
+		</method>
+		<method name="present_dir_textured">
+			<return type="bool" />
+			<param index="0" name="dir_path" type="String" />
+			<param index="1" name="map_name" type="String" />
+			<param index="2" name="view" type="FauxBuildView" />
+			<description>
+				<para>
+					The loose-directory equivalent of [method present_grp_textured]; the mount
+					kind is the only difference.
+				</para>
+			</description>
+		</method>
 		<method name="get_source_description">
 			<return type="String" />
 			<description>
