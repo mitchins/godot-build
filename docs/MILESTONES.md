@@ -1601,7 +1601,7 @@ M6 (slopes, indexed textures, UV/flags, sprites) is next and is where the
 shell stops looking like a CAD model.
 
 Next milestone work was not started.
-## M6 — Slopes, indexed textures, flags, and sprites — IN_PROGRESS (slice 1 ACCEPTED 2026-08-26; slice 2A STOPPED at the UV provenance gate 2026-08-26, see below; slice 2 not implemented)
+## M6 — Slopes, indexed textures, flags, and sprites — IN_PROGRESS (slices 1 and 2A ACCEPTED 2026-08-26; slice 2B next)
 
 Gate summary: slope query and render share one function; UV/sprite-flag/palette-shade matrix
 fixtures pass; local E1L1 immediately recognizable; unsupported features listed explicitly.
