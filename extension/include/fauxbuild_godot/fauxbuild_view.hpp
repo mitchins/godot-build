@@ -7,6 +7,7 @@
 
 #include <vector>
 
+#include "fauxbuild/prepared.hpp"
 #include "fauxbuild/structural.hpp"
 
 namespace fauxbuild_godot {
@@ -39,6 +40,17 @@ class FauxBuildView : public godot::Node3D {
     // loads, or derives a world itself. Returns false (leaving any previous
     // presentation untouched) if the world violates the packing invariants.
     bool present_world(const fauxbuild::StructuralWorld& world);
+
+    // The textured seam (M6 slice 2A, D0020). Takes an already-prepared world
+    // and uploads it verbatim: this node computes NO UV, resolves NO picnum,
+    // and interprets NO appearance field. The prepared layer owns all of that,
+    // and a static tripwire pins it. The untextured present_world above stays
+    // available and unchanged.
+    //
+    // Grouped by (kind, picnum) rather than by kind alone, because a tile can
+    // only repeat within its own atlas rect: each group carries that rect to
+    // the shader, which wraps inside it.
+    bool present_prepared_world(const fauxbuild::PreparedWorld& prepared);
 
     // Presentation-only state (diagnostic; never world state).
     bool has_world() const { return has_world_; }

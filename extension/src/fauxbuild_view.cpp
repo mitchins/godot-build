@@ -1,5 +1,13 @@
 #include "fauxbuild_godot/fauxbuild_view.hpp"
 
+#include <godot_cpp/classes/image.hpp>
+#include <godot_cpp/classes/image_texture.hpp>
+#include <godot_cpp/classes/shader.hpp>
+#include <godot_cpp/classes/shader_material.hpp>
+#include <godot_cpp/variant/packed_byte_array.hpp>
+#include <godot_cpp/variant/packed_vector2_array.hpp>
+#include <godot_cpp/variant/vector4.hpp>
+
 #include <godot_cpp/classes/array_mesh.hpp>
 #include <godot_cpp/classes/base_material3d.hpp>
 #include <godot_cpp/classes/mesh.hpp>
@@ -184,6 +192,160 @@ bool FauxBuildView::present_world(const fauxbuild::StructuralWorld& world) {
 
         auto* instance = memnew(godot::MeshInstance3D);
         instance->set_name(spec.name);
+        instance->set_mesh(mesh);
+        instance->set_material_override(material);
+        add_child(instance);
+        group_ids_.push_back(godot::ObjectID(instance->get_instance_id()));
+    }
+
+    has_world_ = true;
+    return true;
+}
+
+namespace {
+
+// The indexed fragment path. The R8 atlas page is authoritative: one palette
+// index per texel, sampled with NEAREST and never filtered, then looked up in
+// a 256x1 base-palette texture. No RGBA form is authoritative anywhere.
+//
+// UVs arrive TILE-LOCAL, so fract() wraps inside the tile and the result is
+// mapped into the tile's rect within the page. Wrapping across the whole page
+// would bleed neighbouring tiles into each other -- which is why the rect is a
+// per-group uniform rather than baked into the UVs.
+constexpr const char* kIndexedShader = R"(shader_type spatial;
+render_mode unshaded, cull_disabled;
+
+uniform sampler2D atlas_page : source_color, filter_nearest, repeat_disable;
+uniform sampler2D palette_lut : source_color, filter_nearest, repeat_disable;
+uniform vec4 tile_rect = vec4(0.0, 0.0, 1.0, 1.0);
+
+void fragment() {
+    vec2 local = fract(UV);
+    vec2 page_uv = tile_rect.xy + local * tile_rect.zw;
+    float index = texture(atlas_page, page_uv).r;
+    vec3 rgb = texture(palette_lut, vec2(index * (255.0 / 256.0) + (0.5 / 256.0), 0.5)).rgb;
+    ALBEDO = rgb;
+}
+)";
+
+godot::Ref<godot::ImageTexture> make_palette_texture(const std::vector<std::uint8_t>& rgb) {
+    godot::PackedByteArray bytes;
+    bytes.resize(256 * 3);
+    for (int i = 0; i < 256 * 3; ++i) {
+        bytes.set(i, i < static_cast<int>(rgb.size()) ? rgb[static_cast<std::size_t>(i)] : 0);
+    }
+    const godot::Ref<godot::Image> image =
+        godot::Image::create_from_data(256, 1, false, godot::Image::FORMAT_RGB8, bytes);
+    return godot::ImageTexture::create_from_image(image);
+}
+
+godot::Ref<godot::ImageTexture> make_page_texture(const std::vector<std::uint8_t>& pixels,
+                                                  std::int32_t page, std::int32_t width,
+                                                  std::int32_t height) {
+    const std::size_t stride = static_cast<std::size_t>(width) * static_cast<std::size_t>(height);
+    const std::size_t offset = static_cast<std::size_t>(page) * stride;
+    godot::PackedByteArray bytes;
+    bytes.resize(static_cast<std::int64_t>(stride));
+    for (std::size_t i = 0; i < stride; ++i) {
+        const std::size_t src = offset + i;
+        bytes.set(static_cast<std::int64_t>(i), src < pixels.size() ? pixels[src] : 0);
+    }
+    // FORMAT_R8: the indexed page is uploaded as-is. Nothing converts it to
+    // RGBA on the way in.
+    const godot::Ref<godot::Image> image =
+        godot::Image::create_from_data(width, height, false, godot::Image::FORMAT_R8, bytes);
+    return godot::ImageTexture::create_from_image(image);
+}
+
+} // namespace
+
+bool FauxBuildView::present_prepared_world(const fauxbuild::PreparedWorld& prepared) {
+    if (prepared.page_width <= 0 || prepared.page_height <= 0 || prepared.page_count <= 0) {
+        godot::UtilityFunctions::push_error("FauxBuildView: prepared world has no atlas pages");
+        return false;
+    }
+    for (const auto& surface : prepared.surfaces) {
+        if (surface.uvs.size() != surface.vertices.size()) {
+            godot::UtilityFunctions::push_error(
+                "FauxBuildView: prepared surface has one UV per vertex violated");
+            return false;
+        }
+    }
+
+    // Build every group before touching the scene: a failure must leave the
+    // previous presentation exactly as it was.
+    struct Group {
+        std::int32_t picnum = 0;
+        std::int32_t page = 0;
+        godot::Vector4 rect;
+        const char* kind = "";
+        godot::PackedVector3Array vertices;
+        godot::PackedVector2Array uvs;
+        godot::PackedInt32Array indices;
+    };
+    std::vector<Group> groups;
+    auto group_for = [&](const fauxbuild::PreparedSurface& surface) -> Group& {
+        for (Group& g : groups) {
+            if (g.picnum == surface.picnum && g.kind == kGroups[kind_index(surface.kind)].name) {
+                return g;
+            }
+        }
+        Group g;
+        g.picnum = surface.picnum;
+        g.page = surface.page;
+        g.rect = godot::Vector4(surface.rect_x, surface.rect_y, surface.rect_w, surface.rect_h);
+        g.kind = kGroups[kind_index(surface.kind)].name;
+        groups.push_back(std::move(g));
+        return groups.back();
+    };
+
+    for (const auto& surface : prepared.surfaces) {
+        Group& g = group_for(surface);
+        const auto base = static_cast<std::int64_t>(g.vertices.size());
+        for (std::size_t i = 0; i < surface.vertices.size(); ++i) {
+            const auto& v = surface.vertices[i];
+            g.vertices.push_back(godot::Vector3(static_cast<float>(v.x), static_cast<float>(v.y),
+                                                static_cast<float>(v.z)));
+            // Verbatim: the prepared UV is uploaded unchanged.
+            g.uvs.push_back(godot::Vector2(surface.uvs[i].u, surface.uvs[i].v));
+        }
+        for (const std::uint32_t index : surface.indices) {
+            g.indices.push_back(static_cast<std::int32_t>(base + static_cast<std::int64_t>(index)));
+        }
+    }
+
+    const godot::Ref<godot::ImageTexture> palette = make_palette_texture(prepared.palette_rgb);
+
+    discard_presentation();
+    int ordinal = 0;
+    for (const Group& g : groups) {
+        if (g.vertices.size() == 0) {
+            continue;
+        }
+        godot::Ref<godot::ArrayMesh> mesh;
+        mesh.instantiate();
+        godot::Array arrays;
+        arrays.resize(godot::Mesh::ARRAY_MAX);
+        arrays[godot::Mesh::ARRAY_VERTEX] = g.vertices;
+        arrays[godot::Mesh::ARRAY_TEX_UV] = g.uvs;
+        arrays[godot::Mesh::ARRAY_INDEX] = g.indices;
+        mesh->add_surface_from_arrays(godot::Mesh::PRIMITIVE_TRIANGLES, arrays);
+
+        godot::Ref<godot::Shader> shader;
+        shader.instantiate();
+        shader->set_code(kIndexedShader);
+        godot::Ref<godot::ShaderMaterial> material;
+        material.instantiate();
+        material->set_shader(shader);
+        material->set_shader_parameter("atlas_page", make_page_texture(prepared.atlas_pixels,
+                                                                       g.page, prepared.page_width,
+                                                                       prepared.page_height));
+        material->set_shader_parameter("palette_lut", palette);
+        material->set_shader_parameter("tile_rect", g.rect);
+
+        auto* instance = memnew(godot::MeshInstance3D);
+        instance->set_name(godot::String(g.kind) + "_" + godot::itos(g.picnum) + "_" +
+                           godot::itos(ordinal++));
         instance->set_mesh(mesh);
         instance->set_material_override(material);
         add_child(instance);

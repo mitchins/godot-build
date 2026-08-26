@@ -13,8 +13,16 @@
 #include <utility>
 #include <vector>
 
+#include "fauxbuild/art.hpp"
+#include "fauxbuild/asset_set.hpp"
+#include "fauxbuild/atlas.hpp"
 #include "fauxbuild/grp_synth.hpp"
+#include "fauxbuild/map_io.hpp"
 #include "fauxbuild/map_synth.hpp"
+#include "fauxbuild/palette.hpp"
+#include "fauxbuild/prepared.hpp"
+#include "fauxbuild/tile_build.hpp"
+#include "fauxbuild/vfs.hpp"
 #include "fauxbuild_godot/fauxbuild_view.hpp"
 
 namespace fauxbuild_godot {
@@ -29,6 +37,13 @@ void FauxStructuralFixture::_bind_methods() {
                          &FauxStructuralFixture::write_fixture_map);
     ClassDB::bind_method(godot::D_METHOD("write_fixture_grp", "entries", "directory", "file_name"),
                          &FauxStructuralFixture::write_fixture_grp);
+    ClassDB::bind_method(godot::D_METHOD("write_fixture_assets", "directory"),
+                         &FauxStructuralFixture::write_fixture_assets);
+    ClassDB::bind_method(godot::D_METHOD("prepare_from_dir", "dir_path", "map_name"),
+                         &FauxStructuralFixture::prepare_from_dir);
+    ClassDB::bind_method(godot::D_METHOD("prepared_vertices"),
+                         &FauxStructuralFixture::prepared_vertices);
+    ClassDB::bind_method(godot::D_METHOD("prepared_uvs"), &FauxStructuralFixture::prepared_uvs);
     ClassDB::bind_method(godot::D_METHOD("get_last_error"), &FauxStructuralFixture::get_last_error);
     ClassDB::bind_method(godot::D_METHOD("expected_surface_count", "kind"),
                          &FauxStructuralFixture::expected_surface_count);
@@ -268,6 +283,146 @@ std::int32_t FauxStructuralFixture::get_note_count() const {
 
 std::int32_t FauxStructuralFixture::get_diagnostic_count() const {
     return world_ ? static_cast<std::int32_t>(world_->diagnostics.size()) : 0;
+}
+
+namespace {
+
+// ORIGINAL synthetic tileset for the textured boundary gate. Two tiles with
+// DIFFERENT dimensions, so a tile-size dependency in the UV authority is
+// exercised rather than assumed away.
+constexpr const char* kGateTileset = "tileset textured_gate\n"
+                                     "tile gate_a 64 64 pattern=checker a=16 b=60 square=24\n"
+                                     "tile gate_b 128 64 pattern=checker a=20 b=56 square=24\n";
+
+} // namespace
+
+godot::String FauxStructuralFixture::write_fixture_assets(const godot::String& directory) {
+    last_error_ = "";
+    auto tileset = fauxbuild::parse_tileset(kGateTileset, "textured_gate");
+    if (!tileset.is_ok()) {
+        last_error_ = godot::String("tileset: ") + tileset.error().to_string().c_str();
+        return "";
+    }
+    fauxbuild::TileManifest manifest;
+    auto built = fauxbuild::build_art_from_tileset(tileset.value(), manifest);
+    if (!built.is_ok()) {
+        last_error_ = godot::String("art: ") + built.error().to_string().c_str();
+        return "";
+    }
+    auto art_bytes = fauxbuild::write_art(built.value().art);
+    if (!art_bytes.is_ok()) {
+        last_error_ = godot::String("art write: ") + art_bytes.error().to_string().c_str();
+        return "";
+    }
+
+    fauxbuild::PaletteData palette;
+    for (std::size_t i = 0; i < fauxbuild::kPaletteBytes; ++i) {
+        palette.rgb[i] = static_cast<std::uint8_t>(i % 64);
+    }
+    palette.num_shades = 1;
+    palette.shade_tables.assign(256, 0);
+    for (std::size_t i = 0; i < 256; ++i) {
+        palette.shade_tables[i] = static_cast<std::uint8_t>(i);
+    }
+    palette.translucency.assign(65536, 0);
+    auto palette_bytes = fauxbuild::write_palette_dat(palette);
+    if (!palette_bytes.is_ok()) {
+        last_error_ = godot::String("palette write: ") + palette_bytes.error().to_string().c_str();
+        return "";
+    }
+
+    // load_asset_set requires a LOOKUP.DAT alongside the palette; the real GRP
+    // has one, so the fixture must too or the gate would only ever exercise
+    // the failure path.
+    fauxbuild::LookupData lookup;
+    auto lookup_bytes = fauxbuild::write_lookup_dat(lookup);
+    if (!lookup_bytes.is_ok()) {
+        last_error_ = godot::String("lookup write: ") + lookup_bytes.error().to_string().c_str();
+        return "";
+    }
+
+    const std::filesystem::path dir(directory.utf8().get_data());
+    for (const auto& [name, bytes] : {std::pair<const char*, const std::vector<std::uint8_t>*>{
+                                          "TILES000.ART", &art_bytes.value()},
+                                      std::pair<const char*, const std::vector<std::uint8_t>*>{
+                                          "PALETTE.DAT", &palette_bytes.value()},
+                                      std::pair<const char*, const std::vector<std::uint8_t>*>{
+                                          "LOOKUP.DAT", &lookup_bytes.value()}}) {
+        std::ofstream out(dir / name, std::ios::binary | std::ios::trunc);
+        out.write(reinterpret_cast<const char*>(bytes->data()),
+                  static_cast<std::streamsize>(bytes->size()));
+        out.close();
+        if (!out) {
+            last_error_ = godot::String("cannot write ") + name;
+            return "";
+        }
+    }
+    return "TILES000.ART+PALETTE.DAT+LOOKUP.DAT";
+}
+
+bool FauxStructuralFixture::prepare_from_dir(const godot::String& dir_path,
+                                             const godot::String& map_name) {
+    last_error_ = "";
+    prepared_vertices_.clear();
+    prepared_uvs_.clear();
+
+    auto mount = fauxbuild::DirectoryMount::create(dir_path.utf8().get_data());
+    if (!mount.is_ok()) {
+        last_error_ = godot::String("mount: ") + mount.error().to_string().c_str();
+        return false;
+    }
+    fauxbuild::Vfs vfs;
+    vfs.add_mount(std::move(mount.value()));
+    auto file = vfs.open(map_name.utf8().get_data());
+    if (!file.is_ok()) {
+        last_error_ = godot::String("open: ") + file.error().to_string().c_str();
+        return false;
+    }
+    const auto& bytes = file.value().bytes;
+    auto map = fauxbuild::read_map(
+        std::string_view(reinterpret_cast<const char*>(bytes.data()), bytes.size()),
+        file.value().origin);
+    if (!map.is_ok()) {
+        last_error_ = godot::String("map: ") + map.error().to_string().c_str();
+        return false;
+    }
+    auto world = fauxbuild::build_structural_world(map.value());
+    if (!world.is_ok()) {
+        last_error_ = godot::String("world: ") + world.error().to_string().c_str();
+        return false;
+    }
+    auto assets = fauxbuild::load_asset_set(vfs);
+    if (!assets.is_ok()) {
+        last_error_ = godot::String("assets: ") + assets.error().to_string().c_str();
+        return false;
+    }
+    auto atlas = fauxbuild::build_indexed_atlas(assets.value().arts, {});
+    if (!atlas.is_ok()) {
+        last_error_ = godot::String("atlas: ") + atlas.error().to_string().c_str();
+        return false;
+    }
+    auto prepared = fauxbuild::prepare_world(world.value(), atlas.value(), assets.value().palette);
+    if (!prepared.is_ok()) {
+        last_error_ = godot::String("prepare: ") + prepared.error().to_string().c_str();
+        return false;
+    }
+    for (const auto& surface : prepared.value().surfaces) {
+        for (std::size_t i = 0; i < surface.vertices.size(); ++i) {
+            const auto& v = surface.vertices[i];
+            prepared_vertices_.push_back(godot::Vector3(
+                static_cast<float>(v.x), static_cast<float>(v.y), static_cast<float>(v.z)));
+            prepared_uvs_.push_back(godot::Vector2(surface.uvs[i].u, surface.uvs[i].v));
+        }
+    }
+    return true;
+}
+
+godot::PackedVector3Array FauxStructuralFixture::prepared_vertices() const {
+    return prepared_vertices_;
+}
+
+godot::PackedVector2Array FauxStructuralFixture::prepared_uvs() const {
+    return prepared_uvs_;
 }
 
 } // namespace fauxbuild_godot

@@ -2057,7 +2057,101 @@ questions and neither substitutes for the other.
    5), which is no longer established by any clean source and must now be
    measured rather than assumed.
 
-### M6.2A black-box boards — generated 2026-08-26, awaiting HUMAN attestation
+### Slice 2A — textured presentation (D0020) — delivered 2026-08-26, awaiting HUMAN visual gate
+
+The Mapster UV calibration programme was **abandoned by ruling**: isolating
+undocumented rendering constants cost more than the risk it controlled. The
+compatibility gate is now the rendered real level itself. The boards below are
+retained as history only.
+
+**D0020 prepared-world API** (`core/include/fauxbuild/prepared.hpp`):
+
+    prepare_world(StructuralWorld, IndexedAtlas, PaletteData, UvConventions)
+        -> Result<PreparedWorld>
+
+Pure C++, no Godot type. `PreparedSurface` carries the structural vertices and
+indices **verbatim**, one `PreparedUV` per vertex, the atlas page, and the
+tile's page-normalised rect. UVs are **tile-local** (1.0 = one tile repeat,
+values outside [0,1] are normal): the consumer wraps inside the tile's rect,
+because wrapping across a whole atlas page would bleed neighbouring tiles.
+That is why grouping is by (kind, picnum) — a rect is a per-group uniform.
+
+**The one UV authority** is `core/src/prepared.cpp`, pinned by
+`ci/check_layering.py`: the tokens `units_per_texel`, `units_per_tile`,
+`wall_z_per_texel_v`, `reference_repeat` and `repeat_factor` may appear in no
+other core or extension source, and `FauxBuildView` may not name
+`prepare_world` or `UvConventions`.
+
+**Provisional conventions — not proven, and not presented as proven.** All in
+`UvConventions`, one edit each: floor 16 world XY units per texel; wall U 16
+XY units per texel; wall V 256 Build Z per texel; reference repeat 64; U along
+the wall's own A->B direction; V increasing downward in Build Z; floor U/V =
+world X/Y unswapped. The 16 and 256 are consistent with each other under the
+ratified 16:1 metric — 256 Z is 16 XY-equivalent — so texels are square by
+construction; that consistency is a design choice, not evidence. The numeric
+default repeat remains missing fact 5; `reference_repeat` is the point the
+constants are stated at, not a claim about defaults.
+
+**Indexed Godot path.** `FauxBuildView::present_prepared_world` uploads the
+prepared arrays unchanged and computes nothing. Each group gets a
+`ShaderMaterial` whose atlas page is `Image::FORMAT_R8` — one palette index
+per byte, authoritative — sampled `filter_nearest, repeat_disable`, with a
+256x1 base-palette LUT. The fragment stage is `fract(UV)` into the tile rect,
+index lookup, palette lookup. `present_world(StructuralWorld)` is untouched
+and still available.
+
+**Production route.** `present_grp_textured` / `present_dir_textured` load
+assets from the **same Vfs** the map came from, and remain transactional: the
+view is handed a prepared world only after mount, parse, derivation, asset
+load, atlas and preparation all succeed.
+
+**Synthetic CI gates** (159 cases, was 152). Core: geometry passes through
+preparation untouched; picnum resolves to the exact atlas tile (two fixture
+tiles of different width, so a mixed-up resolution cannot pass by chance);
+exactly one UV per vertex; UVs actually depend on the conventions; an unusable
+picnum fails deliberately with no placeholder; the payload stays R8; wall U
+spans the wall and V its height. Scene (`textured_boundary_test`): the
+ArrayMesh (vertex, uv) pairs equal the prepared ones verbatim, the uploaded
+texture is FORMAT_R8 at one byte per texel, sampling is nearest with no linear
+filtering, and a failed textured load preserves the previous presentation.
+
+**Sabotages observed red:** duplicate UV computation in the view → "the
+ArrayMesh UVs are not the prepared UVs verbatim"; RGBA-authoritative atlas →
+"atlas page must be FORMAT_R8, got 5".
+
+> **Where sabotage 12 is caught, and why it matters.** Reordering structural
+> vertices during preparation goes red in the CORE gate (159 → 158) and NOT in
+> the scene gate. That is the correct division, not a hole: the scene's
+> expected side is itself produced by `prepare_world`, so both sides move
+> together and it structurally cannot detect a core defect. Only the core gate
+> compares against the `StructuralWorld` directly. A scene gate that appeared
+> to catch it would be the more worrying result.
+
+**Human viewer.** One invocation, no auxiliary tooling:
+
+```sh
+scons config=dev extension
+/Applications/Godot.app/Contents/MacOS/Godot --path godot \
+  res://scenes/structural_view_human.tscn -- \
+  --grp "$PWD/local_reference/duke/DUKE3D.GRP" --map E1L1.MAP --textured
+```
+
+Framing had to be fixed for this: `_bounds()` looked up fixed group names, and
+textured groups are named `Floors_123_0`, so the AABB came back empty and
+parked the camera at the origin. It now walks the view's actual children. In
+textured mode the readability palette override and the 1-5 toggles are
+disabled — overriding the material would hide the very thing under inspection.
+
+**E1L1 (dev evidence):** 317 sectors / 1937 walls / 1929 surfaces / 5111
+triangles / 0 diagnostics, presented as **173 textured groups**; bounds
+52.5615 / 15.7500 / 33.9873, identical to the untextured baseline. Untextured
+mode still presents its 5 groups.
+
+**Still deferred:** panning, flips, alignment flags, masked/one-way walls,
+translucency, sprites, non-zero pal and shade, and visibility — M6.2B and
+later own those. Nothing here branches on a map, a tile ID, or a level.
+
+### [SUPERSEDED — the Mapster UV programme was abandoned 2026-08-26] M6.2A black-box boards — generated 2026-08-26, awaiting HUMAN attestation
 
 All three boards and their assets are ORIGINAL synthetic content in `/tmp/uv/`,
 produced with the existing M4 ART/palette tooling and scratch generators. No

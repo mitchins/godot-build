@@ -50,7 +50,8 @@ for path in structural_files:
 
 # M5 slice 2 viewer guard: pin the architectural seam, not a style. The
 # production FauxBuildView is a pure consumer of
-# fauxbuild::StructuralWorld: it must not include any other core header,
+# fauxbuild::StructuralWorld and (M6.2A, D0020) fauxbuild::PreparedWorld: it
+# must not include any other core header,
 # and must not reference world-production facilities (map parsing, fixture
 # synthesis, structural derivation, the core render conversion, VFS/GRP or
 # asset loading) or generated-scene persistence. The test/sample harness
@@ -63,13 +64,14 @@ view_files = [
 view_include = re.compile(r'#\s*include\s*[<"](fauxbuild/[A-Za-z0-9_./]+\.hpp)')
 viewer_forbidden = re.compile(
     r'\b(map_v7|mapv7|map_synth|map_io|map_validate|build_structural_world|'
-    r'to_render_space|GrpMount|Vfs|AssetSet|IndexedAtlas|ResourceSaver)\b')
+    r'to_render_space|GrpMount|Vfs|AssetSet|IndexedAtlas|ResourceSaver|'
+    r'prepare_world|UvConventions|units_per_texel|repeat_factor)\b')
 for path in view_files:
     text = path.read_text(encoding="utf-8")
     for inc in view_include.findall(text):
-        if inc != "fauxbuild/structural.hpp":
+        if inc not in ("fauxbuild/structural.hpp", "fauxbuild/prepared.hpp"):
             violations.append(f"{path.relative_to(root)}: core include '{inc}' not allowed "
-                              "in FauxBuildView (structural.hpp only)")
+                              "in FauxBuildView (structural.hpp / prepared.hpp only)")
     for lineno, line in enumerate(text.splitlines(), 1):
         if viewer_forbidden.search(line):
             violations.append(f"{path.relative_to(root)}:{lineno}: FauxBuildView must not "
@@ -139,6 +141,25 @@ else:
         violations.append("core/src/structural.cpp: geometry generation must call "
                           "surface_z_at; no sloped vertex may be placed another way")
 
+# M6.2A UV single authority (D0020): every provisional UV convention lives in
+# core/src/prepared.cpp and nowhere else. A second UV computation -- especially
+# one in the view, which would silently diverge from the prepared arrays it is
+# supposed to upload verbatim -- is the defect this pins.
+uv_authority = root / "core/src/prepared.cpp"
+if not uv_authority.exists():
+    violations.append("core/src/prepared.cpp is missing; the UV authority cannot be located")
+else:
+    uv_tokens = re.compile(r'\b(units_per_texel|units_per_tile|wall_z_per_texel_v|'
+                           r'reference_repeat|repeat_factor)\b')
+    for path in sorted(root.glob("core/src/*.cpp")) + sorted(root.glob("extension/src/*.cpp")):
+        if path == uv_authority:
+            continue
+        for lineno, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+            if uv_tokens.search(line):
+                violations.append(
+                    f"{path.relative_to(root)}:{lineno}: UV interpretation must live only in "
+                    f"core/src/prepared.cpp (D0020): {line.strip()}")
+
 if violations:
     print("layering check FAILED:")
     for v in violations:
@@ -146,6 +167,6 @@ if violations:
     sys.exit(1)
 
 print("layering check: core/ contains no Godot references; atlas payload is indexed; "
-      "slope arithmetic has one authority; "
+      "slope arithmetic has one authority; UV interpretation has one authority; "
       "structural derivation stays asset-free; FauxBuildView consumes StructuralWorld "
       "only; the content route lives in FauxStructuralSource")
