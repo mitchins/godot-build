@@ -42,10 +42,13 @@ BOTH endpoints is omitted entirely. No zero-area triangle reaches a consumer.
 
 **M6.2A (baseline indexed-texture seam) STOPPED at the UV provenance gate
 (2026-08-26) — no UV code landed.** Approved documentation establishes the
-relative semantics (repeat is a pixel-size control, default repeat 64,
-floors anchored to "the normal 64*64 area", floor textures world-anchored,
-walls top-oriented) but NOT the absolute world↔texel scaling equations for
-floors or wall U/V, nor the baseline orientation conventions. Per the brief,
+relative semantics (repeat is a pixel-size control, panning is an alignment
+offset, floor/ceiling textures are world-anchored by default, and keys exist
+to reset repeats, switch wall orientation and expand/compress floor textures)
+but NOT the absolute world↔texel scaling equations for floors or wall U/V,
+nor the baseline orientation conventions, nor — after the 2026-08-26
+provenance withdrawal — the numeric default repeat or the default wall
+orientation. Per the brief,
 no familiar formula was used to compensate. Resolution: a published source,
 or the HUMAN-ATTESTED black-box Mapster32 experiment recorded in
 MILESTONES.md (M6.2A stop section). The planned pure-C++ `prepare_world`

@@ -1887,12 +1887,11 @@ evaluator), three new provenance rows for the documentation actually
 consulted, and this record.
 
 **Established from published, approved sources** (rows 9/10/11 previously;
-rows 14/15/16 added by this stop):
+row 16 added by this stop — rows 14/15 were withdrawn, see below):
 
 - Field meanings and flag bits, including floor/ceiling swap-XY,
   expansion/smoosh, flips, first-wall-relative alignment and x/y panning,
-  and wall x/y repeat, x/y panning, alignment and flips (ModdingWiki row 9;
-  BUILDINF row 14).
+  and wall x/y repeat, x/y panning, alignment and flips (ModdingWiki row 9).
 **Provenance re-sourced 2026-08-26.** Rows 14/15 were reached by navigating a
 forbidden-source repository. No code was read, but the boundary must be
 mechanically checkable rather than resting on an agent's account of which
@@ -1973,13 +1972,17 @@ class (source ports, engine source, remembered implementations). Adopting
 any of them unattested would be exactly the compensation the brief forbids;
 the clean-room rule holds even where memory claims to agree.
 
-*Published hypothesis (hypothesis only, not implemented):* the most natural
-reading of the collected facts — "the normal 64*64 area" as 64×64 world XY
-units, default repeat 64, and square-aspect pixels — is a 1:1 baseline
-(one texel = one XY unit for a 64-pixel tile on floors; one texel = one XY
-unit horizontally and 16 Build Z units vertically on walls at repeat 64).
-Competing readings differ by a constant factor. Resolution is one integer
-measurement, not a design choice.
+*Hypothesis — WEAKENED 2026-08-26, and deliberately left weakened.* The
+earlier reading (a 1:1 baseline: one texel per XY unit on 64-pixel floor
+tiles; one XY unit horizontally and 16 Build Z units vertically at repeat 64)
+rested on two facts that the provenance withdrawal removed — the "normal
+64*64 area" wording and the numeric default repeat of 64. Without them it is
+no longer "the most natural reading of the collected facts"; it is one
+candidate among several, and the normalise-to-a-canonical-area model is
+another that the surviving evidence does not exclude.
+It is recorded here only so the experiment has something to falsify, and it
+is **not** to be treated as a leading answer. Resolution is measurement, and
+the measurements must now settle the default repeat as well as the scale.
 
 *Candidate black-box experiment (HUMAN-ATTESTED; original synthetic content
 only, needs no proprietary data):*
