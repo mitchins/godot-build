@@ -2057,7 +2057,7 @@ questions and neither substitutes for the other.
    5), which is no longer established by any clean source and must now be
    measured rather than assumed.
 
-### Slice 2A — textured presentation (D0020) — delivered 2026-08-26, awaiting HUMAN visual gate
+### Slice 2A — textured presentation (D0020) — HUMAN-ATTESTED PASS 2026-08-26
 
 The Mapster UV calibration programme was **abandoned by ruling**: isolating
 undocumented rendering constants cost more than the risk it controlled. The
@@ -2171,6 +2171,36 @@ disabled — overriding the material would hide the very thing under inspection.
 triangles / 0 diagnostics, presented as **173 textured groups**; bounds
 52.5615 / 15.7500 / 33.9873, identical to the untextured baseline. Untextured
 mode still presents its 5 groups.
+
+**Slice 2A — HUMAN-ATTESTED PASS 2026-08-26** by mitchellcurrie, on untouched
+E1L1 through `DUKE3D.GRP`. Baseline indexed presentation accepted: the level
+is **immediately recognisable**, and global texture scale, orientation and the
+indexed palette path are coherent.
+
+What that attestation is worth, and what it is not:
+
+- It settles the **global** conventions the M6.2A provenance stop could not.
+  The scale constants, the U/V directions and the floor axis assignment in
+  `UvConventions` produced a coherent real level on the first visual pass, on
+  content with 173 distinct tiles and no map-, tile- or level-specific branch
+  anywhere. That is a far stronger check than the abandoned Mapster
+  measurement would have been: a wrong constant or a swapped axis cannot
+  produce a recognisable level by accident.
+- It does **not** promote those constants to *proven*. They remain
+  provisional, still centralised in the one authority, and still labelled as
+  such. What changed is that they are now corroborated by the only evidence
+  the project ever accepted for rendering semantics — black-box observation of
+  legally owned content — rather than resting on a plausible reading.
+- **The residual is diagnostic, not a defect.** Visible local misalignment on
+  authored multi-surface details (the vent being the clear case) is exactly
+  what a baseline with panning, alignment and flips deliberately unimplemented
+  should look like. That the errors are *local to authored detail* and not
+  global drift is positive evidence that the deferral boundary was drawn in
+  the right place: if the scale or orientation constants were wrong, the
+  failure would be everywhere, not on the details that carry the unsupported
+  flags.
+
+Assigned to **M6.2B**: panning, alignment and flip semantics.
 
 **Still deferred:** panning, flips, alignment flags, masked/one-way walls,
 translucency, sprites, non-zero pal and shade, and visibility — M6.2B and
