@@ -75,6 +75,52 @@
 				</para>
 			</description>
 		</method>
+		<method name="write_fixture_assets">
+			<return type="String" />
+			<param index="0" name="directory" type="String" />
+			<description>
+				<para>
+					Writes ORIGINAL synthetic assets — TILES000.ART, PALETTE.DAT and
+					LOOKUP.DAT — into [param directory], so the textured production route can
+					be driven end to end by committed content. The two tiles deliberately
+					differ in dimensions, so a tile-size dependency in the UV authority is
+					exercised rather than assumed away. Test infrastructure only.
+				</para>
+			</description>
+		</method>
+		<method name="prepare_from_dir">
+			<return type="bool" />
+			<param index="0" name="dir_path" type="String" />
+			<param index="1" name="map_name" type="String" />
+			<description>
+				<para>
+					Runs the core chain (mount, parse, derive, load assets, atlas, prepare)
+					and retains the result, so the boundary test can compare what the
+					[code]ArrayMesh[/code] holds against what core actually prepared. This is
+					the EXPECTED side of the textured gate: it deliberately does not touch a
+					view, so the view cannot satisfy the test with UVs of its own.
+				</para>
+			</description>
+		</method>
+		<method name="prepared_vertices">
+			<return type="PackedVector3Array" />
+			<description>
+				<para>
+					The prepared world's vertices in canonical prepared order, from the last
+					[method prepare_from_dir].
+				</para>
+			</description>
+		</method>
+		<method name="prepared_uvs">
+			<return type="PackedVector2Array" />
+			<description>
+				<para>
+					The prepared world's UVs, one per vertex, in the same order as
+					[method prepared_vertices]. Tile-local: 1.0 is one whole tile repeat, and
+					values outside [code][0,1][/code] are normal and mean the tile tiles.
+				</para>
+			</description>
+		</method>
 		<method name="get_last_error">
 			<return type="String" />
 			<description>
