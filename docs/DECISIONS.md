@@ -514,7 +514,7 @@ spans are 1024-1924, consistent with a coarser vertical unit. These are
 aggregate statistics over legally owned content; no extracted bytes,
 coordinates, or hashes are committed.
 
-Decision (proposed):
+Decision:
 1. **One base render scale for X/Y; the vertical scale is derived from it as
    `scale / 16`.** Both factors are powers of two, so D0016's exactness and
    reversibility property is unchanged — each axis reverses with its own
@@ -637,7 +637,7 @@ derived assets (`IndexedAtlas`, M4). Doing that inside either one would have
 undone a property each was built for — `structural.*` is asset-free, and the
 atlas knows nothing about worlds.
 
-Decision (proposed):
+Decision:
 
 1. **A third, pure-C++ layer owns the meeting.**
 
