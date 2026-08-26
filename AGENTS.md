@@ -115,6 +115,25 @@ Duke-specific rendering hack?
 1. Do **not** fetch, read, summarize, or paraphrase code from: Ken Silverman's Build source,
    EDuke32, JFBuild/JFDuke, Chocolate Duke, any game source release, decompilations,
    disassemblies, leaked source, or any code whose provenance cannot be established.
+
+   **1a. PROPOSED CLARIFICATION (2026-08-26, awaiting human ratification).**
+   Forbidden-source repositories are forbidden **navigation surfaces**, not just forbidden
+   code inputs. Do not clone, browse, fetch, or open files from Build/EDuke32/JFBuild/
+   JFDuke/Chocolate Duke/game-source repositories — **including documentation files stored
+   inside them**. Published documentation must be obtained from the author's or publisher's
+   canonical documentation location, or from an approved independent documentation source.
+
+   If the only available copy of a document requires entering or downloading a mixed
+   source repository or archive, **stop and mark the fact unapproved**. Do not weaken the
+   boundary to obtain it. An author's official pages may be cited to establish authorship
+   or origin, but bundled source must not be inspected to recover missing prose.
+
+   Rationale: rule 1 as written prohibits reading *code*, which left "documentation stored
+   inside a forbidden repository" to an agent's judgement. That makes the boundary depend
+   on an assertion a reviewer cannot check, when the same facts are usually obtainable from
+   a clean origin. This is a policy clarification, **not** a finding that any agent copied
+   code — M6.2A's rows 14/15 disclosed their route accurately and were withdrawn on the
+   route alone (docs/PROVENANCE.md).
 2. Do **not** ask "how does X source port implement Y". Derive behavior from published
    binary-format descriptions, our own black-box observations, and general geometry.
 3. Do **not** commit proprietary assets (maps, tiles, palettes, audio, screenshots, extracted

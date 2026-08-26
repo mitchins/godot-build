@@ -1893,46 +1893,77 @@ rows 14/15/16 added by this stop):
   expansion/smoosh, flips, first-wall-relative alignment and x/y panning,
   and wall x/y repeat, x/y panning, alignment and flips (ModdingWiki row 9;
   BUILDINF row 14).
-- Wall/sprite repeat is a pixel-size control ("used to change the size of
-  pixels (stretch textures)"), and **the default repeat value is 64** —
-  BUILD.TXT: the `/` key "set both repeats of the sprite to the default
-  size of 64" and "not only reset the repeats of walls, but also for
-  sprites" (row 15).
-- Wall paste adjusts xrepeat "so the pixels of the bitmaps have a
-  square-aspect ratio" — a qualitative U/V consistency constraint, not an
-  equation (row 15).
-- Floors/ceilings have NO repeat fields: their default texel size is
-  engine-fixed, anchored to "the normal 64*64 area"/"the pixel size ... the
-  same as the normal 64*64 ceiling/floor", with the E flag smooshing "the
-  texture size by 2" (BUILD.TXT + BUILD2.TXT, row 15).
-- Floor/ceiling textures are anchored to ABSOLUTE world coordinates in the
-  default mode — "ceiling/floor textures remain stationary while sectors
-  are moved", except under relative alignment (InfoSuite, row 16).
-- Walls are oriented from the top by default (BUILD.TXT `O` key, row 15);
-  the 16:1 vertical metric is independently corroborated by "Z coordinates
-  are all shifted up 4" (BUILDINF, row 14).
+**Provenance re-sourced 2026-08-26.** Rows 14/15 were reached by navigating a
+forbidden-source repository. No code was read, but the boundary must be
+mechanically checkable rather than resting on an agent's account of which
+files it opened, so both rows are **withdrawn**. Re-sourcing followed the
+ruling's A/B/C order, and the outcome splits the fact set in two.
+
+Established, from clean sources only:
+
+- Repeat is a pixel-size control — "Change pixel size to stretch/shrink
+  textures" (**ModdingWiki MAP page, row 9, already approved**), and keypad
+  2/4/6/8 "adjusts the repeats of the pixel columns/rows (effectively
+  smooshes them together, or spreads them apart)" (**InfoSuite, row 16**).
+- Panning is an alignment offset — "Offset for aligning textures" (row 9).
+- A reset key exists: "/ - Resets a sprite's pixel repeats (size). Resets a
+  wall's panning, pixel repeats (size), and cstat flags" (row 16). **It does
+  not state the value reset to.**
+- Wall orientation is a documented control: "O - Wall orientation. Changes
+  whether the texture aligns to the ceiling or floor" (row 16). **Which
+  alignment is the DEFAULT is not stated.**
+- Floors/ceilings have an expand/compress control: "E - Expand/compress a
+  ceiling or floor texture" (row 16), **with no dimensions given**.
+- Floor/ceiling textures are anchored to ABSOLUTE world coordinates by
+  default — "ceiling/floor textures remain stationary while sectors are
+  moved", except under relative alignment (row 16).
+- "Everything is measured in Z-units of 1024" (row 16) — a granularity fact,
+  not a scale relation.
+
+Withdrawn with rows 14/15 and **NOT usable**: the numeric default repeat = 64;
+the "normal 64*64 area"; the by-2 E smoosh; square-aspect paste; and "Z
+coordinates are all shifted up 4". Ken's canonical page publishes BUILDINF.TXT
+only inside `BUILDSRC.ZIP`, so rule C applied and the archive was not opened.
+
+> **The D0016 corroboration is withdrawn, not kept.** The 2^4 statement was
+> genuinely useful, but its only source is a row we have just rejected, and
+> keeping a fact while retiring its provenance is exactly the move this
+> project does not make. **D0016 is unaffected**: it was ratified on our own
+> black-box measurements over legally owned maps plus the Mapster32
+> `metric_cube` attestation, none of which touched these rows. Nothing is
+> reopened or redefined; the milestone simply loses a corroboration it never
+> depended on. If the statement later appears in a cleanly published
+> document, it can be re-added as corroboration then.
 
 **NOT established by any approved source — the exact missing facts
 (stop conditions, verbatim class):**
 
 1. **Baseline world-coordinate → floor/ceiling texel scale.** How many
-   world XY units one texel — or one whole 64×64 tile — spans at default
-   flags. The published "normal 64*64 area" phrases anchor tile-relative
-   equality between differently sized tiles; they never state the area in
-   world units.
+   world XY units one texel — or one whole tile — spans at default flags.
+   No clean source states a texel size in world units at all.
 2. **Wall world-length → texture-U relationship / xrepeat scaling.** The
    constant linking a wall's horizontal world length to texel count at a
-   given xrepeat. Published: default 64 + "repeat changes pixel size";
-   not published: the equation or constant.
+   given xrepeat. Clean sources establish only that repeat changes pixel
+   size; the equation and the constant are absent.
 3. **Wall vertical coordinate → texture-V relationship / yrepeat
    scaling.** The same constant for Build Z at a given yrepeat, including
-   how the ratified 16:1 vertical metric combines with it. The
-   "square-aspect ratio" statements are qualitative only.
+   how the ratified 16:1 vertical metric combines with it. No clean source
+   addresses the interaction.
 4. **Baseline orientation conventions.** Which direction U runs along a
    wall's directed A→B span; whether V counts down from the top (suggested
    by the `O`-key text, not stated as an equation); which world axes floor
    U/V follow and with which signs (world-anchoring is published; the axis
    assignment is not).
+
+5. **The default repeat value.** Row 16 documents that a reset key exists
+   but not the value it resets to. The number 64 came only from the
+   withdrawn rows, so it is no longer established — and it was load-bearing
+   for the whole hypothesis. **This is a regression in what we know**, and
+   the experiment below must now measure the default rather than assume it.
+6. **The default wall orientation.** Row 16 documents the `O` key and that
+   it switches between ceiling and floor alignment, but not which is the
+   default. Previously taken from the withdrawn rows.
+
 
 Panning units were not needed: M6.2A is a zero-panning baseline slice.
 
@@ -1962,18 +1993,67 @@ only, needs no proprietary data):*
    32 and 128.
 2. Open it in Mapster32 (8-bit classic renderer) and observe.
 
-*Exact quantities to record:* (1) tile copies spanning the 1024-unit wall
-horizontally at xrepeat 64 → the U texel XY size; (2) tile copies spanning
-the 16384-Z height at yrepeat 64 → the V texel Z size; (3) tile copies
-spanning 1024 XY units across the floor at default flags → the floor texel
-XY size; (4) which tile edge leads at the wall's first (A) end → U
-direction; (5) which tile row sits at the top of the wall span → V
-direction/anchor; (6) which tile corner sits at the world origin on the
-floor → floor axis assignment; (7) the copy-count change at repeat 32 and
-128 → linearity in repeat. Once attested, these numbers become exact
-integer CI oracles in the synthetic fixtures, and only then do the
-evaluator-style UV layer, the D0020 presentation seam, the R8/palette
-shader path, and the negative/sabotage matrix land.
+*Controlled tile set (amended 2026-08-26 — the 64-only design was
+confounded).* The original matrix measured a 64-pixel tile only, where two
+incompatible models predict the **same** count:
+
+| tile width | fixed texel/world scale | normalise every tile to the 64×64 area |
+|---|---|---|
+| **64 px** | 16 copies over 1024 units | 16 copies — **indistinguishable** |
+| 128 px | 8 copies | 16 copies |
+| 32 px | 32 copies | 16 copies |
+
+And the second model is not a strawman: it is what the "smoosh any tile into
+the normal 64*64 area" phrasing points at. Tile SIZE is therefore an
+independent variable, not a constant:
+
+| tile | pixels | isolates |
+|---|---|---|
+| **A** | 64 × 64 | baseline |
+| **B** | 128 × 64 | HORIZONTAL model (A vs B) |
+| **C** | 64 × 128 | VERTICAL model (A vs C) |
+
+Every tile uses deliberately asymmetric indexed pixels — no pattern whose
+halves, axes, or rotations can be confused, so a transpose or a U/V swap is
+visible rather than inferred. **Record the exact pixel dimensions beside every
+observation**; a copy count means nothing without them.
+
+Across each comparison, hold fixed: wall geometry, wall length and height,
+xrepeat and yrepeat, cstat, x/y panning = 0, camera and view, palette and
+shade, and every other MAP field. **Only tile dimensions change.**
+
+Repeat variation is retained as a *separate* axis: tile-size tests answer
+normalisation, repeat tests answer repeat scaling. They are different
+questions and neither substitutes for the other.
+
+*Exact quantities to record,* with tile dimensions noted each time:
+
+1. Tile copies spanning the 1024-unit wall horizontally, for **A, B and C**
+   at a fixed xrepeat → the horizontal model AND the U texel XY size.
+2. Tile copies spanning the 16384-Z height, for **A, B and C** at a fixed
+   yrepeat → the vertical model AND the V texel Z size, including how it
+   interacts with the 16:1 metric.
+3. Tile copies spanning 1024 XY units across the floor, for **A, B and C**
+   at default flags → whether floors normalise to a canonical area or scale
+   with tile size.
+4. Which tile edge leads at the wall's first (A) end → U direction.
+5. Which tile row sits at the top of the wall span → V direction and anchor,
+   and hence the default wall orientation (missing fact 6).
+6. Which tile corner sits at the world origin on the floor → floor axis
+   assignment.
+7. The copy-count change at repeat 32 and 128, for tile A → linearity in
+   repeat.
+8. **The repeat value a freshly placed wall/sprite actually carries**, read
+   from the editor before any adjustment → the default repeat (missing fact
+   5), which is no longer established by any clean source and must now be
+   measured rather than assumed.
+
+*Do not promote any UV formula unless the measurements distinguish the
+candidate models.* If A, B and C give counts consistent with more than one
+model, that is a result to report, not to resolve by picking the reading that
+looks familiar. Once attested, these numbers become exact integer CI oracles
+in synthetic fixtures, and only then do the UV layer, the D0020 presentation
+seam, the R8/palette shader path, and the negative/sabotage matrix land.
 
 ---
 
