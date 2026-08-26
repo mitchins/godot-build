@@ -1992,9 +1992,15 @@ only, needs no proprietary data):*
    tooling, and a flat synthetic room: floorz 0, ceilingz −16384
    (= 1024 XY-equivalent), one wall exactly 1024 XY units long,
    floorstat/ceilingstat = 0, wall cstat = 0, panning = 0, xrepeat/yrepeat
-   = 64/64 (the published defaults), plus one wall variant each at repeat
+   = R = 64, a **fixed experimental repeat**, plus one wall variant each at repeat
    32 and 128.
 2. Open it in Mapster32 (8-bit classic renderer) and observe.
+
+> **On the number 64 in this experiment.** Wherever the boards below fix a
+> repeat of 64, that is an **arbitrary controlled test value (R = 64)**, not
+> an asserted default. The numeric default repeat was withdrawn with rows
+> 14/15 and is now missing fact 5 — something the default-state oracle
+> below *measures*. Nothing in the design may assume 64 is special.
 
 *Controlled tile set (amended 2026-08-26 — the 64-only design was
 confounded).* The original matrix measured a 64-pixel tile only, where two
@@ -2050,6 +2056,81 @@ questions and neither substitutes for the other.
    from the editor before any adjustment → the default repeat (missing fact
    5), which is no longer established by any clean source and must now be
    measured rather than assumed.
+
+### M6.2A black-box boards — generated 2026-08-26, awaiting HUMAN attestation
+
+All three boards and their assets are ORIGINAL synthetic content in `/tmp/uv/`,
+produced with the existing M4 ART/palette tooling and scratch generators. No
+production feature was added for the experiment, and no proprietary asset is
+involved. Nothing is committed: these are inputs to a human observation.
+
+    /tmp/uv/TILES000.ART   3 calibration tiles   /tmp/uv/PALETTE.DAT
+    /tmp/uv/DEFPROBE.MAP   default-state oracle
+    /tmp/uv/UVCALIB.MAP    tile-size board (A/B/C)
+    /tmp/uv/REPCALIB.MAP   repeat board (tile A only)
+    /tmp/uv/readwall       one-off field reader (not an fbtool feature)
+
+**Calibration tiles.** picnum 0 = `calib_a` 64×64, 1 = `calib_b` 128×64,
+2 = `calib_c` 64×128. Asymmetry comes from a checker whose square (24) does
+NOT divide either dimension: the final band along +X and +Y is truncated
+(64 = 24+24+16), so the narrow band marks the RIGHT and BOTTOM edges and
+doubles as a visible tile-boundary marker for counting copies. Verified
+numerically, not by eye — every tile is distinguishable under a horizontal
+flip and under a vertical flip.
+
+> **Stated limitation.** Tile A is transpose-symmetric: a square checker on a
+> square tile always is. **A therefore cannot answer the axis-assignment
+> question (observation 6), and is not asked to** — B and C answer it, because
+> their differing aspect makes a U/V swap visible. A still answers the counting
+> questions.
+
+**Board 1 — default-state oracle (answers missing facts 5 and 6).** Exact
+fields, not visual interpretation. `DEFPROBE.MAP` wall 0 is authored:
+
+| field | authored |
+|---|---|
+| cstat | `0x0005` (the alignment bit `0x0004` + one other flag) |
+| xrepeat | 37 |
+| yrepeat | 91 |
+| xpanning | 17 |
+| ypanning | 23 |
+
+*Human protocol:* open `DEFPROBE.MAP` in Mapster32; highlight that wall (the
+south wall, running +X from the origin, and the only one using the 128×64
+tile); press `/` **exactly once**; save to a NEW file in `/tmp`; exit. Then:
+
+```sh
+/tmp/uv/readwall /tmp/uv/<saved>.MAP 0
+```
+
+The reported `cstat`, `xrepeat`, `yrepeat`, `xpanning`, `ypanning` ARE the
+answer — reset/default repeats, reset panning, and the default wall
+orientation read from bit `0x0004`. No visual interpretation is permitted for
+these facts.
+
+**Board 2 — UV scale/orientation (`UVCALIB.MAP`).** Three adjacent 256×256
+bays, floor-to-ceiling 4096 Z, viewable in one pass. **256 XY and 4096 Z are
+equal physical extents under the ratified D0016 metric**, so equal copy counts
+horizontally and vertically mean an isotropic texel and unequal counts
+quantify the anisotropy directly. Every wall is identical except picnum:
+cstat 0, panning 0, shade 0, pal 0, and xrepeat = yrepeat = **R = 64, an
+arbitrary controlled test value**. Floors: identical 256×256 geometry,
+floorstat 0, panning 0, only the tile changes.
+
+Record — WALL: (1) horizontal copies on A/B/C; (2) vertical copies on A/B/C;
+(3) which edge of the tile sits at the wall's first (A) end; (4) which row
+sits at the wall's top. FLOOR: (5) copies over 256 XY on A/B/C; (6) which tile
+corner/axes correspond to known world directions — **from B and C**.
+
+**Board 3 — repeat scaling (`REPCALIB.MAP`), run separately.** Same three
+bays, **tile A everywhere**, repeats 32 / 64 / 128. Tile size is constant here;
+only repeat varies. Do not mix this with board 2: tile-size answers
+normalisation, repeat answers repeat scaling.
+
+**Report raw observations first.** No `prepare_world`, no UV function, no
+shader, and no promotion into oracles until the observations have been
+reviewed. **STOP if any observation remains compatible with more than one
+model** — do not interpolate a familiar Build formula to close a gap.
 
 *Do not promote any UV formula unless the measurements distinguish the
 candidate models.* If A, B and C give counts consistent with more than one

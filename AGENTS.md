@@ -119,7 +119,7 @@ Duke-specific rendering hack?
    EDuke32, JFBuild/JFDuke, Chocolate Duke, any game source release, decompilations,
    disassemblies, leaked source, or any code whose provenance cannot be established.
 
-   **1a. PROPOSED CLARIFICATION (2026-08-26, awaiting human ratification).**
+   **1a. ACCEPTED — human ratification 2026-08-26.**
    Forbidden-source repositories are forbidden **navigation surfaces**, not just forbidden
    code inputs. Do not clone, browse, fetch, or open files from Build/EDuke32/JFBuild/
    JFDuke/Chocolate Duke/game-source repositories — **including documentation files stored
@@ -131,6 +131,7 @@ Duke-specific rendering hack?
    boundary to obtain it. An author's official pages may be cited to establish authorship
    or origin, but bundled source must not be inspected to recover missing prose.
 
+   Ratified 2026-08-26 by mitchellcurrie, on the M6.2A closeout that exposed the gap.
    Rationale: rule 1 as written prohibits reading *code*, which left "documentation stored
    inside a forbidden repository" to an agent's judgement. That makes the boundary depend
    on an assertion a reviewer cannot check, when the same facts are usually obtainable from
