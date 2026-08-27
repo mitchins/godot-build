@@ -8,6 +8,7 @@
 // alignment and wall bottom alignment are interpreted ONLY in the UV
 // authority, with zero/default placement byte-identical to M6.2A.
 #include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <functional>
 #include <string>
