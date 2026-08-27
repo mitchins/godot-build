@@ -791,3 +791,101 @@ TEST_CASE("placement: zero panning is byte-equivalent to the unpanned world") {
         CHECK(a.surfaces[i].uvs == b.surfaces[i].uvs); // determinism
     }
 }
+
+// ---------------------------------------------------------------------------
+// Seam-contract gates. The per-sector tables are caller-provided input, so an
+// incoherent world must produce a structured error, not an indexed read past
+// the end. Before these gates prepare_world indexed sector_frames blind: a
+// world with no frames read a null pointer (UBSan: "reference binding to null
+// pointer of type 'const StructuralSectorFrame'") and STILL returned ok,
+// building UVs from garbage. The failure mode was silent-wrong, not a crash,
+// which is why an error is required rather than an assertion.
+//
+// One case per TEST_CASE deliberately: a REQUIRE inside a SUBCASE aborts the
+// whole case, so grouping them would let the first failure mask the rest —
+// and the rejection matrix is the point.
+// ---------------------------------------------------------------------------
+
+namespace {
+
+// A well-formed world plus its atlas/palette, for the contract gates to break
+// one field at a time.
+StructuralWorld contract_world() {
+    StructuralWorld world = placement_world(nullptr);
+    REQUIRE(world.surfaces.empty() == false);
+    REQUIRE(world.sector_frames.size() == world.sector_appearance.size());
+    REQUIRE(world.sector_frames.empty() == false);
+    return world;
+}
+
+} // namespace
+
+TEST_CASE("seam contract: frames absent entirely while surfaces exist") {
+    StructuralWorld world = contract_world();
+    world.sector_frames.clear();
+    auto prepared = prepare_world(world, make_atlas(), make_palette());
+    REQUIRE(prepared.is_ok() == false);
+    CHECK(prepared.error().code == fauxbuild::ErrorCode::InvalidTopology);
+    CHECK(prepared.error().record == "world");
+}
+
+TEST_CASE("seam contract: frames truncated below the sector domain") {
+    StructuralWorld world = contract_world();
+    world.sector_frames.pop_back();
+    auto prepared = prepare_world(world, make_atlas(), make_palette());
+    REQUIRE(prepared.is_ok() == false);
+    CHECK(prepared.error().code == fauxbuild::ErrorCode::InvalidTopology);
+}
+
+TEST_CASE("seam contract: frames longer than the sector domain") {
+    // Over-long is refused too: a mismatched table means producer and consumer
+    // disagree about the domain, whichever way it leans.
+    StructuralWorld world = contract_world();
+    world.sector_frames.push_back({});
+    auto prepared = prepare_world(world, make_atlas(), make_palette());
+    REQUIRE(prepared.is_ok() == false);
+    CHECK(prepared.error().code == fauxbuild::ErrorCode::InvalidTopology);
+}
+
+TEST_CASE("seam contract: a negative surface sector") {
+    StructuralWorld world = contract_world();
+    world.surfaces[0].sector = -1;
+    auto prepared = prepare_world(world, make_atlas(), make_palette());
+    REQUIRE(prepared.is_ok() == false);
+    CHECK(prepared.error().code == fauxbuild::ErrorCode::InvalidRange);
+    CHECK(prepared.error().offset == 0); // the offending surface index
+}
+
+TEST_CASE("seam contract: a surface sector one past the end") {
+    StructuralWorld world = contract_world();
+    world.surfaces[0].sector = static_cast<std::int16_t>(world.sector_frames.size());
+    auto prepared = prepare_world(world, make_atlas(), make_palette());
+    REQUIRE(prepared.is_ok() == false);
+    CHECK(prepared.error().code == fauxbuild::ErrorCode::InvalidRange);
+}
+
+TEST_CASE("seam contract: a late surface's bad sector still rejects the whole world") {
+    // The domain is validated up front, so a violation on the LAST surface
+    // must leave nothing behind — not a PreparedWorld truncated at the first
+    // bad surface, which a per-surface guard inside the loop would produce.
+    StructuralWorld world = contract_world();
+    world.surfaces.back().sector = -1;
+    auto prepared = prepare_world(world, make_atlas(), make_palette());
+    REQUIRE(prepared.is_ok() == false);
+    CHECK(prepared.error().offset == world.surfaces.size() - 1);
+}
+
+TEST_CASE("seam contract: the valid boundary index still succeeds") {
+    // An off-by-one in the guard would reject the LAST real sector. Point a
+    // surface at it explicitly and require a full, correct preparation —
+    // the gate must reject incoherent worlds, not merely reject.
+    StructuralWorld world = contract_world();
+    const auto last = static_cast<std::int16_t>(world.sector_frames.size() - 1);
+    world.surfaces[0].sector = last;
+    auto prepared = prepare_world(world, make_atlas(), make_palette());
+    REQUIRE(prepared.is_ok());
+    const PreparedWorld p = prepared.take();
+    CHECK(p.surfaces.size() == world.surfaces.size());
+    CHECK(p.surfaces[0].sector == last);
+    CHECK(p.surfaces[0].uvs.size() == world.surfaces[0].vertices.size());
+}

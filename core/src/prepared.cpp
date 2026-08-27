@@ -253,6 +253,32 @@ Result<PreparedWorld> prepare_world(const StructuralWorld& world, const IndexedA
     PreparedWorld prepared;
     prepared.surfaces.reserve(world.surfaces.size());
 
+    // The per-sector tables are part of the D0020 seam CONTRACT, not an
+    // internal invariant: `world` is caller-provided, so an incoherent table
+    // is external input and must produce a structured error, never an
+    // FB_CHECK and never a silent read past the end. Both tables share one
+    // index domain (a surface's `sector`), so the domain is validated once,
+    // up front, before any surface is prepared -- a partially built
+    // PreparedWorld from garbage frames is worse than no PreparedWorld.
+    const std::size_t sector_domain = world.sector_appearance.size();
+    if (world.sector_frames.size() != sector_domain) {
+        return Result<PreparedWorld>::err(
+            {"prepared", 0, "world", ErrorCode::InvalidTopology,
+             "sector_frames has " + std::to_string(world.sector_frames.size()) +
+                 " entries but the sector index domain is " + std::to_string(sector_domain) +
+                 " (sector_appearance); both tables must cover every source sector"});
+    }
+    for (std::size_t i = 0; i < world.surfaces.size(); ++i) {
+        const std::int16_t sector = world.surfaces[i].sector;
+        if (sector < 0 || static_cast<std::size_t>(sector) >= sector_domain) {
+            return Result<PreparedWorld>::err({"prepared", static_cast<std::uint64_t>(i), "surface",
+                                               ErrorCode::InvalidRange,
+                                               "surface sector " + std::to_string(sector) +
+                                                   " is outside the sector index domain [0, " +
+                                                   std::to_string(sector_domain) + ")"});
+        }
+    }
+
     for (std::size_t i = 0; i < world.surfaces.size(); ++i) {
         const StructuralSurface& surface = world.surfaces[i];
         const auto picnum = static_cast<std::uint32_t>(surface.appearance.picnum);

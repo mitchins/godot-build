@@ -150,6 +150,14 @@ struct UvConventions {
 // Compose geometry and assets. Fails with a structured error when a surface's
 // picnum is out of range or unpopulated — deliberately, rather than silently
 // substituting a placeholder tile.
+//
+// `world` is caller-provided, so its per-sector tables are validated as
+// EXTERNAL input before any surface is prepared, never assumed and never
+// FB_CHECKed: `sector_frames` must cover the same sector index domain as
+// `sector_appearance`, and every surface's `sector` must index that domain.
+// A world that fails either check yields a structured error and NO partial
+// PreparedWorld — preparing surfaces from absent or default frame data would
+// silently produce wrong UVs instead of a diagnosable failure.
 Result<PreparedWorld> prepare_world(const StructuralWorld& world, const IndexedAtlas& atlas,
                                     const PaletteData& palette,
                                     const UvConventions& conventions = {});

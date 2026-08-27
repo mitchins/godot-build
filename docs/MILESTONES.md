@@ -2251,7 +2251,16 @@ no per-map proprietary extracts exist anywhere in the repo).** Scanned all six
 owned maps through the core reader against the bits of PROVENANCE row 9
 (floor/ceiling stat: swap-XY 0x0004, smoosh 0x0008, X-flip 0x0010, Y-flip
 0x0020, relative 0x0040; wall cstat: bottom-align 0x0004, X-flip 0x0008,
-Y-flip 0x0100), plus nonzero pan counts:
+Y-flip 0x0100), plus nonzero pan counts.
+
+Read the columns carefully: every FLAG row counts the population with that bit
+set, and those rows overlap freely. The PANNING row is different — it is a
+**partition of the panned population into x-only / y-only / both**, so its
+three numbers sum to the count with any panning at all and must not be read as
+three independent "has x pan" / "has y pan" totals. (E1L1 planes: 39 + 59 + 71
+= 169 panned of 634; E1L1 walls: 254 + 180 + 240 = 674 panned of 1937. The
+independent totals are larger — 110 with x pan and 130 with y pan on planes —
+because "both" belongs to each.)
 
 | floors/ceilings (4900 planes; E1L1: 634) | six maps | E1L1 |
 |---|---|---|
@@ -2313,7 +2322,7 @@ the six owned maps (synthetic-only reachability, pinned by test).
 
 **Zero/default equivalence.** With all placement fields zero/default,
 `compute_uvs` executes the exact M6.2A arithmetic (the transforms are
-bit-guarded on the authored values): 171 core cases including a hand-derived
+bit-guarded on the authored values): 178 core cases including a hand-derived
 M6.2A regression pin pass unchanged in dev, asan and release. The textured
 scene boundary now exercises placement-carrying content (`write_placement_map`:
 the same two_sector_portal geometry with pans, flips, swap-XY, relative and
@@ -2376,12 +2385,50 @@ regression of ordinary surfaces, improved registration of authored local
 detail, vent/panel-type details more coherent where MAP placement fields
 explain the discrepancy, no map/tile-specific fix exists.
 
+**Review closeout, 2026-08-28 (pre-human-gate).** Three findings from the
+checkpoint review, all closed; no placement semantics were added, no global
+UV scale touched, no smoosh support started.
+
+1. **`prepare_world` now validates the per-sector tables before indexing
+   them.** They are seam CONTRACT over caller-provided input, so an
+   incoherent world returns a structured error (`invalid_topology` for a
+   `sector_frames`/`sector_appearance` domain mismatch, `invalid_range` for a
+   surface whose `sector` is negative or out of domain) and produces NO
+   partial world — never an `FB_CHECK`, never a read past the end. The bug
+   this closes failed SILENT-WRONG, not loudly: the unchecked `[]` read a
+   null `sector_frames` (UBSan: "reference binding to null pointer of type
+   'const StructuralSectorFrame'") and still returned ok with UVs built from
+   garbage, which is why an error and not an assertion is the right shape.
+   Seven gates, one per condition (grouping them under SUBCASEs would let the
+   first `REQUIRE` failure mask the rest). Negative-tested by deleting the
+   guard and running the ORDINARY non-sanitised dev suite: all six rejection
+   gates fail as clean test failures — not sanitiser crashes, which would be
+   evidence of the bug rather than of a working gate — and the valid
+   boundary-index gate stays green, so the sabotage is discriminating.
+2. **Usage-table columns disambiguated** (numbers unchanged): the flag rows
+   overlap freely, the panning row is a partition into x-only/y-only/both.
+3. **The layering grep's limit is now written down where it is used** — it
+   sees named constants only, not a raw `0x0008`; the behavioural boundary
+   test is the actual authority guarantee.
+
 **Checkpoint reached.** Panning + flips + wall alignment + swap-XY + relative
 alignment are delivered; the slice STOPS here per the brief, before the
-ambiguous smoosh flag. Gate results: 171 core cases green on dev/asan/release,
-fuzz corpus clean, layering + corpus + fbtool + format + scene gates green.
-No PR opened; acceptance awaits the human visual review. M6 remains
-IN_PROGRESS.
+ambiguous smoosh flag. Gate results: 178 core cases green on dev/asan/release,
+fuzz corpus clean, layering + corpus + corpus-filter + fbtool + format + scene
+gates green. Verified on real content: with every authored placement field
+cleared, all 9046 E1L1 prepared UVs are bit-for-bit identical to the accepted
+M6.2A output (raw float bits, not a tolerance); with placement honoured, 5118
+of them move across 1166 of 1929 surfaces, no non-finite UV, and max |UV|
+stays at the M6.2A value of 240.0 — so relative alignment introduced no
+runaway frame origin. No PR opened; acceptance awaits the human visual
+review. M6 remains IN_PROGRESS.
+
+**Named attribution risks for the human gate** (so a defect is not blamed on
+the wrong thing): the unsupported smoosh bit is set on 378 of 634 E1L1 planes,
+though those same planes passed the M6.2A gate with it ignored; and 432 of the
+796 bottom-aligned E1L1 walls are PORTAL walls, where the span is not the
+whole wall, so the provisional "anchor at the span's own extreme" convention
+is most visible there.
 
 Still deferred: masked/one-way walls, translucency, sprites, non-zero pal and
 shade, visibility — M6.2B2 and later own those. Nothing here branches on a

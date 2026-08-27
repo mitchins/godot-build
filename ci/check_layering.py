@@ -192,6 +192,16 @@ if uv_authority.exists():
 # greppable. Exempt: FauxStructuralFixture AUTHORS synthetic test content —
 # it writes a MAP with placement bits set, exactly like map fixtures set
 # slope bits; authoring content is not interpreting it.
+#
+# LIMIT OF THIS PIN — do not mistake it for the guarantee. It greps for the
+# NAMED constants, so it is a readability aid and a static tripwire against
+# the obvious mistake, nothing more. It cannot see a raw numeric placement
+# bit: `stat & 0x0008` in the view passes this check. The actual authority
+# guarantee is BEHAVIOURAL — godot/scripts/textured_boundary_test.gd proves
+# FauxBuildView uploads the PreparedWorld UVs verbatim, on
+# placement-carrying content, so any reinterpretation in the view fails
+# there however it is spelled. Strengthen that gate, not this grep; this is
+# deliberately not a parser.
 placement_tokens = re.compile(
     r'\b(kStatPlaneSwapXY|kStatPlaneSmoosh|kStatPlaneFlipX|kStatPlaneFlipY|'
     r'kStatPlaneRelative|kWallCstatBottomAligned|kWallCstatFlipX|kWallCstatFlipY)\b')
