@@ -134,6 +134,32 @@ struct StructuralSectorAppearance {
     bool operator==(const StructuralSectorAppearance&) const = default;
 };
 
+// The sector's authored TEXTURE reference frame (M6.2B1): the Build-space
+// A/B endpoints of the sector's FIRST WALL, copied verbatim from MapData.
+// This is the frame floorstat/ceilingstat bit 0x0040 (relative alignment,
+// "align texture to first wall of sector", PROVENANCE row 9) refers to.
+//
+// It exists so the prepared layer (D0020) can honour relative alignment
+// WITHOUT reconstructing the first wall from emitted wall surfaces — a
+// reconstruction the layering guard forbids (ci/check_layering.py). It is a
+// MAP geometry/reference fact, not an asset fact and not a UV: the
+// structural core computes nothing about textures here, preserving the
+// asset-free pin.
+//
+// first_wall is -1 when the sector has no walls. A and B may coincide
+// (zero-length first wall): the frame is then degenerate, build emits a
+// `relative_alignment_no_frame` note, and the prepared layer falls back to
+// world axes for that sector's planes.
+struct StructuralSectorFrame {
+    std::int16_t first_wall = -1; // wall index in source order, -1 if none
+    std::int32_t ax = 0;          // Build-space endpoints, verbatim from MAP
+    std::int32_t ay = 0;
+    std::int32_t bx = 0;
+    std::int32_t by = 0;
+
+    bool operator==(const StructuralSectorFrame&) const = default;
+};
+
 struct StructuralWorld {
     // Canonical order (tested): sector ascending; per sector floor, ceiling,
     // then walls ascending by wall index; a portal wall contributes
@@ -143,6 +169,9 @@ struct StructuralWorld {
     // surface's `sector`. Present for every sector, including ones that emit
     // no surface, so the index correspondence is total.
     std::vector<StructuralSectorAppearance> sector_appearance;
+    // Exactly one entry per source sector, in source order (same indexing
+    // contract). The authored texture reference frame (above).
+    std::vector<StructuralSectorFrame> sector_frames;
     std::vector<StructuralNote> notes;
     std::vector<StructuralDiagnostic> diagnostics;
 

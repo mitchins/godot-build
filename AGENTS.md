@@ -66,7 +66,17 @@ live in `UvConventions`, are applied only in `core/src/prepared.cpp`, and a
 change is a single-site edit. No map-, tile- or level-specific value is
 permitted anywhere.
 
-Deferred: **panning, alignment and flip semantics are M6.2B — the next slice, not started**; sprites,
+Deferred: **M6.2B1 (panning, flips, swap-XY, relative and wall top/bottom
+alignment) is DELIVERED at checkpoint 2026-08-27 and awaits the HUMAN E1L1
+visual gate — do not open a PR before it.** All interpretation stays in the
+one UV authority (`core/src/prepared.cpp`); `UvConventions` gained three
+provisional toggles (pan sign, relative-frame orientation x2). Relative
+alignment consumes `StructuralWorld::sector_frames` (first-wall A/B copied
+verbatim by the derivation; `prepared.cpp` may not reconstruct it). The
+smoosh bit (floorstat/ceilingstat 0x0008) stays UNSUPPORTED — no approved
+factor exists; it lands only with a human-ratified provisional factor.
+Zero/default placement remains byte-equivalent to the accepted M6.2A UVs.
+Sprites,
 masked/one-way walls and translucency are later M6 slices; visibility is M10.
 Residual local misalignment on authored multi-surface detail is those
 unimplemented semantics, not a defect in the baseline.
@@ -101,8 +111,9 @@ first-wall hinge, activated by stat 0x0002, sign from the directed hinge's 2D
 cross product, `heinum/256` from the 16:1 metric. A plane with no usable hinge
 is diagnosed and its dependent geometry omitted, never flattened (D0019).
 Baseline indexed textures landed in M6.2A (accepted; see above).
-Panning/alignment/flips (M6.2B), sprites, masked/one-way walls and
-translucency are not implemented; visibility (M10) is not started.
+Panning/alignment/flips (M6.2B1) are delivered at checkpoint awaiting the
+human gate; sprites, masked/one-way walls, translucency and the smoosh bit
+are not implemented; visibility (M10) is not started.
 
 M4 (ART, palette, lookup, tile tooling and the indexed atlas) was **ACCEPTED
 2026-08-24**: all six gate items met, D0013/D0014/D0015 ratified, and two

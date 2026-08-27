@@ -43,11 +43,18 @@ func _ready() -> void:
 
 	var map_name := harness.write_fixture_map("two_sector_portal", dir)
 	check(map_name != "", "fixture map write failed: " + harness.get_last_error())
+	# M6.2B1: the UV boundary gate runs on AUTHORED PLACEMENT content (the
+	# same geometry with panning, flips, swap-XY, relative alignment and wall
+	# bottom alignment set), so verbatim passthrough is proven for
+	# placement-carrying UVs. The plain fixture still feeds the failure-path
+	# subtests below.
+	var placement_map := harness.write_placement_map(dir)
+	check(placement_map != "", "placement map write failed: " + harness.get_last_error())
 	check(harness.write_fixture_assets(dir) != "",
 		"fixture asset write failed: " + harness.get_last_error())
 
 	if failures == 0:
-		_test_uv_boundary(map_name)
+		_test_uv_boundary(placement_map)
 	if failures == 0:
 		_test_indexed_upload()
 	if failures == 0:

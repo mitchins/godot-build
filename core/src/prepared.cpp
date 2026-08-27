@@ -1,5 +1,6 @@
 #include "fauxbuild/prepared.hpp"
 
+#include <algorithm>
 #include <cmath>
 
 namespace fauxbuild {
@@ -47,13 +48,6 @@ TexelScale floor_scale(const UvConventions& c, std::int16_t tile_w, std::int16_t
     return s;
 }
 
-PreparedUV make_uv(double u, double v) {
-    PreparedUV uv;
-    uv.u = static_cast<float>(u);
-    uv.v = static_cast<float>(v);
-    return uv;
-}
-
 // Render space back to Build coordinates. to_render_space is
 // (x*s, -z*s/16, y*s), so this is its inverse and nothing else.
 struct BuildPoint {
@@ -70,28 +64,128 @@ BuildPoint to_build(const StructuralVertex& v, double scale) {
     return p;
 }
 
-void compute_uvs(const StructuralSurface& surface, const UvConventions& c, std::int16_t tile_w,
-                 std::int16_t tile_h, std::vector<PreparedUV>& out) {
+PreparedUV make_uv(double u, double v) {
+    PreparedUV uv;
+    uv.u = static_cast<float>(u);
+    uv.v = static_cast<float>(v);
+    return uv;
+}
+
+// Authored placement (M6.2B1). Panning bytes are texel offsets within the
+// selected tile -> tile-local phase; the SIGN is the one global provisional
+// choice (UvConventions::panning_adds_phase). Flips are mirrors: they negate
+// the position-derived coordinate only, so a pan applied after a flip is
+// never erased or doubled.
+struct PanPhase {
+    double u = 0.0;
+    double v = 0.0;
+};
+
+PanPhase pan_phase(const SurfaceAppearance& appearance, std::int16_t tile_w, std::int16_t tile_h,
+                   const UvConventions& c) {
+    const double w = tile_w > 0 ? static_cast<double>(tile_w) : 1.0;
+    const double h = tile_h > 0 ? static_cast<double>(tile_h) : 1.0;
+    const double sign = c.panning_adds_phase ? 1.0 : -1.0;
+    PanPhase pan;
+    pan.u = sign * (static_cast<double>(appearance.xpanning) / w);
+    pan.v = sign * (static_cast<double>(appearance.ypanning) / h);
+    return pan;
+}
+
+// The sector's authored texture frame for relative alignment (bit 0x0040).
+// Returns false when the frame is absent or degenerate; the caller then
+// stays on world axes (build emitted a `relative_alignment_no_frame` note).
+// The frame is CONSUMED from StructuralWorld::sector_frames — never
+// reconstructed from emitted surfaces; ci/check_layering.py pins that.
+bool relative_frame(const StructuralSectorFrame& frame, const UvConventions& c, double& ux,
+                    double& uy, double& vx, double& vy, double& ox, double& oy) {
+    if (frame.first_wall < 0 || (frame.ax == frame.bx && frame.ay == frame.by)) {
+        return false;
+    }
+    const double dx = static_cast<double>(frame.bx) - static_cast<double>(frame.ax);
+    const double dy = static_cast<double>(frame.by) - static_cast<double>(frame.ay);
+    const double len = std::sqrt(dx * dx + dy * dy);
+    if (len <= 0.0) {
+        return false;
+    }
+    ux = dx / len;
+    uy = dy / len;
+    if (!c.floor_relative_u_follows_first_wall) {
+        ux = -ux;
+        uy = -uy;
+    }
+    // Left perpendicular of the directed first wall.
+    vx = -uy;
+    vy = ux;
+    if (!c.floor_relative_v_is_left_perp) {
+        vx = -vx;
+        vy = -vy;
+    }
+    ox = static_cast<double>(frame.ax);
+    oy = static_cast<double>(frame.ay);
+    return true;
+}
+
+void compute_uvs(const StructuralSurface& surface, const StructuralSectorFrame& frame,
+                 const UvConventions& c, std::int16_t tile_w, std::int16_t tile_h,
+                 std::vector<PreparedUV>& out) {
     out.clear();
     out.reserve(surface.vertices.size());
+
+    const std::int16_t raw = surface.appearance.raw_stat;
+    const PanPhase pan = pan_phase(surface.appearance, tile_w, tile_h, c);
 
     const bool is_flat = surface.kind == SurfaceKind::Floor || surface.kind == SurfaceKind::Ceiling;
     if (is_flat) {
         // PROVISIONAL: floor/ceiling textures are anchored to ABSOLUTE world
         // coordinates (PROVENANCE row 16, established), so U/V come straight
-        // from Build X/Y with no sector-relative origin.
+        // from Build X/Y with no sector-relative origin — UNLESS the authored
+        // relative-alignment bit selects the sector's first-wall frame.
         const TexelScale s = floor_scale(c, tile_w, tile_h);
+        double ux = 0.0, uy = 0.0, vx = 0.0, vy = 0.0, ox = 0.0, oy = 0.0;
+        const bool have_relative = (raw & mapv7::kStatPlaneRelative) != 0 &&
+                                   relative_frame(frame, c, ux, uy, vx, vy, ox, oy);
         for (const auto& vertex : surface.vertices) {
             const BuildPoint p = to_build(vertex, c.render_scale);
-            const double a = c.floor_u_is_world_x ? p.x : p.y;
-            const double b = c.floor_u_is_world_x ? p.y : p.x;
-            out.push_back(make_uv(a / s.units_per_tile_u, b / s.units_per_tile_v));
+            double a = 0.0;
+            double b = 0.0;
+            if (have_relative) {
+                a = (p.x - ox) * ux + (p.y - oy) * uy;
+                b = (p.x - ox) * vx + (p.y - oy) * vy;
+            } else {
+                a = c.floor_u_is_world_x ? p.x : p.y;
+                b = c.floor_u_is_world_x ? p.y : p.x;
+            }
+            // Swap-XY exchanges the base axes (documented bit meaning).
+            if ((raw & mapv7::kStatPlaneSwapXY) != 0) {
+                double t = a;
+                a = b;
+                b = t;
+            }
+            double u = a / s.units_per_tile_u;
+            double v = b / s.units_per_tile_v;
+            if ((raw & mapv7::kStatPlaneFlipX) != 0) {
+                u = -u;
+            }
+            if ((raw & mapv7::kStatPlaneFlipY) != 0) {
+                v = -v;
+            }
+            if (surface.appearance.xpanning != 0) {
+                u += pan.u;
+            }
+            if (surface.appearance.ypanning != 0) {
+                v += pan.v;
+            }
+            out.push_back(make_uv(u, v));
         }
         return;
     }
 
     // Wall span. U runs along the span's own horizontal direction from its
-    // first vertex; V runs down Build Z from the span's top.
+    // first vertex; V runs down Build Z from the span's anchor edge — the
+    // TOP edge by default, the BOTTOM edge with the documented bottom-align
+    // bit ("align picture on bottom", PROVENANCE row 9). The texel scale is
+    // the same either way; only the anchor moves.
     const TexelScale s = wall_scale(c, surface.appearance, tile_w, tile_h);
     if (surface.vertices.empty()) {
         return;
@@ -120,17 +214,35 @@ void compute_uvs(const StructuralSurface& surface, const UvConventions& c, std::
     }
 
     // Anchor V at the span's topmost point (smallest Build Z; Build Z grows
-    // downward). PROVISIONAL: which end anchors is missing fact 6.
-    double top_z = to_build(surface.vertices[0], c.render_scale).z;
+    // downward) or, bottom-aligned, at its lowest point. PROVISIONAL: which
+    // end anchors is missing fact 6; on sloped spans the anchor is the
+    // span's own extreme vertex, the generic vertical-coordinate model.
+    double anchor_z = to_build(surface.vertices[0], c.render_scale).z;
+    const bool bottom_aligned = (raw & mapv7::kWallCstatBottomAligned) != 0;
     for (const auto& vertex : surface.vertices) {
-        top_z = std::min(top_z, to_build(vertex, c.render_scale).z);
+        const double z = to_build(vertex, c.render_scale).z;
+        anchor_z = bottom_aligned ? std::max(anchor_z, z) : std::min(anchor_z, z);
     }
 
     for (const auto& vertex : surface.vertices) {
         const BuildPoint p = to_build(vertex, c.render_scale);
         const double along = (p.x - origin.x) * dir_x + (p.y - origin.y) * dir_y;
-        const double down = c.wall_v_increases_with_build_z ? (p.z - top_z) : (top_z - p.z);
-        out.push_back(make_uv(along / s.units_per_tile_u, down / s.units_per_tile_v));
+        const double down = c.wall_v_increases_with_build_z ? (p.z - anchor_z) : (anchor_z - p.z);
+        double u = along / s.units_per_tile_u;
+        double v = down / s.units_per_tile_v;
+        if ((raw & mapv7::kWallCstatFlipX) != 0) {
+            u = -u;
+        }
+        if ((raw & mapv7::kWallCstatFlipY) != 0) {
+            v = -v;
+        }
+        if (surface.appearance.xpanning != 0) {
+            u += pan.u;
+        }
+        if (surface.appearance.ypanning != 0) {
+            v += pan.v;
+        }
+        out.push_back(make_uv(u, v));
     }
 }
 
@@ -176,7 +288,8 @@ Result<PreparedWorld> prepare_world(const StructuralWorld& world, const IndexedA
         out.rect_w = static_cast<float>(static_cast<double>(tile.width) / pw);
         out.rect_h = static_cast<float>(static_cast<double>(tile.height) / ph);
 
-        compute_uvs(surface, conventions, tile.width, tile.height, out.uvs);
+        compute_uvs(surface, world.sector_frames[static_cast<std::size_t>(surface.sector)],
+                    conventions, tile.width, tile.height, out.uvs);
         prepared.surfaces.push_back(std::move(out));
     }
 
