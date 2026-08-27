@@ -1601,7 +1601,7 @@ M6 (slopes, indexed textures, UV/flags, sprites) is next and is where the
 shell stops looking like a CAD model.
 
 Next milestone work was not started.
-## M6 — Slopes, indexed textures, flags, and sprites — IN_PROGRESS (slices 1 and 2A ACCEPTED 2026-08-26; slice 2B1 DELIVERED at checkpoint 2026-08-27 — HUMAN visual gate pending)
+## M6 — Slopes, indexed textures, flags, and sprites — IN_PROGRESS (slices 1 and 2A ACCEPTED 2026-08-26; slice 2B1 HUMAN-ATTESTED PASS 2026-08-28, in review — not yet merged or ACCEPTED)
 
 Gate summary: slope query and render share one function; UV/sprite-flag/palette-shade matrix
 fixtures pass; local E1L1 immediately recognizable; unsupported features listed explicitly.
@@ -2233,7 +2233,7 @@ What the slice settled, and what it deliberately did not:
   remaining texture work is about authored controls, not about rediscovering
   engine constants.
 
-### Slice 2B1 — authored texture placement — DELIVERED at checkpoint 2026-08-27 (HUMAN visual gate pending)
+### Slice 2B1 — authored texture placement — HUMAN-ATTESTED PASS 2026-08-28 (in review; not merged, not yet ACCEPTED)
 
 Scope: **make authored texture placement behave properly — panning, flips, and
 alignment flags.** These are the fields M6.2A preserved verbatim in
@@ -2420,8 +2420,7 @@ cleared, all 9046 E1L1 prepared UVs are bit-for-bit identical to the accepted
 M6.2A output (raw float bits, not a tolerance); with placement honoured, 5118
 of them move across 1166 of 1929 surfaces, no non-finite UV, and max |UV|
 stays at the M6.2A value of 240.0 — so relative alignment introduced no
-runaway frame origin. No PR opened; acceptance awaits the human visual
-review. M6 remains IN_PROGRESS.
+runaway frame origin. M6 remains IN_PROGRESS.
 
 **Named attribution risks for the human gate** (so a defect is not blamed on
 the wrong thing): the unsupported smoosh bit is set on 378 of 634 E1L1 planes,
@@ -2429,6 +2428,53 @@ though those same planes passed the M6.2A gate with it ignored; and 432 of the
 796 bottom-aligned E1L1 walls are PORTAL walls, where the span is not the
 whole wall, so the provisional "anchor at the span's own extreme" convention
 is most visible there.
+
+**Slice 2B1 — HUMAN-ATTESTED PASS 2026-08-28** by mitchellcurrie, on untouched
+E1L1 through `DUKE3D.GRP`. Attested evidence:
+
+- untouched E1L1 remains globally coherent;
+- previously misregistered vent / multi-surface detail is **visibly much
+  better** after generic panning/flip/alignment interpretation;
+- ordinary floor and wall presentation did not globally regress.
+
+What the attestation settles, and what it does not:
+
+- It settles that the generic authored-placement model is **right in kind**.
+  The M6.2A residual was predicted to be authored placement, and implementing
+  the documented controls generically — no map branch, no tile-ID exception,
+  no per-level tolerance — is what moved it. That the *same* details the
+  M6.2A gate flagged are the ones that improved is the check: a wrong model
+  would have improved nothing, or improved detail while breaking the bulk.
+- It does **not** promote the provisional constants to proven.
+  `panning_adds_phase`, `floor_relative_u_follows_first_wall`,
+  `floor_relative_v_is_left_perp` and the bottom-align anchor convention
+  remain PROVISIONAL, centralised in `UvConventions`, one-site edits. Human
+  corroboration on owned content is the evidence class this project accepts;
+  it is not a proof of the historic arithmetic.
+- Neither named attribution risk above produced an attributable defect. The
+  smoosh deferral and the span-relative portal anchor both survived the gate,
+  so both ledger entries stand as written rather than being promoted to work.
+
+**Named residual visual symptom — the cinema entrance.** One anomaly remains
+and is recorded, NOT fixed: at the cinema entrance, original E1L1 shows a
+bounded marquee/sign surface; FauxBuild instead repeats an unrelated-looking
+base wall texture across the same rectangle.
+
+- **Not attributed to M6.2B1 placement semantics.** Its failure shape is
+  wrong for a panning/flip/alignment regression: the texture is *coherently*
+  repeated, correctly registered as a repeat — it simply appears to be the
+  wrong texture for that surface. A placement defect misregisters a texture;
+  it does not substitute one.
+- **Strong candidate: deferred semantics, not this slice.** Masked/one-way
+  wall presentation and `overpicnum` selection are the first things to test.
+  M6.2A preserves `overpicnum` verbatim and nothing consumes it, so a surface
+  that should present its masked/over texture presents its base `picnum`
+  instead — which is exactly this shape.
+- **Binding constraint on whoever picks this up:** do NOT alter the global UV
+  or panning conventions to make this look right, and do NOT add a map, wall
+  or tile exception. Test the generic deferred semantics first. If closing it
+  ever appears to need a per-surface exception, the model is wrong and the
+  work stops — the same rule that governed B1.
 
 Still deferred: masked/one-way walls, translucency, sprites, non-zero pal and
 shade, visibility — M6.2B2 and later own those. Nothing here branches on a
