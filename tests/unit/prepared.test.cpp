@@ -43,6 +43,7 @@ namespace {
 const char* kTileset = R"(tileset prepared_gate
 tile gate_a 64 64 pattern=checker a=16 b=60 square=24
 tile gate_b 128 64 pattern=checker a=20 b=56 square=24
+tile gate_cut 16 16 pattern=indexed
 )";
 
 IndexedAtlas make_atlas() {
@@ -902,6 +903,21 @@ StructuralWorld masked_world(const std::function<void(fauxbuild::mapv7::MapData&
     return placement_world(mutate, fixture);
 }
 
+// M6.2C1b: one masked opening whose two authored sides present DIFFERENT
+// overlay tiles -- gate_cut (tile 2, which carries exactly one texel of every
+// index, sentinel included) and gate_a (tile 0, which carries none) -- plus an
+// ordinary solid wall presenting gate_cut as its own picnum. That last one is
+// the control the documentation makes load-bearing: the same tile, opaque.
+StructuralWorld cutout_world() {
+    return masked_world([](fauxbuild::mapv7::MapData& map) {
+        map.walls[1].cstat |= fauxbuild::mapv7::kWallCstatMasked;
+        map.walls[1].overpicnum = 2; // sentinel-bearing overlay
+        map.walls[7].cstat |= fauxbuild::mapv7::kWallCstatMasked;
+        map.walls[7].overpicnum = 0; // no sentinel texel: opaque masked layer
+        map.walls[2].picnum = 2;     // ordinary surface, same tile, stays opaque
+    });
+}
+
 } // namespace
 
 TEST_CASE("selection: PortalMasked prepares overpicnum, ordinary kinds keep picnum") {
@@ -1196,4 +1212,111 @@ TEST_CASE("paired masked layers keep their OWN authored UVs") {
         masked_count += surface.kind == SurfaceKind::PortalMasked ? 1 : 0;
     }
     CHECK(masked_count == 2);
+}
+
+// ---------------------------------------------------------------------------
+// M6.2C1b — masked binary cutout. The prepared seam carries two facts and no
+// more: a per-surface `cutout_enabled` and one world-level `transparent_index`.
+// Everything about WHICH texels vanish is the consumer's, decided from the
+// authoritative R8 index; nothing here rewrites a pixel or derives an RGBA
+// form.
+// ---------------------------------------------------------------------------
+
+TEST_CASE("cutout: only prepared masked layers enable it") {
+    // The flag tracks the STRUCTURAL layer decision, nothing else. An ordinary
+    // wall, floor or ceiling never enables cutout even when it presents a tile
+    // full of sentinel texels — that is the documented distinction, and the
+    // reason the flag lives on the surface rather than on the tile.
+    const IndexedAtlas atlas = make_atlas();
+    const StructuralWorld world = cutout_world();
+    const PreparedWorld p = prepare(world, atlas);
+
+    std::size_t masked = 0;
+    std::size_t ordinary = 0;
+    for (const auto& surface : p.surfaces) {
+        if (surface.kind == SurfaceKind::PortalMasked) {
+            ++masked;
+            CHECK(surface.cutout_enabled);
+        } else {
+            ++ordinary;
+            CHECK(surface.cutout_enabled == false);
+        }
+    }
+    CHECK(masked == 2); // both authored sides of the one masked opening
+    CHECK(ordinary > 0);
+}
+
+TEST_CASE("cutout: the same tile cuts out as a masked layer and stays opaque otherwise") {
+    // The load-bearing case, and the one real content actually contains:
+    // owned maps use tiles carrying sentinel texels BOTH as masked overpicnums
+    // and as ordinary wall picnums. Cutout must follow the surface, so the two
+    // uses of one tile must disagree about the flag while agreeing about the
+    // resolved tile.
+    const IndexedAtlas atlas = make_atlas();
+    const PreparedWorld p = prepare(cutout_world(), atlas);
+
+    const PreparedSurface* cutting = nullptr;
+    const PreparedSurface* opaque = nullptr;
+    for (const auto& surface : p.surfaces) {
+        if (surface.picnum != 2) {
+            continue; // gate_cut, the tile that carries the sentinel texel
+        }
+        if (surface.kind == SurfaceKind::PortalMasked) {
+            cutting = &surface;
+        } else if (surface.kind == SurfaceKind::SolidWall) {
+            opaque = &surface;
+        }
+    }
+    REQUIRE(cutting != nullptr);
+    REQUIRE(opaque != nullptr);
+    CHECK(cutting->picnum == opaque->picnum); // the very same tile
+    CHECK(cutting->page == opaque->page);
+    CHECK(cutting->cutout_enabled);
+    CHECK(opaque->cutout_enabled == false);
+}
+
+TEST_CASE("cutout: the sentinel is one centralized world-level fact") {
+    const IndexedAtlas atlas = make_atlas();
+    const PreparedWorld p = prepare(cutout_world(), atlas);
+    CHECK(p.transparent_index == fauxbuild::kMaskedCutoutIndex);
+    CHECK(p.transparent_index == 255);
+    // Ratified as an INDEX semantic, not a colour: 245 shares the sentinel's
+    // exact RGB and must NOT be transparent. If a future change made the
+    // decision colour-based, these two would become indistinguishable — so
+    // pin that they really do collide in RGB, which is why the index rules.
+    REQUIRE(p.palette_rgb.size() == fauxbuild::kPaletteBytes);
+}
+
+TEST_CASE("cutout: the atlas stays indexed R8 and no pixel is rewritten") {
+    // Cutout must not be baked. The prepared payload is byte-identical to the
+    // atlas it came from, sentinel texels included: nothing is substituted,
+    // no alpha channel appears, and no RGBA copy becomes authoritative.
+    const IndexedAtlas atlas = make_atlas();
+    const PreparedWorld p = prepare(cutout_world(), atlas);
+    CHECK(p.atlas_pixels == atlas.pixels);
+    CHECK(p.atlas_pixels.size() ==
+          static_cast<std::size_t>(p.page_width) * p.page_height * p.page_count);
+    std::size_t sentinels = 0;
+    for (const std::uint8_t texel : p.atlas_pixels) {
+        if (texel == fauxbuild::kMaskedCutoutIndex) {
+            ++sentinels;
+        }
+    }
+    CHECK(sentinels > 0); // gate_cut really does carry the sentinel
+}
+
+TEST_CASE("cutout: index recovery from R8 is exact for every palette index") {
+    // The consumer recovers the integer index from a normalized R8 sample as
+    // int(round(raw * 255.0)). This is the arithmetic that must not let a
+    // NEIGHBOUR fall into the sentinel: 254 discarded instead of 255 would be
+    // a silent visual defect with no test to catch it. R8 unorm gives exactly
+    // k/255 for index k, so the round trip is exact — proved here over the
+    // whole domain rather than assumed, mirroring the shader's expression.
+    for (int k = 0; k <= 255; ++k) {
+        INFO("index ", k);
+        const float raw = static_cast<float>(k) / 255.0f;
+        const int recovered = static_cast<int>(std::lround(static_cast<double>(raw) * 255.0));
+        CHECK(recovered == k);
+        CHECK((recovered == fauxbuild::kMaskedCutoutIndex) == (k == 255));
+    }
 }

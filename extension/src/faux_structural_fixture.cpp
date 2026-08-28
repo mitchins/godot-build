@@ -292,7 +292,11 @@ godot::String FauxStructuralFixture::write_masked_map(const godot::String& direc
     data.walls[1].ypanning = 12;
     data.walls[1].cstat |= fauxbuild::mapv7::kWallCstatFlipX;
     data.walls[7].cstat |= fauxbuild::mapv7::kWallCstatMasked;
-    data.walls[7].overpicnum = 1;
+    // M6.2C1b: the CUTOUT case -- gate_cut holds exactly one texel of every
+    // index, so this masked layer carries exactly one sentinel texel. Side A
+    // above keeps tile 0, which has NO sentinel texel: a masked layer whose
+    // tile contains none must render fully opaque through the same shader.
+    data.walls[7].overpicnum = 2;
     data.walls[7].xrepeat = 8;
     data.walls[7].yrepeat = 32;
     data.walls[7].ypanning = 60;
@@ -302,7 +306,12 @@ godot::String FauxStructuralFixture::write_masked_map(const godot::String& direc
     data.walls[0].cstat |= fauxbuild::mapv7::kWallCstatMasked;
     data.walls[0].overpicnum = 1;
     // Solid wall with a nonzero overpicnum and NO masked bit: the converse.
+    // It also presents gate_cut as its ORDINARY picnum -- the load-bearing
+    // control: the very same tile, sentinel texels and all, must stay fully
+    // opaque here while cutting out on the masked layer above. Cutout is a
+    // property of the surface, never of the tile.
     data.walls[2].overpicnum = 1;
+    data.walls[2].picnum = 2;
     for (std::size_t i = 0; i < data.walls.size(); ++i) {
         if (i == 1 || i == 7) {
             continue; // the paired sides keep their distinct authored values
@@ -460,9 +469,17 @@ namespace {
 // ORIGINAL synthetic tileset for the textured boundary gate. Two tiles with
 // DIFFERENT dimensions, so a tile-size dependency in the UV authority is
 // exercised rather than assumed away.
+// M6.2C1b adds gate_cut: a 16x16 `indexed` tile whose texel value IS its
+// linear position, so it holds EXACTLY ONE texel of every palette index
+// 0..255 -- including the cutout sentinel 255, its neighbour 254, and 0.
+// Exactly one of each makes the boundary gate's counting unambiguous, and
+// the same tile serves as both the cutout case and the "ordinary surface
+// keeps it opaque" control. gate_a and gate_b contain NO sentinel texel, so
+// a masked layer using one of them must render fully opaque.
 constexpr const char* kGateTileset = "tileset textured_gate\n"
                                      "tile gate_a 64 64 pattern=checker a=16 b=60 square=24\n"
-                                     "tile gate_b 128 64 pattern=checker a=20 b=56 square=24\n";
+                                     "tile gate_b 128 64 pattern=checker a=20 b=56 square=24\n"
+                                     "tile gate_cut 16 16 pattern=indexed\n";
 
 } // namespace
 

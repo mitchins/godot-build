@@ -257,6 +257,39 @@ for path in sorted(root.glob("core/src/*.cpp")) + sorted(root.glob("extension/sr
                 f"belongs only to the structural derivation, and overpicnum selection only "
                 f"to the prepared seam (M6.2C1): {line.strip()}")
 
+# M6.2C1b cutout pins. The sentinel is ONE ratified compatibility constant
+# (fauxbuild::kMaskedCutoutIndex, D0021) carried to the consumer on the
+# prepared world. Nothing outside core/src/prepared.cpp may state the value,
+# and the view must select its presentation from the prepared cutout FLAG, not
+# by rediscovering the masked kind or bit. Note the same limit as the M6.2B1
+# placement pin: a bare `255` cannot be grepped apart from any other 255, so
+# this catches the named constant and the obvious literal spellings only --
+# the real guarantee is behavioural, in godot/scripts/textured_boundary_test.gd,
+# which reads the shader's actual sentinel uniform back and requires it to be
+# the prepared world's.
+sentinel_owner = re.compile(r'\bkMaskedCutoutIndex\b')
+for path in sorted(root.glob("core/src/*.cpp")) + sorted(root.glob("extension/src/*.cpp")):
+    if path == uv_authority:
+        continue
+    for lineno, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+        if sentinel_owner.search(line):
+            violations.append(
+                f"{path.relative_to(root)}:{lineno}: the cutout sentinel is stated once in "
+                f"core/src/prepared.cpp and carried on PreparedWorld (D0021): {line.strip()}")
+# Shader selection must key on the prepared cutout flag, never on the surface
+# kind: `PortalMasked` may appear in the view only as a DIAGNOSTIC group label
+# (kind_index / kGroups), never on the line that picks a material or shader.
+for path in view_files:
+    for lineno, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+        code_only = line.split("//", 1)[0]
+        picks_presentation = ("set_shader" in code_only or "material" in code_only.lower()
+                              or "->set_code" in code_only)
+        if picks_presentation and re.search(r'\bSurfaceKind\b', code_only):
+            violations.append(
+                f"{path.relative_to(root)}:{lineno}: the view selects cutout presentation from "
+                f"PreparedSurface::cutout_enabled, never by rediscovering the surface kind "
+                f"(M6.2C1b): {line.strip()}")
+
 if violations:
     print("layering check FAILED:")
     for v in violations:

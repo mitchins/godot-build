@@ -65,6 +65,8 @@ func _ready() -> void:
 	if failures == 0:
 		_test_masked_selection(masked_map)
 	if failures == 0:
+		_test_cutout(masked_map)
+	if failures == 0:
 		_test_indexed_upload()
 	if failures == 0:
 		_test_transactional_failure(map_name)
@@ -179,17 +181,18 @@ func _test_masked_selection(map_name: String) -> void:
 		var child: MeshInstance3D = entry[0]
 		if child.name.begins_with("PortalMasked_0_"):
 			by_tile[0] = entry
-		if child.name.begins_with("PortalMasked_1_"):
-			by_tile[1] = entry
-	check(by_tile.has(0) and by_tile.has(1),
-		"expected one PortalMasked group per overlay tile (0 = the zero case, 1)")
+		if child.name.begins_with("PortalMasked_2_"):
+			by_tile[2] = entry
+	check(by_tile.has(0) and by_tile.has(2),
+		"expected one PortalMasked group per overlay tile (0 = the zero case and the "
+			+ "no-sentinel case, 2 = gate_cut which carries the sentinel texel)")
 
 	# Each side keeps its OWN authored UVs (distinct placement per side), and
 	# the verbatim comparison in _test_uv_boundary already proved these are
 	# the prepared UVs unchanged — so distinct prepared UVs at the boundary
 	# prove distinct authored sides survived preparation.
 	var uvs_a: PackedVector2Array = by_tile[0][2]
-	var uvs_b: PackedVector2Array = by_tile[1][2]
+	var uvs_b: PackedVector2Array = by_tile[2][2]
 	check(uvs_a.size() == 4 and uvs_b.size() == 4,
 		"each masked side is a quad (4 vertices)")
 	check(uvs_a != uvs_b,
@@ -200,7 +203,7 @@ func _test_masked_selection(map_name: String) -> void:
 	# their own sectors. The first triangle's normal of each group must point
 	# against the other's (dot < 0).
 	var n_a := _first_triangle_normal(by_tile[0][1], by_tile[0][3])
-	var n_b := _first_triangle_normal(by_tile[1][1], by_tile[1][3])
+	var n_b := _first_triangle_normal(by_tile[2][1], by_tile[2][3])
 	check(n_a.dot(n_b) < 0.0,
 		"paired masked layers must have OPPOSITE winding (normals dot %f, want < 0)"
 			% n_a.dot(n_b))
@@ -236,6 +239,99 @@ func _test_masked_selection(map_name: String) -> void:
 			% ordinary_shader_ids.size())
 	check(masked_shader_ids.keys()[0] != ordinary_shader_ids.keys()[0],
 		"masked and ordinary groups must not alias to one shader variant")
+
+
+func _test_cutout(map_name: String) -> void:
+	# M6.2C1b. The cutout is a CONSUMER behaviour, so what can be proved here
+	# is that the consumer was handed the right facts and spends them the right
+	# way: the discard exists, keys on the authoritative R8 INDEX before any
+	# palette lookup, uses the world's sentinel rather than a literal of its
+	# own, and reaches exactly the surfaces the prepared flag marks. Headless
+	# Godot rasterizes nothing, so no pixel assertion is possible or claimed.
+	check(source.present_dir_textured(dir, map_name, view),
+		"cutout presentation failed: " + source.get_last_error())
+
+	var masked_code := ""
+	var ordinary_code := ""
+	var masked_sentinels := {}
+	for child in view.get_children():
+		if not (child is MeshInstance3D):
+			continue
+		var material = child.material_override
+		if not (material is ShaderMaterial) or material.shader == null:
+			continue
+		if child.name.begins_with("PortalMasked_"):
+			masked_code = material.shader.code
+			masked_sentinels[material.get_shader_parameter("transparent_index")] = true
+		else:
+			ordinary_code = material.shader.code
+			# The ordinary variant must not merely lack a sentinel value — it
+			# must have no discard at all, or a tile shared with a masked
+			# layer would cut out on an ordinary wall too.
+			check(not ordinary_code.contains("discard"),
+				"ordinary surfaces must stay OPAQUE: the ordinary shader must not discard")
+
+	check(masked_code != "", "no masked group was presented; the cutout gate proves nothing")
+	check(masked_code.contains("discard"),
+		"the masked shader must discard sentinel texels")
+	check(masked_code.contains("transparent_index"),
+		"the discard must compare against the prepared world's transparent_index, "
+			+ "never a literal the view holds itself")
+	# ...and compare against it EXACTLY. "transparent_index" appearing somewhere
+	# in the condition is not enough: `index == transparent_index - 1` would
+	# satisfy that while silently cutting the sentinel's NEIGHBOUR instead,
+	# which is invisible in every other assertion here.
+	check(masked_code.contains("if (index == transparent_index) {"),
+		"the discard condition must be exactly `index == transparent_index`; an offset "
+			+ "or inequality would cut out a neighbouring palette index")
+	# The decision must be made on the INDEX, before the palette lookup: two
+	# palette entries share the sentinel's exact RGB, so a colour test would
+	# wrongly discard the other one.
+	var discard_at := masked_code.find("discard")
+	var lookup_at := masked_code.find("palette_lut, vec2")
+	check(discard_at >= 0 and lookup_at >= 0 and discard_at < lookup_at,
+		"the cutout decision must be made on the R8 index BEFORE the palette lookup")
+	check(masked_code.contains("int index = int(round(raw * 255.0))"),
+		"the index must be recovered exactly from the R8 sample, so a neighbouring "
+			+ "index cannot fall into the sentinel comparison")
+	for banned in ["ALBEDO.r ==", "rgb ==", "distance(", "vec3(1.0, 0.0, 1.0)"]:
+		check(not masked_code.contains(banned),
+			"the cutout must not be decided from palette RGB: found '%s'" % banned)
+
+	# The sentinel actually delivered to the material is the prepared world's,
+	# and there is exactly one of it.
+	check(masked_sentinels.size() == 1,
+		"all masked groups must receive ONE sentinel value, got %d" % masked_sentinels.size())
+	check(masked_sentinels.has(255),
+		"the ratified sentinel for this palette profile is index 255, got %s"
+			% str(masked_sentinels.keys()))
+
+	# Selection follows the PREPARED FLAG, not the tile: gate_cut (tile 2) is
+	# presented BOTH as a masked overlay and as an ordinary solid wall in this
+	# fixture, and only the masked use may carry the cutout shader.
+	var cut_masked := 0
+	var cut_ordinary := 0
+	for child in view.get_children():
+		if not (child is MeshInstance3D):
+			continue
+		var material = child.material_override
+		if not (material is ShaderMaterial) or material.shader == null:
+			continue
+		if not child.name.contains("_2_"):
+			continue
+		if child.name.begins_with("PortalMasked_"):
+			cut_masked += 1
+			check(material.shader.code.contains("discard"),
+				"the masked use of the shared tile must cut out")
+		else:
+			cut_ordinary += 1
+			check(not material.shader.code.contains("discard"),
+				"the ORDINARY use of the very same tile must stay opaque")
+	check(cut_masked == 1, "expected the sentinel-bearing tile as one masked layer, got %d"
+		% cut_masked)
+	check(cut_ordinary >= 1,
+		"expected the same tile on at least one ordinary surface (the control), got %d"
+			% cut_ordinary)
 
 
 func _test_indexed_upload() -> void:

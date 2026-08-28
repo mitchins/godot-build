@@ -241,29 +241,50 @@ void fragment() {
 }
 )";
 
-// The MASKED variant (M6.2C1 pre-gate correction): identical indexed path,
-// one presentation difference -- back-face culling. A masked portal carries
-// TWO authored layers by design (one wall record per side), geometrically
-// coincident with OPPOSITE winding and possibly distinct placement fields.
-// Under cull_disabled both sides draw at identical depth and z-fight; with
-// cull_back each side's winding (which faces its owning sector, exactly as
-// the structural derivation produced it) presents that side to its own
-// half-space. Nothing about vertices, indices, winding, UVs or tile
-// selection differs between the variants -- this is presentation culling
-// only, applied to PortalMasked groups only. Ordinary groups keep the
-// accepted cull_disabled behaviour of every prior slice.
+// The MASKED variant. TWO differences from the ordinary shader, both
+// presentation:
+//
+//  1. cull_back (M6.2C1 pre-gate correction). A masked portal carries TWO
+//     authored layers by design (one wall record per side), geometrically
+//     coincident with OPPOSITE winding and possibly distinct placement
+//     fields. Under cull_disabled both sides draw at identical depth and
+//     z-fight; with cull_back each side's winding (which faces its owning
+//     sector, exactly as the structural derivation produced it) presents that
+//     side to its own half-space.
+//
+//  2. binary indexed cutout (M6.2C1b). Texels whose PALETTE INDEX equals the
+//     prepared world's transparent_index are discarded outright. This is a
+//     cutout, not translucency: there is no alpha and no blending.
+//
+// The discard decision is made on the authoritative R8 INDEX, BEFORE the
+// palette lookup, and never on the sampled RGB -- two palette entries carry
+// the sentinel's exact colour, so an RGB test would wrongly discard the
+// other one. `int(round(raw * 255.0))` recovers the exact integer for every
+// R8 value (each is exactly k/255), so no neighbouring index can be pulled
+// across the comparison by floating point; filter_nearest keeps the sampled
+// value an authored texel rather than a blend of two.
+//
+// There is deliberately no third "masked opaque" variant: a masked tile with
+// no sentinel texels renders fully opaque through this same shader, because
+// the discard simply never fires. Nothing about vertices, indices, winding,
+// UVs or tile selection differs between the variants.
 constexpr const char* kMaskedIndexedShader = R"(shader_type spatial;
 render_mode unshaded, cull_back;
 
 uniform sampler2D atlas_page : filter_nearest, repeat_disable;
 uniform sampler2D palette_lut : source_color, filter_nearest, repeat_disable;
 uniform vec4 tile_rect = vec4(0.0, 0.0, 1.0, 1.0);
+uniform int transparent_index = 255;
 
 void fragment() {
     vec2 local = fract(UV);
     vec2 page_uv = tile_rect.xy + local * tile_rect.zw;
-    float index = texture(atlas_page, page_uv).r;
-    vec3 rgb = texture(palette_lut, vec2(index * (255.0 / 256.0) + (0.5 / 256.0), 0.5)).rgb;
+    float raw = texture(atlas_page, page_uv).r;
+    int index = int(round(raw * 255.0));
+    if (index == transparent_index) {
+        discard;
+    }
+    vec3 rgb = texture(palette_lut, vec2(raw * (255.0 / 256.0) + (0.5 / 256.0), 0.5)).rgb;
     ALBEDO = rgb;
 }
 )";
@@ -332,7 +353,9 @@ bool FauxBuildView::present_prepared_world(const fauxbuild::PreparedWorld& prepa
         const char* kind = "";
         // Presentation selection only (which of the two shared shader
         // variants this group uses): never a texture/UV/geometry decision.
-        bool masked = false;
+        // Taken from the PREPARED cutout fact. The view never rediscovers
+        // the authored wall-layer semantics that produced it.
+        bool cutout = false;
         godot::PackedVector3Array vertices;
         godot::PackedVector2Array uvs;
         godot::PackedInt32Array indices;
@@ -349,7 +372,7 @@ bool FauxBuildView::present_prepared_world(const fauxbuild::PreparedWorld& prepa
         g.page = surface.page;
         g.rect = godot::Vector4(surface.rect_x, surface.rect_y, surface.rect_w, surface.rect_h);
         g.kind = kGroups[kind_index(surface.kind)].name;
-        g.masked = surface.kind == fauxbuild::SurfaceKind::PortalMasked;
+        g.cutout = surface.cutout_enabled;
         groups.push_back(std::move(g));
         return groups.back();
     };
@@ -431,10 +454,16 @@ bool FauxBuildView::present_prepared_world(const fauxbuild::PreparedWorld& prepa
 
         godot::Ref<godot::ShaderMaterial> material;
         material.instantiate();
-        material->set_shader(g.masked ? masked_shader : shader);
+        material->set_shader(g.cutout ? masked_shader : shader);
         material->set_shader_parameter("atlas_page", pages[static_cast<std::size_t>(g.page)]);
         material->set_shader_parameter("palette_lut", palette);
         material->set_shader_parameter("tile_rect", g.rect);
+        if (g.cutout) {
+            // The sentinel comes from the prepared world, never a literal
+            // here: the view holds no palette convention of its own.
+            material->set_shader_parameter("transparent_index",
+                                           static_cast<std::int32_t>(prepared.transparent_index));
+        }
 
         auto* instance = memnew(godot::MeshInstance3D);
         instance->set_name(godot::String(g.kind) + "_" + godot::itos(g.picnum) + "_" +

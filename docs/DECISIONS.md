@@ -777,3 +777,61 @@ Decision:
 Consequences: one degenerate sector costs its own two surfaces rather than the
 other 99.9% of the shell. Verified on real content: the affected sector emits
 two `zero_area` diagnostics, no floor or ceiling, and its wall spans survive.
+
+### D0021 — Masked-wall binary cutout: palette index 255 as the sentinel (M6.2C1b)
+
+Status: **accepted — human ratification 2026-08-28** by mitchellcurrie.
+
+Decision: on a prepared masked portal layer, texels whose PALETTE INDEX equals
+255 are discarded outright; every other index renders as its opaque indexed
+colour. The same texels on any ordinary surface stay opaque. This is a binary
+cutout, not translucency: there is no alpha and no blending, and cstat
+transparency modes are a separate, still-deferred authored control.
+
+What the documentation gave us, and what it did not. The approved InfoSuite
+documentation (PROVENANCE row 16) establishes the SEMANTIC — a texture may
+contain a pink colour whose pixels disappear on masked walls, are not
+invisible on ordinary solid surfaces, and whose transparency modes are
+separate authored controls. It establishes **no numeric palette index**. The
+index was therefore resolved by black-box measurement over legally owned
+content through this project's own loaders — never source archaeology, and
+never engine familiarity.
+
+Ratification basis (measured, not assumed):
+
+- **RGB cannot identify the sentinel.** TWO base-palette entries are exact
+  full magenta: 245 and 255. Anything that compared colour would treat them
+  alike.
+- index **245** occurs **0 times** in the masked-overpicnum tile population,
+  and is absent from every surface tile the six owned maps exercise;
+- index **255** occurs **32060 times, covering 44.66%** of that population,
+  in 8 of its 10 tiles;
+- floor and ceiling tiles — 211 tiles, 1.42M texels — contain **zero** index
+  255, so authors never place it where it cannot cut out;
+- tiles containing index 255 are used **both** as masked overpicnums and as
+  ordinary wall picnums, which independently proves cutout is per-SURFACE
+  behaviour and never a property of the tile;
+- some masked tiles contain no index 255 at all, so masked never implies
+  whole-surface transparency.
+
+Consequences.
+
+1. **255 is an INDEX semantic, not "the colour magenta."** The decision is
+   made on the authoritative R8 index BEFORE any palette lookup. Comparing
+   palette RGB is forbidden: it would wrongly discard index 245.
+2. `PreparedWorld::transparent_index` carries the value once for the world and
+   `PreparedSurface::cutout_enabled` marks the surfaces, so the consumer holds
+   no palette convention of its own and never rediscovers the masked bit,
+   overpicnum, or surface kind to decide.
+3. Indexed R8 stays authoritative. Cutout is never baked by rewriting atlas
+   pixels and no RGBA form is produced; the prepared payload is byte-identical
+   to the atlas it came from, sentinel texels included.
+4. Exactly two shared shader variants exist. A masked tile with no sentinel
+   texels renders fully opaque through the same cutout shader, so no third
+   "masked opaque" variant is needed or permitted.
+
+**Scope — read this before citing D0021.** This ratifies index 255 for the
+**currently supported compatibility profile only**. It is NOT claimed as a
+universal invariant of every possible Build-derived palette. If later legally
+supported content disproves it, reopen the convention: `kMaskedCutoutIndex` in
+`core/include/fauxbuild/prepared.hpp` is the single site to change.

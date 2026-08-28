@@ -114,7 +114,10 @@ second shared `cull_back` shader variant so the pair cannot z-fight;
 ordinary groups keep `cull_disabled`; two shared shaders total, never per
 group (sharing gate pins it).
 
-Sprites, one-way walls, transparent discard, translucency and smoosh are
+Binary indexed CUTOUT landed in M6.2C1b (D0021, sentinel index 255):
+cutout-enabled surfaces discard sentinel texels, decided on the R8 INDEX
+before any palette lookup — never on RGB, since 245 shares the colour and is
+NOT transparent. Sprites, one-way walls, cstat translucency and smoosh are
 later M6 slices; visibility is M10.
 
 **M5 — Static structural world viewer: ACCEPTED 2026-08-25.** All three
@@ -148,10 +151,16 @@ cross product, `heinum/256` from the 16:1 metric. A plane with no usable hinge
 is diagnosed and its dependent geometry omitted, never flattened (D0019).
 Baseline indexed textures landed in M6.2A (accepted; see above).
 Panning/alignment/flips (M6.2B1) are ACCEPTED. Masked portal layers and
-`overpicnum` selection (M6.2C1) are DELIVERED at checkpoint, awaiting the
-human cinema gate (see above). Sprites, one-way walls, transparent discard,
-translucency and the smoosh bit are not implemented; visibility (M10) is not
-started. The 79/19 overpicnum trap is now load-bearing and pinned: a nonzero
+`overpicnum` selection (M6.2C1) plus the binary indexed CUTOUT (M6.2C1b) are
+DELIVERED at checkpoint 2026-08-28, awaiting the human cinema gate (see above)
+— no PR before it. The cutout sentinel is palette index **255**, ratified as
+D0021 from black-box measurement over owned content: it is an INDEX semantic
+decided on the authoritative R8 index BEFORE any palette lookup, never on RGB,
+because entries 245 and 255 are both exact full magenta and **245 is NOT
+transparent**. Cutout is a property of the SURFACE, never the tile — owned
+content uses the same tile as a masked overlay and as an ordinary opaque wall.
+Sprites, one-way walls, cstat translucency and the smoosh bit are not
+implemented; visibility (M10) is not started. The 79/19 overpicnum trap is now load-bearing and pinned: a nonzero
 `overpicnum` is not by itself a licence to present it — the masked bit
 selects the layer.
 

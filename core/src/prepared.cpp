@@ -335,6 +335,11 @@ Result<PreparedWorld> prepare_world(const StructuralWorld& world, const IndexedA
         out.appearance = surface.appearance;
         out.page = tile.page;
         out.picnum = static_cast<std::int32_t>(tile_index);
+        // M6.2C1b: cutout is a property of the SURFACE, decided once here from
+        // the structural layer decision — the same tile is an opaque wall
+        // texture in one use and a cutout overlay in another, so this can
+        // never be derived from the tile. The consumer reads only this flag.
+        out.cutout_enabled = surface.kind == SurfaceKind::PortalMasked;
         // Geometry passes through verbatim: preparation adds UVs, nothing else.
         out.vertices = surface.vertices;
         out.indices = surface.indices;
@@ -355,6 +360,10 @@ Result<PreparedWorld> prepare_world(const StructuralWorld& world, const IndexedA
     prepared.page_width = atlas.page_width;
     prepared.page_height = atlas.page_height;
     prepared.page_count = atlas.page_count;
+    // The ratified cutout sentinel, carried once for the world. Stated here so
+    // the consumer never holds a literal of its own; kMaskedCutoutIndex is the
+    // single site if a future palette profile reopens the convention (D0021).
+    prepared.transparent_index = kMaskedCutoutIndex;
 
     // Base palette only for this slice: 6-bit stored values expanded to 8-bit.
     prepared.palette_rgb.reserve(kPaletteBytes);

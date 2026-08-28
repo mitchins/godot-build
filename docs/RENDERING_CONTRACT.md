@@ -106,11 +106,16 @@ Becomes binding at M5/M10 (first binding content at M5 slice 1). Rules fixed by 
   Conversely a nonzero `overpicnum` alone selects nothing (305 non-masked walls across the
   six owned maps carry one; the masked bit selects the layer, the field does not). The view
   receives the resolved picnum/page/rect and reads no appearance field (layering pin).
-  **Transparent-texel discard is NOT implemented**: no approved provenance establishes a
-  transparent palette index (the ART format page states "Transparent pixels? No" at the
-  format level), so the masked layer currently renders opaque through the base palette
-  path; the index is not invented from familiarity, and the deferral is ledgered in
-  MILESTONES M6.2C1 pending provenance or a human-gate ruling. The whole masked span is
+**Binary indexed cutout (M6.2C1b, D0021).** A prepared surface carries
+  `cutout_enabled` (true only for masked layers) and the world carries one `transparent_index`;
+  the consumer discards texels whose PALETTE INDEX equals it. The decision is made on the
+  authoritative R8 index BEFORE the palette lookup and never on sampled RGB — palette entries
+  245 and 255 are both exact full magenta and 245 is NOT transparent, so this is an index
+  semantic, not a colour. The index was not documented anywhere approved; it was resolved by
+  black-box measurement over owned content and human-ratified (D0021), scoped to the current
+  compatibility profile. Cutout is a property of the SURFACE, never the tile: owned content
+  uses the same tile as a masked overlay and as an ordinary opaque wall. Indexed R8 stays
+  authoritative — no atlas pixel is rewritten and no RGBA form is produced. The whole masked span is
   never made translucent — transparency and translucency are different; true translucency
   remains out of scope.
 - **Presentation culling for paired masked layers (M6.2C1 pre-gate correction).** A masked

@@ -2526,8 +2526,11 @@ differs from masked) — a bit name is not semantics, so one-way is DEFERRED
 with an inventory and an explicit ledger below. The approved ART (row 10) and
 palette (row 11) pages were re-checked for a transparent palette index: the
 ART page states "Transparent pixels? No" at the format level and neither page
-documents an index — so **transparent-texel discard is NOT implemented**: no
-index may be invented from familiarity (see the deferred ledger).
+documents an index — so at C1 **transparent-texel discard was NOT implemented**
+and no index was invented from familiarity. *(Superseded by slice 2C1b below:
+the InfoSuite documentation supplies the SEMANTIC, and the index was then
+resolved black-box over owned content and ratified as D0021 — index 255. The
+refusal to guess is what made the later measurement worth trusting.)*
 
 **Structural model (delivered).** `SurfaceKind::PortalMasked` is a distinct
 kind — NOT an encoding of PortalUpper/PortalLower, whose meanings are
@@ -2635,6 +2638,56 @@ PortalMasked into SolidWalls → both scene gates ("groups must be exactly
 ...", "expected exactly 2 PortalMasked groups, got 0"); (6) mutating a
 global UV constant → the M6.2A/B1 regression pins and the masked UV model.
 
+**Slice 2C1b — masked binary cutout — delivered at checkpoint 2026-08-28
+(HUMAN cinema gate pending).** The C1 structural model, overpicnum selection,
+paired sided layers and `cull_back` are unchanged; E1L1 stays at 1948 surfaces
+/ 5149 triangles / 19 masked layers, and every prepared row is bit-for-bit
+identical to C1.
+
+The transparency ledger entry below was closed by measurement, not by
+familiarity. The approved documentation names the SEMANTIC (a pink colour that
+disappears on masked walls and stays opaque elsewhere) but no numeric index, so
+the index was resolved black-box over owned content and **HUMAN-RATIFIED as
+D0021**: palette index **255**. Crucially, RGB could not have answered it —
+palette entries 245 and 255 are both exact full magenta, and 245 is NOT
+transparent. The measurement that separates them: 245 appears 0 times in the
+masked-overpicnum tile population and in no surface tile of the six owned maps,
+while 255 covers 44.66% of that population (32060 texels, 8 of 10 tiles); floor
+and ceiling tiles contain zero 255 across 211 tiles and 1.42M texels; and tiles
+carrying 255 are used both as masked overpicnums and as ordinary wall picnums,
+independently proving cutout is per-SURFACE, never per-tile.
+
+Architecture: `PreparedWorld::transparent_index` (one centralized fact) and
+`PreparedSurface::cutout_enabled` (true only for prepared masked layers). The
+consumer holds no palette convention of its own and does not rediscover the
+masked bit, overpicnum or surface kind. Indexed R8 stays authoritative —
+nothing rewrites a pixel, no RGBA copy exists, and the prepared payload is
+byte-identical to its atlas. Still exactly two shared shader variants: a masked
+tile with no sentinel texels renders opaque through the same cutout shader, so
+no third "masked opaque" variant exists.
+
+E1L1 real-content report: `transparent_index` = 255; 19 cutout-enabled
+surfaces and 1929 not; the 4 distinct masked tiles hold 24676 texels of which
+**15426 (62.51%) are the sentinel** and will be discarded (per tile — 503:3202,
+560:36, 663:2882, 913:9306). No UV bit, vertex, index, resolved overpicnum or
+structural count moved.
+
+What the gates can and cannot prove. Headless Godot rasterizes nothing, so no
+pixel assertion is possible and none is claimed. What IS proved by execution:
+the prepared flag is true only for masked layers and false for the same tile on
+an ordinary wall; the sentinel is one world-level value; the atlas payload is
+byte-identical with sentinel texels intact; and `int(round(raw * 255.0))`
+recovers every index 0..255 exactly, so no neighbour can fall into the
+comparison. At the boundary, the shader resources are read back and required to
+discard, to compare **exactly** `index == transparent_index`, to do so before
+the palette lookup, to receive the sentinel from the prepared world, and to
+reach only cutout-enabled groups. Seven sabotages were observed red: sentinel
+changed to 245, discard removed, neighbour 254 discarded, discard on ordinary
+surfaces, decision made after the RGB lookup, masked reverted to
+`cull_disabled`, and per-group shader proliferation. The neighbour-254 sabotage
+initially passed — the gate asserted the sentinel was *mentioned*, not that the
+comparison was exact — and the gate was tightened until it failed.
+
 **Deferred ledger (explicit).**
 - **One-way (cstat 0x0020):** bit identity documented (row 9), positive
   rendering rule NOT established by any approved source → NOT implemented,
@@ -2642,10 +2695,12 @@ global UV constant → the M6.2A/B1 regression pins and the masked UV model.
   walls across the six owned maps, never alongside the masked bit. Named
   constant `kWallCstatOneWay` exists for the deferral's greppability; no
   code branches on it (layering pin).
-- **Transparent-texel discard:** no approved provenance establishes a
-  transparent palette index (ART page: "Transparent pixels? No"; palette
-  page: none) → not invented. The masked layer currently renders fully
-  OPAQUE through the base palette path. If the HUMAN cinema gate shows the
+- **Transparent-texel discard — CLOSED by slice 2C1b (D0021, index 255).**
+  At C1 no approved provenance established an index, so none was invented and
+  the masked layer rendered fully opaque. The index was subsequently resolved
+  by black-box measurement over owned content and human-ratified; the entry
+  is kept because the reasoning is the evidence. Historical text follows: if
+  the HUMAN cinema gate shows the
   selection is right but transparent regions of masked content render
   opaque, C1 geometry/selection may still PASS with transparent-index
   handling named as the next generic masked-wall requirement (its own
@@ -2722,8 +2777,9 @@ unchanged. If the cinema shows the correct image with opaque background
 pixels remaining, that is the already-deferred masked transparency
 question — do NOT hold geometry/layer selection responsible.
 
-Still deferred: one-way, transparent discard, translucency, sprites,
-non-zero pal and shade, smoosh, visibility — M6.2C2 and later own those.
+Still deferred: one-way, cstat translucency, sprites, non-zero pal and
+shade, smoosh, visibility — M6.2C2 and later own those. (Transparent-texel
+discard is no longer deferred: slice 2C1b implements it under D0021.)
 Nothing here branches on a map, a wall, or a tile.
 
 ### [SUPERSEDED — the Mapster UV programme was abandoned 2026-08-26] M6.2A black-box boards — generated 2026-08-26, awaiting HUMAN attestation
