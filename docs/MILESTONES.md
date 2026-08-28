@@ -1601,7 +1601,7 @@ M6 (slopes, indexed textures, UV/flags, sprites) is next and is where the
 shell stops looking like a CAD model.
 
 Next milestone work was not started.
-## M6 — Slopes, indexed textures, flags, and sprites — IN_PROGRESS (slices 1 and 2A ACCEPTED 2026-08-26; slice 2B next)
+## M6 — Slopes, indexed textures, flags, and sprites — IN_PROGRESS (slices 1 and 2A ACCEPTED 2026-08-26; slice 2B1 HUMAN-ATTESTED PASS 2026-08-28, in review — not yet merged or ACCEPTED)
 
 Gate summary: slope query and render share one function; UV/sprite-flag/palette-shade matrix
 fixtures pass; local E1L1 immediately recognizable; unsupported features listed explicitly.
@@ -2233,7 +2233,7 @@ What the slice settled, and what it deliberately did not:
   remaining texture work is about authored controls, not about rediscovering
   engine constants.
 
-### Slice 2B — authored texture placement (next, NOT started)
+### Slice 2B1 — authored texture placement — HUMAN-ATTESTED PASS 2026-08-28 (in review; not merged, not yet ACCEPTED)
 
 Scope: **make authored texture placement behave properly — panning, flips, and
 alignment flags.** These are the fields M6.2A preserved verbatim in
@@ -2246,11 +2246,242 @@ see whether such details snap into alignment. If making one of them look right
 needs a map-specific branch, a tile-ID exception, or a per-level tolerance, the
 generic model is wrong and the slice stops.
 
-Assigned to **M6.2B**: panning, alignment and flip semantics.
+**Aggregate real-content inventory (decides priority; AGGREGATE counts only —
+no per-map proprietary extracts exist anywhere in the repo).** Scanned all six
+owned maps through the core reader against the bits of PROVENANCE row 9
+(floor/ceiling stat: swap-XY 0x0004, smoosh 0x0008, X-flip 0x0010, Y-flip
+0x0020, relative 0x0040; wall cstat: bottom-align 0x0004, X-flip 0x0008,
+Y-flip 0x0100), plus nonzero pan counts.
 
-**Still deferred:** panning, flips, alignment flags, masked/one-way walls,
-translucency, sprites, non-zero pal and shade, and visibility — M6.2B and
-later own those. Nothing here branches on a map, a tile ID, or a level.
+Read the columns carefully: every FLAG row counts the population with that bit
+set, and those rows overlap freely. The PANNING row is different — it is a
+**partition of the panned population into x-only / y-only / both**, so its
+three numbers sum to the count with any panning at all and must not be read as
+three independent "has x pan" / "has y pan" totals. (E1L1 planes: 39 + 59 + 71
+= 169 panned of 634; E1L1 walls: 254 + 180 + 240 = 674 panned of 1937. The
+independent totals are larger — 110 with x pan and 130 with y pan on planes —
+because "both" belongs to each.)
+
+| floors/ceilings (4900 planes; E1L1: 634) | six maps | E1L1 |
+|---|---|---|
+| swap XY | 1048 | 130 |
+| smoosh (unsupported ledger) | 2621 | 378 |
+| X flip | 1086 | 149 |
+| Y flip | 1344 | 178 |
+| relative alignment | 1254 | 119 |
+| panning (x-only / y-only / both) | 436 / 255 / 538 | 39 / 59 / 71 |
+
+| walls (15303; E1L1: 1937) | six maps | E1L1 |
+|---|---|---|
+| bottom alignment | 6452 | 796 |
+| X flip | 312 | 62 |
+| Y flip | 182 | 26 |
+| bottom-align + Y-flip together | 15 | 0 |
+| panning (x-only / y-only / both) | 2067 / 1014 / 2272 | 254 / 180 / 240 |
+
+Every implemented control is materially exercised; nothing was implemented
+merely because a bit exists.
+
+**Implemented (all in the ONE UV authority, `core/src/prepared.cpp`):**
+
+1. **Panning** — provisional generic convention per the brief: xpanning/
+   ypanning are texel offsets within the selected tile, converted to
+   tile-local phase (pan_u = xpanning/tile_width, pan_v = ypanning/tile_height);
+   wrapping stays tile-local; ONE global sign choice
+   (`UvConventions::panning_adds_phase`, true = adds phase) for every surface.
+   Applied after flips, so a flip can never erase or double a pan.
+2. **Flips** — floorstat/ceilingstat 0x0010/0x0020 and wall cstat 0x0008/0x0100
+   NEGATE the position-derived tile-local coordinate (a mirror; the shader's
+   `fract()` makes −u the exact mirror of u). Structural vertices and indices
+   are never reordered — the verbatim geometry gate keeps teeth here.
+3. **Floor/ceiling swap XY** (stat 0x0004) — exchanges the base (a,b) axes,
+   applied to the world-anchored axes and to the relative frame alike.
+4. **Wall top/bottom alignment** (cstat 0x0004) — V is anchored at the span's
+   lowest edge instead of its upper edge, SAME vertical texel scale. On sloped
+   and triangular-wedge spans the anchor is the span's own extreme vertex
+   (one generic vertical-coordinate model; the exact historic phase at a
+   sloped endpoint is undocumented, so the anchor convention is marked
+   provisional). No flattening, no re-derivation.
+5. **Floor/ceiling relative alignment** (stat 0x0040) — materially exercised
+   (26% of planes), supported properly: U along the sector's first wall A→B,
+   V along the left perpendicular of the U direction (the frame stays
+   right-handed; both toggles live in `UvConventions`), origin at A.
+
+**StructuralWorld widening.** Relative alignment needed the sector's exact
+texture reference frame; `StructuralWorld::sector_frames` now carries it —
+one entry per source sector: the first-wall index and the Build-space A/B
+endpoints copied VERBATIM from MapData. It is a MAP geometry/reference fact,
+not an asset and not a UV: the structural core still derives from MapData
+alone and computes nothing about textures. A static layering gate forbids
+`prepared.cpp` from reconstructing the first wall (`wallptr`/`wallnum`/
+`point2` are banned there) and pins `sector_frames` filling to
+`structural.cpp`. A sector whose relative flag is set but whose first wall is
+missing/zero-length gets a `relative_alignment_no_frame` note from the build,
+and the UV authority falls back to world axes — observed zero times across
+the six owned maps (synthetic-only reachability, pinned by test).
+
+**Zero/default equivalence.** With all placement fields zero/default,
+`compute_uvs` executes the exact M6.2A arithmetic (the transforms are
+bit-guarded on the authored values): 178 core cases including a hand-derived
+M6.2A regression pin pass unchanged in dev, asan and release. The textured
+scene boundary now exercises placement-carrying content (`write_placement_map`:
+the same two_sector_portal geometry with pans, flips, swap-XY, relative and
+bottom-align set; the view's consumer gate proved verbatim on those UVs).
+
+**Provisional conventions introduced** (all centralised in `UvConventions`,
+single-site edits, documented as provisional):
+- `panning_adds_phase` — the global pan sign. HUMAN E1L1 review may reverse it
+  if obviously wrong; that is a one-site edit.
+- `floor_relative_u_follows_first_wall` and `floor_relative_v_is_left_perp` —
+  the relative frame's orientation.
+- Bottom-align anchor = the span's own extreme vertex on sloped spans.
+
+**Unsupported placement bits (explicit ledger):**
+- floorstat/ceilingstat bit 3, "double smooshiness" (0x0008): the approved
+  provenance names the bit but establishes NO factor; the brief forbids
+  guessing one. Inventory: 2621 of 4900 planes set across the six maps (378
+  of 634 on E1L1), and non-64×64 tiles occur on both set (1671) and clear
+  (1580) planes — so IF the HUMAN E1L1 gate shows an obvious systematic
+  defect attributable to this flag, ONE explicit provisional factor lands in
+  the one authority with human ratification (M6.2B2). Otherwise the ledger
+  entry stands as-is.
+- Wall cstat bit 1 ("bottoms of invisible walls swapped"), parallax (stat
+  bit 0), masked/one-way/translucency bits: not texture placement of visible
+  baseline surfaces — later M6 slices.
+
+**Synthetic matrix and sabotages.** Core: zero/default = exact M6.2A values
+(hand-derived oracle); floor X/Y/both pans on an asymmetric (128×64) tile;
+axis independence; flip X/Y/both as exact negations; swap-XY as exact
+transpose; flip+pan composition (pan independent of flip); wall pan; wall
+X/Y flips; bottom alignment (bottom edge at phase 0, top at −4, U untouched)
+and bottom-align + Y-flip; relative alignment against a hand-computed
+45°-rotated room with convention toggles; degenerate-frame fallback with the
+build note; sloped (ramp) and wedge (portal_slope_collapse) spans — UVs
+change only, vertices/indices verbatim, zero diagnostics. Boundary:
+ArrayMesh UVs == prepared UVs verbatim on placement-carrying content.
+**Sabotages observed red:** (1) panning ignored → floor/wall pan gates;
+(2) xpanning/ypanning transposed → asymmetric-tile phase gate;
+(3) flip implemented by reordering vertices → the flip test's verbatim
+vertex check; (4) bottom alignment ignored → bottom-edge phase gate;
+(5) placement arithmetic computed in FauxBuildView → "the ArrayMesh UVs are
+not the prepared UVs verbatim" (the scene boundary runs placement content
+precisely so this has teeth); (6) M6.2A global scale mutated while
+implementing a control → the regression pin. A stale-extension rebuild
+(5) and a dangling-temporary use-after-free caught by asan were the two
+real defects the red runs surfaced; both fixed.
+
+**E1L1 before/after visual result: the HUMAN gate RAN and PASSED
+2026-08-28 — see the attestation below for what it settles.** Reproduce with
+the same command as M6.2A:
+
+```sh
+scons config=dev extension
+/Applications/Godot.app/Contents/MacOS/Godot --path godot \
+  res://scenes/structural_view_human.tscn -- \
+  --grp "$PWD/local_reference/duke/DUKE3D.GRP" --map E1L1.MAP --textured
+```
+
+Success criteria (unchanged from the brief): global scale coherent, no
+regression of ordinary surfaces, improved registration of authored local
+detail, vent/panel-type details more coherent where MAP placement fields
+explain the discrepancy, no map/tile-specific fix exists. **All met** — one
+residual anomaly at the cinema entrance is recorded below and is explicitly
+NOT attributed to this slice's placement semantics.
+
+**Review closeout, 2026-08-28 (pre-human-gate).** Three findings from the
+checkpoint review, all closed; no placement semantics were added, no global
+UV scale touched, no smoosh support started.
+
+1. **`prepare_world` now validates the per-sector tables before indexing
+   them.** They are seam CONTRACT over caller-provided input, so an
+   incoherent world returns a structured error (`invalid_topology` for a
+   `sector_frames`/`sector_appearance` domain mismatch, `invalid_range` for a
+   surface whose `sector` is negative or out of domain) and produces NO
+   partial world — never an `FB_CHECK`, never a read past the end. The bug
+   this closes failed SILENT-WRONG, not loudly: the unchecked `[]` read a
+   null `sector_frames` (UBSan: "reference binding to null pointer of type
+   'const StructuralSectorFrame'") and still returned ok with UVs built from
+   garbage, which is why an error and not an assertion is the right shape.
+   Seven gates, one per condition (grouping them under SUBCASEs would let the
+   first `REQUIRE` failure mask the rest). Negative-tested by deleting the
+   guard and running the ORDINARY non-sanitised dev suite: all six rejection
+   gates fail as clean test failures — not sanitiser crashes, which would be
+   evidence of the bug rather than of a working gate — and the valid
+   boundary-index gate stays green, so the sabotage is discriminating.
+2. **Usage-table columns disambiguated** (numbers unchanged): the flag rows
+   overlap freely, the panning row is a partition into x-only/y-only/both.
+3. **The layering grep's limit is now written down where it is used** — it
+   sees named constants only, not a raw `0x0008`; the behavioural boundary
+   test is the actual authority guarantee.
+
+**Checkpoint reached.** Panning + flips + wall alignment + swap-XY + relative
+alignment are delivered; the slice STOPS here per the brief, before the
+ambiguous smoosh flag. Gate results: 178 core cases green on dev/asan/release,
+fuzz corpus clean, layering + corpus + corpus-filter + fbtool + format + scene
+gates green. Verified on real content: with every authored placement field
+cleared, all 9046 E1L1 prepared UVs are bit-for-bit identical to the accepted
+M6.2A output (raw float bits, not a tolerance); with placement honoured, 5118
+of them move across 1166 of 1929 surfaces, no non-finite UV, and max |UV|
+stays at the M6.2A value of 240.0 — so relative alignment introduced no
+runaway frame origin. M6 remains IN_PROGRESS.
+
+**Named attribution risks for the human gate** (so a defect is not blamed on
+the wrong thing): the unsupported smoosh bit is set on 378 of 634 E1L1 planes,
+though those same planes passed the M6.2A gate with it ignored; and 432 of the
+796 bottom-aligned E1L1 walls are PORTAL walls, where the span is not the
+whole wall, so the provisional "anchor at the span's own extreme" convention
+is most visible there.
+
+**Slice 2B1 — HUMAN-ATTESTED PASS 2026-08-28** by mitchellcurrie, on untouched
+E1L1 through `DUKE3D.GRP`. Attested evidence:
+
+- untouched E1L1 remains globally coherent;
+- previously misregistered vent / multi-surface detail is **visibly much
+  better** after generic panning/flip/alignment interpretation;
+- ordinary floor and wall presentation did not globally regress.
+
+What the attestation settles, and what it does not:
+
+- It settles that the generic authored-placement model is **right in kind**.
+  The M6.2A residual was predicted to be authored placement, and implementing
+  the documented controls generically — no map branch, no tile-ID exception,
+  no per-level tolerance — is what moved it. That the *same* details the
+  M6.2A gate flagged are the ones that improved is the check: a wrong model
+  would have improved nothing, or improved detail while breaking the bulk.
+- It does **not** promote the provisional constants to proven.
+  `panning_adds_phase`, `floor_relative_u_follows_first_wall`,
+  `floor_relative_v_is_left_perp` and the bottom-align anchor convention
+  remain PROVISIONAL, centralised in `UvConventions`, one-site edits. Human
+  corroboration on owned content is the evidence class this project accepts;
+  it is not a proof of the historic arithmetic.
+- Neither named attribution risk above produced an attributable defect. The
+  smoosh deferral and the span-relative portal anchor both survived the gate,
+  so both ledger entries stand as written rather than being promoted to work.
+
+**Named residual visual symptom — the cinema entrance.** One anomaly remains
+and is recorded, NOT fixed: at the cinema entrance, original E1L1 shows a
+bounded marquee/sign surface; FauxBuild instead repeats an unrelated-looking
+base wall texture across the same rectangle.
+
+- **Not attributed to M6.2B1 placement semantics.** Its failure shape is
+  wrong for a panning/flip/alignment regression: the texture is *coherently*
+  repeated, correctly registered as a repeat — it simply appears to be the
+  wrong texture for that surface. A placement defect misregisters a texture;
+  it does not substitute one.
+- **Strong candidate: deferred semantics, not this slice.** Masked/one-way
+  wall presentation and `overpicnum` selection are the first things to test.
+  M6.2A preserves `overpicnum` verbatim and nothing consumes it, so a surface
+  that should present its masked/over texture presents its base `picnum`
+  instead — which is exactly this shape.
+- **Binding constraint on whoever picks this up:** do NOT alter the global UV
+  or panning conventions to make this look right, and do NOT add a map, wall
+  or tile exception. Test the generic deferred semantics first. If closing it
+  ever appears to need a per-surface exception, the model is wrong and the
+  work stops — the same rule that governed B1.
+
+Still deferred: masked/one-way walls, translucency, sprites, non-zero pal and
+shade, visibility — M6.2B2 and later own those. Nothing here branches on a
+map, a tile ID, or a level.
 
 ### [SUPERSEDED — the Mapster UV programme was abandoned 2026-08-26] M6.2A black-box boards — generated 2026-08-26, awaiting HUMAN attestation
 

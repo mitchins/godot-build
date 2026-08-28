@@ -72,11 +72,21 @@ Becomes binding at M5/M10 (first binding content at M5 slice 1). Rules fixed by 
   raw MAP appearance facts verbatim — picnum, overpicnum (walls), the raw stat word
   (floorstat/ceilingstat or wall cstat), shade, pal, x/y panning, x/y repeat (walls). No UVs,
   no flag behaviour, no interpretation; heinum and tags are not appearance. The M6.2 seam is
-  defined but NOT implemented: StructuralWorld (geometry + raw appearance) + IndexedAtlas /
-  AssetSet (tile dimensions, indexed texels) → UV/material packing → Godot ArrayMesh +
-  indexed shader. Geometry and appearance derive from MapData alone; the asset side meets
-  them only at that seam (pinned by the layering guard), and the seam must not change the
-  accepted `present_world(StructuralWorld)` signature without a reported API decision.
+  implemented (D0020, M6.2A): `prepare_world(StructuralWorld, IndexedAtlas, PaletteData,
+  UvConventions) -> PreparedWorld` in core/ (pure C++, no Godot type); geometry passes
+  through verbatim, one UV per vertex, tile-local UVs; `present_world(StructuralWorld)` is
+  untouched alongside it. **Authored texture placement (M6.2B1)** is interpreted in the ONE
+  UV authority (`core/src/prepared.cpp`) and nowhere else — not in the structural core, not
+  in the view: panning (tile-local phase), X/Y flips (UV mirrors; vertices never reordered),
+  floor/ceiling swap-XY, floor/ceiling relative alignment (the sector's first-wall frame,
+  copied verbatim into `StructuralWorld::sector_frames` by the derivation; prepared.cpp is
+  forbidden from reconstructing it from emitted surfaces), and wall top/bottom alignment
+  (V anchored at the span's upper or lower edge; same texel scale; generic vertical model
+  on sloped/wedge spans). All sign/frame choices are PROVISIONAL, centralised in
+  `UvConventions`, one-site edits. UNSUPPORTED ledger: floorstat/ceilingstat bit 3
+  ("double smooshiness") — factor not established by approved provenance; inventory shows it
+  heavily exercised (E1L1: 378/634 planes), so it lands only with a human-ratified
+  provisional factor (M6.2B2 or human-gate ruling). Layering guards pin all of this.
 - Wall spans are generated only where visible (solid, upper, lower, masked, one-way) — never
   full portal quads clipped later. (M5 generates structural upper/lower spans only;
   masked/one-way semantics arrive at M6 and are diagnosed-not-interpreted before that.)

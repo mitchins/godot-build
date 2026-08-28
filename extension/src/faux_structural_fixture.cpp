@@ -35,6 +35,8 @@ void FauxStructuralFixture::_bind_methods() {
                          &FauxStructuralFixture::present);
     ClassDB::bind_method(godot::D_METHOD("write_fixture_map", "name", "directory"),
                          &FauxStructuralFixture::write_fixture_map);
+    ClassDB::bind_method(godot::D_METHOD("write_placement_map", "directory"),
+                         &FauxStructuralFixture::write_placement_map);
     ClassDB::bind_method(godot::D_METHOD("write_fixture_grp", "entries", "directory", "file_name"),
                          &FauxStructuralFixture::write_fixture_grp);
     ClassDB::bind_method(godot::D_METHOD("write_fixture_assets", "directory"),
@@ -154,6 +156,88 @@ godot::String FauxStructuralFixture::write_fixture_map(const godot::String& name
     const std::string vfs_name = upper + ".MAP";
     const std::filesystem::path out = std::filesystem::path(dir) / vfs_name;
 
+    std::ofstream stream(out, std::ios::binary | std::ios::trunc);
+    if (!stream) {
+        last_error_ = "cannot open '" + godot::String(out.string().c_str()) + "' for writing";
+        return "";
+    }
+    stream.write(reinterpret_cast<const char*>(bytes.value().data()),
+                 static_cast<std::streamsize>(bytes.value().size()));
+    stream.close();
+    if (!stream) {
+        last_error_ = "failed writing '" + godot::String(out.string().c_str()) + "'";
+        return "";
+    }
+    return vfs_name.c_str();
+}
+
+godot::String FauxStructuralFixture::write_placement_map(const godot::String& directory) {
+    // M6.2B1: the same two_sector_portal geometry with AUTHORED placement
+    // fields set, so the textured boundary gate exercises panning, flips,
+    // swap-XY, relative alignment and wall bottom alignment THROUGH the
+    // consumer boundary — verbatim passthrough of placement-carrying UVs,
+    // not only of default-flag UVs. All values are original synthetic
+    // content; picnums address the gate tileset (0 and 1).
+    last_error_ = "";
+    const std::string dir = directory.utf8().get_data();
+    if (dir.empty()) {
+        last_error_ = "write_placement_map needs an output directory";
+        return "";
+    }
+    auto map = fauxbuild::synth::map_fixture("two_sector_portal");
+    if (!map.is_ok()) {
+        last_error_ = godot::String("fixture: ") + map.error().to_string().c_str();
+        return "";
+    }
+    auto& data = map.value();
+    // Sector 0 floor: relative alignment + both pans + x-flip.
+    data.sectors[0].floorpicnum = 0;
+    data.sectors[0].floorstat |=
+        fauxbuild::mapv7::kStatPlaneRelative | fauxbuild::mapv7::kStatPlaneFlipX;
+    data.sectors[0].floorxpanning = 24;
+    data.sectors[0].floorypanning = 8;
+    // Sector 0 ceiling: y-flip + swap-XY.
+    data.sectors[0].ceilingpicnum = 1;
+    data.sectors[0].ceilingstat |=
+        fauxbuild::mapv7::kStatPlaneFlipY | fauxbuild::mapv7::kStatPlaneSwapXY;
+    // Sector 1 floor: plain world-anchored with a pan (control population).
+    data.sectors[1].floorpicnum = 1;
+    data.sectors[1].floorxpanning = 16;
+    // Sector 1 ceiling: relative alignment without other controls.
+    data.sectors[1].ceilingpicnum = 0;
+    data.sectors[1].ceilingstat |= fauxbuild::mapv7::kStatPlaneRelative;
+    // Walls: bottom alignment, flips and panning across the population;
+    // picnums alternate so grouping also sees both tiles.
+    for (std::size_t i = 0; i < data.walls.size(); ++i) {
+        auto& wall = data.walls[i];
+        wall.picnum = static_cast<std::int16_t>(i % 2);
+        wall.xrepeat = 16;
+        wall.yrepeat = 16;
+        switch (i % 4) {
+        case 0:
+            wall.cstat |= fauxbuild::mapv7::kWallCstatBottomAligned;
+            break;
+        case 1:
+            wall.cstat |= fauxbuild::mapv7::kWallCstatFlipX;
+            wall.xpanning = 32;
+            break;
+        case 2:
+            wall.cstat |= fauxbuild::mapv7::kWallCstatFlipY;
+            wall.ypanning = 48;
+            break;
+        default:
+            wall.xpanning = 16;
+            wall.ypanning = 16;
+            break;
+        }
+    }
+    auto bytes = fauxbuild::write_map(data);
+    if (!bytes.is_ok()) {
+        last_error_ = godot::String("serialize: ") + bytes.error().to_string().c_str();
+        return "";
+    }
+    const std::string vfs_name = "PLACEMENT.MAP";
+    const std::filesystem::path out = std::filesystem::path(dir) / vfs_name;
     std::ofstream stream(out, std::ios::binary | std::ios::trunc);
     if (!stream) {
         last_error_ = "cannot open '" + godot::String(out.string().c_str()) + "' for writing";

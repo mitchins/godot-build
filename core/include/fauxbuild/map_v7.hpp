@@ -40,6 +40,31 @@ inline constexpr std::int16_t kSpriteAlignFace = 0x0000;
 inline constexpr std::int16_t kSpriteAlignWall = 0x0010;
 inline constexpr std::int16_t kSpriteAlignFloor = 0x0020;
 
+// Texture-placement bits (M6.2B1). Bit positions and meanings are verbatim
+// from the same published description (PROVENANCE row 9), re-verified against
+// it before adoption; usage counts over the six owned maps are in
+// docs/MILESTONES.md (M6.2B1). Floor/ceiling planes:
+//
+//   floorstat/ceilingstat
+//     0x0004  swap x&y
+//     0x0008  double smooshiness (UNSUPPORTED — factor not established by
+//             approved provenance; deferred with an explicit ledger entry)
+//     0x0010  x-flip
+//     0x0020  y-flip
+//     0x0040  align texture to first wall of sector (relative alignment)
+inline constexpr std::int16_t kStatPlaneSwapXY = 0x0004;
+inline constexpr std::int16_t kStatPlaneSmoosh = 0x0008;
+inline constexpr std::int16_t kStatPlaneFlipX = 0x0010;
+inline constexpr std::int16_t kStatPlaneFlipY = 0x0020;
+inline constexpr std::int16_t kStatPlaneRelative = 0x0040;
+// Wall placement bits (cstat):
+//   0x0004  align picture on bottom (0 = top)
+//   0x0008  x-flipped
+//   0x0100  y-flipped
+inline constexpr std::int16_t kWallCstatBottomAligned = 0x0004;
+inline constexpr std::int16_t kWallCstatFlipX = 0x0008;
+inline constexpr std::int16_t kWallCstatFlipY = 0x0100;
+
 struct StartPose {
     std::int32_t x = 0;
     std::int32_t y = 0;

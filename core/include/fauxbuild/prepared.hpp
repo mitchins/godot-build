@@ -112,6 +112,33 @@ struct UvConventions {
     // PROVISIONAL: floor U/V take world X/Y respectively, unswapped.
     bool floor_u_is_world_x = true;
 
+    // --- Authored placement controls (M6.2B1). The BITS are documented
+    // (PROVENANCE row 9); how they combine below is the provisional generic
+    // model, applied only in core/src/prepared.cpp:
+    //
+    //   1. base (a,b) coordinates: world Build X/Y, or — with the
+    //      relative-alignment bit — the sector's first-wall frame;
+    //   2. the swap-XY bit exchanges a and b;
+    //   3. tile-local u = a / units_u, v = b / units_v (the M6.2A scale);
+    //   4. a flip bit NEGATES its tile-local coordinate (a mirror; the
+    //      consumer's fract() makes -u the exact mirror of u);
+    //   5. panning adds tile-local phase AFTER flips, so a flip cannot
+    //      erase or double a pan.
+    //
+    // PROVISIONAL: panning bytes are texel offsets within the selected tile
+    // (pan_u = xpanning / tile_width, pan_v = ypanning / tile_height;
+    // wrapping stays tile-local). The SIGN is one global choice for all
+    // surfaces: true adds phase (texture appears to move toward -U/-V).
+    bool panning_adds_phase = true;
+
+    // PROVISIONAL: with the relative-alignment bit, floor/ceiling U runs
+    // along the sector's first wall A->B (false: B->A)...
+    bool floor_relative_u_follows_first_wall = true;
+    // ...and V runs along the LEFT perpendicular of the (possibly reversed) U
+    // direction — reversing U reverses V with it, so the frame stays
+    // right-handed. Origin is the first wall's A endpoint.
+    bool floor_relative_v_is_left_perp = true;
+
     // Must match the StructuralOptions::scale the world was built with.
     // Not a UV convention — it is how render-space vertices are read back to
     // Build coordinates, which is where every constant above is stated.
@@ -123,6 +150,14 @@ struct UvConventions {
 // Compose geometry and assets. Fails with a structured error when a surface's
 // picnum is out of range or unpopulated — deliberately, rather than silently
 // substituting a placeholder tile.
+//
+// `world` is caller-provided, so its per-sector tables are validated as
+// EXTERNAL input before any surface is prepared, never assumed and never
+// FB_CHECKed: `sector_frames` must cover the same sector index domain as
+// `sector_appearance`, and every surface's `sector` must index that domain.
+// A world that fails either check yields a structured error and NO partial
+// PreparedWorld — preparing surfaces from absent or default frame data would
+// silently produce wrong UVs instead of a diagnosable failure.
 Result<PreparedWorld> prepare_world(const StructuralWorld& world, const IndexedAtlas& atlas,
                                     const PaletteData& palette,
                                     const UvConventions& conventions = {});

@@ -849,6 +849,38 @@ Result<StructuralWorld> build_structural_world(const mapv7::MapData& map,
         world.sector_appearance.push_back(appearance);
     }
 
+    // Authored texture reference frames (M6.2B1), same totality contract:
+    // verbatim Build-space endpoints of each sector's first wall. Copied,
+    // never derived — the prepared layer consumes `sector_frames` and is
+    // forbidden from reconstructing a first wall out of emitted surfaces
+    // (ci/check_layering.py). A sector whose RELATIVE-alignment flag is set
+    // but whose first wall is missing/degenerate gets a note here: the
+    // geometry is fine, the authored frame is not recoverable, and the
+    // prepared layer will fall back to world axes.
+    world.sector_frames.reserve(map.sectors.size());
+    for (std::size_t s = 0; s < map.sectors.size(); ++s) {
+        const mapv7::Sector& sector = map.sectors[s];
+        StructuralSectorFrame frame;
+        frame.first_wall = sector.wallnum > 0 ? sector.wallptr : static_cast<std::int16_t>(-1);
+        if (frame.first_wall >= 0) {
+            const mapv7::Wall& a = map.walls[static_cast<std::size_t>(frame.first_wall)];
+            const mapv7::Wall& b = map.walls[static_cast<std::size_t>(a.point2)];
+            frame.ax = a.x;
+            frame.ay = a.y;
+            frame.bx = b.x;
+            frame.by = b.y;
+        }
+        const bool relative = (sector.floorstat & mapv7::kStatPlaneRelative) != 0 ||
+                              (sector.ceilingstat & mapv7::kStatPlaneRelative) != 0;
+        if (relative && (frame.first_wall < 0 || (frame.ax == frame.bx && frame.ay == frame.by))) {
+            world.notes.push_back({"sector[" + std::to_string(s) + "]",
+                                   "relative alignment has no first-wall frame "
+                                   "(missing or zero-length first wall); texture frame "
+                                   "falls back to world axes"});
+        }
+        world.sector_frames.push_back(frame);
+    }
+
     for (std::size_t s = 0; s < map.sectors.size(); ++s) {
         const mapv7::Sector& sector = map.sectors[s];
         const auto begin = static_cast<std::int64_t>(sector.wallptr);

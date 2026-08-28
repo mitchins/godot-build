@@ -51,6 +51,13 @@ class FauxStructuralFixture : public godot::RefCounted {
     // re-loads exactly these bytes through a directory mount.
     godot::String write_fixture_map(const godot::String& name, const godot::String& directory);
 
+    // M6.2B1: serialize the two_sector_portal fixture with AUTHORED texture
+    // placement fields set (panning, flips, swap-XY, relative alignment,
+    // wall bottom alignment; original synthetic values) as PLACEMENT.MAP.
+    // The textured boundary gate loads these bytes so verbatim UV passthrough
+    // is proven for placement-carrying UVs, not only default-flag ones.
+    godot::String write_placement_map(const godot::String& directory);
+
     // Build a synthetic GRP archive in `directory` from committed fixtures,
     // using the approved M4 canonical builder (fauxbuild::synth::build_grp).
     // `entries` is an Array of Dictionaries:

@@ -3,8 +3,14 @@
 // atlas tiles, UVs exist once per vertex and come from one authority. They do
 // NOT assert historical Build constants: the UV conventions are provisional
 // and the human visual gate on real content is what settles them.
+//
+// M6.2B1 adds the authored-placement gates: panning, flips, swap-XY, relative
+// alignment and wall bottom alignment are interpreted ONLY in the UV
+// authority, with zero/default placement byte-identical to M6.2A.
 #include <algorithm>
+#include <cmath>
 #include <cstdint>
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -12,6 +18,7 @@
 
 #include "fauxbuild/atlas.hpp"
 #include "fauxbuild/map_synth.hpp"
+#include "fauxbuild/map_v7.hpp"
 #include "fauxbuild/palette.hpp"
 #include "fauxbuild/prepared.hpp"
 #include "fauxbuild/structural.hpp"
@@ -22,6 +29,7 @@ using fauxbuild::build_structural_world;
 using fauxbuild::IndexedAtlas;
 using fauxbuild::PaletteData;
 using fauxbuild::prepare_world;
+using fauxbuild::PreparedSurface;
 using fauxbuild::PreparedWorld;
 using fauxbuild::StructuralWorld;
 using fauxbuild::SurfaceKind;
@@ -268,4 +276,617 @@ TEST_CASE("prepared world: wall UVs advance along the wall and down its height")
         ++walls_checked;
     }
     CHECK(walls_checked == 4);
+}
+
+// ===========================================================================
+// M6.2B1 — authored texture placement. Every expectation below is derived by
+// hand from the documented bits (PROVENANCE row 9) composed with the
+// CURRENT provisional UvConventions (floor 16 units/texel, wall U 16 XY, wall
+// V 256 Z, reference repeat 64). A ratified change to a convention must
+// update these numbers in the same change — that is the point of pinning
+// them. square_room geometry: walls (0,0)->(65536,0)->(65536,65536)->(0,65536),
+// wall spans cover Build Z [0, 16384], wall repeats 16/16. With tile 0
+// (64x64): floor tile = 1024 world units, wall U tile = 256 units
+// (16 * 16/64 * 64), wall V tile = 4096 Z units (256 * 16/64 * 64).
+// ===========================================================================
+
+namespace {
+
+constexpr double kScale = 1.0 / 2048.0; // UvConventions::render_scale default
+
+// Inverse of to_render_space for test lookups: render (x,y,z) -> Build.
+struct TestBuildPoint {
+    double x = 0.0;
+    double y = 0.0;
+    double z = 0.0;
+};
+
+TestBuildPoint to_build_point(const fauxbuild::StructuralVertex& v) {
+    return {v.x / kScale, v.z / kScale,
+            -v.y / (kScale / fauxbuild::kBuildVerticalUnitsPerHorizontal)};
+}
+
+// Find the UV of the vertex at Build (bx, by, bz), tolerance for the
+// render-space round trip. Wall spans share (bx,by) between top and bottom
+// vertices, so bz disambiguates.
+const fauxbuild::PreparedUV* uv_at(const PreparedSurface& surface, double bx, double by,
+                                   double bz) {
+    for (std::size_t i = 0; i < surface.vertices.size(); ++i) {
+        const TestBuildPoint p = to_build_point(surface.vertices[i]);
+        if (std::abs(p.x - bx) < 1e-6 && std::abs(p.y - by) < 1e-6 && std::abs(p.z - bz) < 1e-6) {
+            return &surface.uvs[i];
+        }
+    }
+    return nullptr;
+}
+
+StructuralWorld placement_world(const std::function<void(fauxbuild::mapv7::MapData&)>& mutate,
+                                const char* fixture = "square_room", std::int16_t picnum = 0) {
+    auto map = map_fixture(fixture);
+    REQUIRE(map.is_ok());
+    auto source = map.take();
+    for (auto& sector : source.sectors) {
+        sector.floorpicnum = picnum;
+        sector.ceilingpicnum = picnum;
+    }
+    for (auto& wall : source.walls) {
+        wall.picnum = picnum;
+    }
+    if (mutate) {
+        mutate(source);
+    }
+    auto world = build_structural_world(source);
+    REQUIRE(world.is_ok());
+    return world.take();
+}
+
+PreparedWorld prepare(const StructuralWorld& world, const IndexedAtlas& atlas,
+                      const UvConventions& c = {}) {
+    auto prepared = prepare_world(world, atlas, make_palette(), c);
+    REQUIRE(prepared.is_ok());
+    return prepared.take();
+}
+
+const PreparedSurface* find_surface(const PreparedWorld& world, SurfaceKind kind,
+                                    std::int16_t wall = -1) {
+    for (const auto& surface : world.surfaces) {
+        if (surface.kind == kind && (wall < 0 || surface.wall == wall)) {
+            return &surface;
+        }
+    }
+    return nullptr;
+}
+
+} // namespace
+
+TEST_CASE("placement: zero/default placement reproduces the M6.2A UVs exactly") {
+    // Regression pin. These hand-derived values ARE the accepted M6.2A
+    // semantics; implementing authored controls must not move them by one
+    // float. (Sabotage "mutate the M6.2A global scale while implementing an
+    // authored control" goes red here first.)
+    const IndexedAtlas atlas = make_atlas();
+    const PreparedWorld p = prepare(placement_world(nullptr), atlas);
+
+    // Floor: u = x/1024, v = y/1024 at the four corners.
+    const PreparedSurface* floor = find_surface(p, SurfaceKind::Floor);
+    REQUIRE(floor != nullptr);
+    struct Corner {
+        double x, y, u, v;
+    };
+    for (const Corner& corner : {Corner{0, 0, 0, 0}, Corner{65536, 0, 64, 0},
+                                 Corner{65536, 65536, 64, 64}, Corner{0, 65536, 0, 64}}) {
+        const auto* uv = uv_at(*floor, corner.x, corner.y, 0);
+        REQUIRE(uv != nullptr);
+        CHECK(uv->u == corner.u);
+        CHECK(uv->v == corner.v);
+    }
+
+    // Wall 0 (0,0)->(65536,0), span Z [0,16384], top-anchored: u = along/256,
+    // v = z/4096.
+    const PreparedSurface* wall = find_surface(p, SurfaceKind::SolidWall, 0);
+    REQUIRE(wall != nullptr);
+    for (const Corner& c : {Corner{0, 0, 0, 0}, Corner{65536, 0, 256, 0}}) {
+        const auto* top = uv_at(*wall, c.x, c.y, 0);
+        REQUIRE(top != nullptr);
+        CHECK(top->u == c.u);
+        CHECK(top->v == 0.0f);
+    }
+    const auto* bottom_a = uv_at(*wall, 0, 0, 16384);
+    const auto* bottom_b = uv_at(*wall, 65536, 0, 16384);
+    REQUIRE(bottom_a != nullptr);
+    REQUIRE(bottom_b != nullptr);
+    CHECK(bottom_a->u == 0.0f);
+    CHECK(bottom_a->v == 4.0f);
+    CHECK(bottom_b->u == 256.0f);
+    CHECK(bottom_b->v == 4.0f);
+}
+
+TEST_CASE("placement: floor panning adds tile-local phase, per axis") {
+    // Tile 1 is 128x64: pan_u = 16/128 = 0.125, pan_v = 16/64 = 0.25 — the
+    // asymmetric tile makes a transposed panning application (the recorded
+    // sabotage) provably different from the correct one.
+    const IndexedAtlas atlas = make_atlas();
+    const StructuralWorld world = placement_world(
+        [](fauxbuild::mapv7::MapData& map) {
+            map.sectors[0].floorxpanning = 16;
+            map.sectors[0].floorypanning = 16;
+        },
+        "square_room", 1);
+    const PreparedWorld p = prepare(world, atlas);
+
+    const PreparedSurface* floor = find_surface(p, SurfaceKind::Floor);
+    REQUIRE(floor != nullptr);
+    // Corner (65536, 65536) with tile 1 (128x64): tile spans 2048 x 1024
+    // world units, so u0 = 32, v0 = 64; pan adds 0.125 / 0.25.
+    const auto* uv = uv_at(*floor, 65536, 65536, 0);
+    REQUIRE(uv != nullptr);
+    CHECK(uv->u == 32.0f + 0.125f);
+    CHECK(uv->v == 64.0f + 0.25f);
+    // X pan only moves u; Y pan only moves v (axis independence).
+    const StructuralWorld x_only =
+        placement_world([](fauxbuild::mapv7::MapData& map) { map.sectors[0].floorxpanning = 16; },
+                        "square_room", 1);
+    const PreparedWorld x_prepared = prepare(x_only, atlas);
+    const PreparedSurface* xf = find_surface(x_prepared, SurfaceKind::Floor);
+    const auto* xuv = uv_at(*xf, 65536, 0, 0);
+    REQUIRE(xuv != nullptr);
+    CHECK(xuv->u == 32.0f + 0.125f);
+    CHECK(xuv->v == 0.0f);
+}
+
+TEST_CASE("placement: wall panning adds tile-local phase, per axis") {
+    const IndexedAtlas atlas = make_atlas();
+    const StructuralWorld world = placement_world([](fauxbuild::mapv7::MapData& map) {
+        map.walls[0].xpanning = 16;
+        map.walls[0].ypanning = 16;
+    });
+    const PreparedWorld p = prepare(world, atlas);
+
+    const PreparedSurface* wall = find_surface(p, SurfaceKind::SolidWall, 0);
+    REQUIRE(wall != nullptr);
+    const auto* top = uv_at(*wall, 0, 0, 0);
+    const auto* bottom = uv_at(*wall, 65536, 0, 16384);
+    REQUIRE(top != nullptr);
+    REQUIRE(bottom != nullptr);
+    CHECK(top->u == 0.25f); // 0 + 16/64
+    CHECK(top->v == 0.25f);
+    CHECK(bottom->u == 256.0f + 0.25f);
+    CHECK(bottom->v == 4.0f + 0.25f);
+}
+
+TEST_CASE("placement: floor flips mirror one tile-local axis each") {
+    const IndexedAtlas atlas = make_atlas();
+    const PreparedWorld base = prepare(placement_world(nullptr), atlas);
+
+    const auto flipped_world = [](std::int16_t bits) {
+        return placement_world(
+            [bits](fauxbuild::mapv7::MapData& map) { map.sectors[0].floorstat |= bits; });
+    };
+    const PreparedWorld fx = prepare(flipped_world(fauxbuild::mapv7::kStatPlaneFlipX), atlas);
+    const PreparedWorld fy = prepare(flipped_world(fauxbuild::mapv7::kStatPlaneFlipY), atlas);
+    const PreparedWorld fxy = prepare(
+        flipped_world(fauxbuild::mapv7::kStatPlaneFlipX | fauxbuild::mapv7::kStatPlaneFlipY),
+        atlas);
+
+    const PreparedSurface* base_floor = find_surface(base, SurfaceKind::Floor);
+    for (const auto* world : {&fx, &fy, &fxy}) {
+        const PreparedSurface* floor = find_surface(*world, SurfaceKind::Floor);
+        REQUIRE(floor != nullptr);
+        REQUIRE(floor->vertices.size() == base_floor->vertices.size());
+        for (std::size_t i = 0; i < floor->vertices.size(); ++i) {
+            // A flip is UV-only: the structural vertices are verbatim, and
+            // each vertex's flip is exactly the negation of its base value.
+            CHECK(floor->vertices[i] == base_floor->vertices[i]);
+            const bool x = world == &fx || world == &fxy;
+            const bool y = world == &fy || world == &fxy;
+            CHECK(floor->uvs[i].u == (x ? -base_floor->uvs[i].u : base_floor->uvs[i].u));
+            CHECK(floor->uvs[i].v == (y ? -base_floor->uvs[i].v : base_floor->uvs[i].v));
+        }
+    }
+    CHECK(find_surface(fx, SurfaceKind::Floor)->uvs != find_surface(fy, SurfaceKind::Floor)->uvs);
+    CHECK(find_surface(fx, SurfaceKind::Floor)->uvs != find_surface(fxy, SurfaceKind::Floor)->uvs);
+}
+
+TEST_CASE("placement: floor swap-XY exchanges the base axes") {
+    const IndexedAtlas atlas = make_atlas();
+    const PreparedWorld base = prepare(placement_world(nullptr), atlas);
+    const PreparedWorld swapped = prepare(placement_world([](fauxbuild::mapv7::MapData& map) {
+                                              map.sectors[0].floorstat |=
+                                                  fauxbuild::mapv7::kStatPlaneSwapXY;
+                                          }),
+                                          atlas);
+
+    const PreparedSurface* base_floor = find_surface(base, SurfaceKind::Floor);
+    const PreparedSurface* swapped_floor = find_surface(swapped, SurfaceKind::Floor);
+    REQUIRE(swapped_floor != nullptr);
+    REQUIRE(swapped_floor->vertices.size() == base_floor->vertices.size());
+    for (std::size_t i = 0; i < swapped_floor->vertices.size(); ++i) {
+        CHECK(swapped_floor->uvs[i].u == base_floor->uvs[i].v);
+        CHECK(swapped_floor->uvs[i].v == base_floor->uvs[i].u);
+    }
+}
+
+TEST_CASE("placement: flip and pan compose without erasing or doubling") {
+    // Flip negates the position-derived coordinate; pan adds phase AFTER the
+    // flip. X-flip + X-pan must therefore differ from X-flip alone by exactly
+    // +pan on u, with v untouched.
+    const IndexedAtlas atlas = make_atlas();
+    const PreparedWorld flipped = prepare(placement_world([](fauxbuild::mapv7::MapData& map) {
+                                              map.sectors[0].floorstat |=
+                                                  fauxbuild::mapv7::kStatPlaneFlipX;
+                                          }),
+                                          atlas);
+    const PreparedWorld flipped_panned =
+        prepare(placement_world([](fauxbuild::mapv7::MapData& map) {
+                    map.sectors[0].floorstat |= fauxbuild::mapv7::kStatPlaneFlipX;
+                    map.sectors[0].floorxpanning = 16;
+                    map.sectors[0].floorypanning = 8;
+                }),
+                atlas);
+
+    const PreparedSurface* a = find_surface(flipped, SurfaceKind::Floor);
+    const PreparedSurface* b = find_surface(flipped_panned, SurfaceKind::Floor);
+    REQUIRE(a != nullptr);
+    REQUIRE(b->vertices.size() == a->vertices.size());
+    for (std::size_t i = 0; i < a->vertices.size(); ++i) {
+        CHECK(b->uvs[i].u == a->uvs[i].u + 0.25f);  // 16/64
+        CHECK(b->uvs[i].v == a->uvs[i].v + 0.125f); // 8/64
+    }
+}
+
+TEST_CASE("placement: wall bottom alignment anchors V at the span's lower edge") {
+    const IndexedAtlas atlas = make_atlas();
+    const PreparedWorld base = prepare(placement_world(nullptr), atlas);
+    const PreparedWorld bottom = prepare(placement_world([](fauxbuild::mapv7::MapData& map) {
+                                             map.walls[0].cstat |=
+                                                 fauxbuild::mapv7::kWallCstatBottomAligned;
+                                         }),
+                                         atlas);
+
+    const PreparedSurface* wall = find_surface(bottom, SurfaceKind::SolidWall, 0);
+    REQUIRE(wall != nullptr);
+    // v = (z - 16384)/4096: the span's bottom edge is phase 0, the top edge
+    // is -4 — the same vertical texel scale, anchored at the other end.
+    const auto* top = uv_at(*wall, 0, 0, 0);
+    const auto* bottom_uv = uv_at(*wall, 0, 0, 16384);
+    REQUIRE(top != nullptr);
+    REQUIRE(bottom_uv != nullptr);
+    CHECK(bottom_uv->v == 0.0f);
+    CHECK(top->v == -4.0f);
+    // U is untouched by the alignment bit.
+    const PreparedSurface* base_wall = find_surface(base, SurfaceKind::SolidWall, 0);
+    for (std::size_t i = 0; i < wall->uvs.size(); ++i) {
+        CHECK(wall->uvs[i].u == base_wall->uvs[i].u);
+    }
+
+    // Bottom align + Y flip (the recorded combination): flip mirrors the
+    // position-derived v only — v = -(z - 16384)/4096.
+    const PreparedWorld combo = prepare(placement_world([](fauxbuild::mapv7::MapData& map) {
+                                            map.walls[0].cstat |=
+                                                fauxbuild::mapv7::kWallCstatBottomAligned;
+                                            map.walls[0].cstat |= fauxbuild::mapv7::kWallCstatFlipY;
+                                        }),
+                                        atlas);
+    const PreparedSurface* combo_wall = find_surface(combo, SurfaceKind::SolidWall, 0);
+    REQUIRE(combo_wall != nullptr);
+    const auto* combo_top = uv_at(*combo_wall, 0, 0, 0);
+    const auto* combo_bottom = uv_at(*combo_wall, 0, 0, 16384);
+    REQUIRE(combo_top != nullptr);
+    REQUIRE(combo_bottom != nullptr);
+    CHECK(combo_bottom->v == 0.0f);
+    CHECK(combo_top->v == 4.0f);
+}
+
+TEST_CASE("placement: wall flips mirror one tile-local axis each") {
+    const IndexedAtlas atlas = make_atlas();
+    const PreparedWorld base = prepare(placement_world(nullptr), atlas);
+    const PreparedWorld fx = prepare(placement_world([](fauxbuild::mapv7::MapData& map) {
+                                         map.walls[0].cstat |= fauxbuild::mapv7::kWallCstatFlipX;
+                                     }),
+                                     atlas);
+    const PreparedWorld fy = prepare(placement_world([](fauxbuild::mapv7::MapData& map) {
+                                         map.walls[0].cstat |= fauxbuild::mapv7::kWallCstatFlipY;
+                                     }),
+                                     atlas);
+
+    const PreparedSurface* base_wall = find_surface(base, SurfaceKind::SolidWall, 0);
+    for (const auto* world : {&fx, &fy}) {
+        const PreparedSurface* wall = find_surface(*world, SurfaceKind::SolidWall, 0);
+        REQUIRE(wall != nullptr);
+        REQUIRE(wall->vertices.size() == base_wall->vertices.size());
+        for (std::size_t i = 0; i < wall->uvs.size(); ++i) {
+            CHECK(wall->vertices[i] == base_wall->vertices[i]); // UV-only change
+            const bool x = world == &fx;
+            CHECK(wall->uvs[i].u == (x ? -base_wall->uvs[i].u : base_wall->uvs[i].u));
+            CHECK(wall->uvs[i].v == (x ? base_wall->uvs[i].v : -base_wall->uvs[i].v));
+        }
+    }
+}
+
+TEST_CASE("placement: relative alignment uses the sector's first-wall frame") {
+    // A rotated square (first wall diagonal at 45 degrees) so the frame
+    // provably differs from the world axes.
+    const IndexedAtlas atlas = make_atlas();
+    const auto rotated_world = [](bool relative) {
+        fauxbuild::mapv7::MapData map;
+        const std::int32_t xs[] = {2048, 4096, 2048, 0};
+        const std::int32_t ys[] = {0, 2048, 4096, 2048};
+        for (std::size_t i = 0; i < 4; ++i) {
+            fauxbuild::mapv7::Wall wall;
+            wall.x = xs[i];
+            wall.y = ys[i];
+            wall.point2 = static_cast<std::int16_t>((i + 1) % 4);
+            wall.picnum = 0;
+            map.walls.push_back(wall);
+        }
+        map.sectors.push_back(fauxbuild::synth::make_sector(0, 4, 8192, 0));
+        if (relative) {
+            map.sectors[0].floorstat |= fauxbuild::mapv7::kStatPlaneRelative;
+        }
+        map.start = {2048, 2048, 4096, 0, 0};
+        auto world = build_structural_world(map);
+        REQUIRE(world.is_ok());
+        return world.take();
+    };
+
+    const StructuralWorld world = rotated_world(true);
+    const PreparedWorld p = prepare(world, atlas);
+    const PreparedSurface* floor = find_surface(p, SurfaceKind::Floor);
+    REQUIRE(floor != nullptr);
+
+    // Expected: frame U = normalized A->B, V = left perpendicular of the U
+    // direction (reversing U reverses V with it — the frame stays
+    // right-handed), origin A.
+    const double dx = 4096.0 - 2048.0;
+    const double dy = 2048.0 - 0.0;
+    const double len = std::sqrt(dx * dx + dy * dy);
+    const double ux = dx / len, uy = dy / len;
+    const double vx = -uy, vy = ux;
+    for (std::size_t i = 0; i < floor->vertices.size(); ++i) {
+        const TestBuildPoint pt = to_build_point(floor->vertices[i]);
+        const double a = (pt.x - 2048.0) * ux + (pt.y - 0.0) * uy;
+        const double b = (pt.x - 2048.0) * vx + (pt.y - 0.0) * vy;
+        // Tile 0 is 64x64: one tile = 1024 world units on each axis. The
+        // prepared value is a float, so compare at float precision.
+        CHECK(floor->uvs[i].u == doctest::Approx(a / 1024.0).epsilon(1e-6));
+        CHECK(floor->uvs[i].v == doctest::Approx(b / 1024.0).epsilon(1e-6));
+    }
+
+    // The frame is really the first wall's, not the world axes: the two
+    // disagree on this rotated room.
+    const PreparedWorld world_axes = prepare(rotated_world(false), atlas);
+    const PreparedSurface* plain = find_surface(world_axes, SurfaceKind::Floor);
+    REQUIRE(plain != nullptr);
+    CHECK(plain->uvs != floor->uvs);
+
+    // The orientation conventions are live one-site toggles. Reversing U
+    // takes the left perpendicular of the REVERSED direction, so V reverses
+    // with it — the frame stays right-handed either way.
+    UvConventions reversed;
+    reversed.floor_relative_u_follows_first_wall = false;
+    const PreparedWorld flipped_u = prepare(rotated_world(true), atlas, reversed);
+    const PreparedSurface* flipped_floor = find_surface(flipped_u, SurfaceKind::Floor);
+    REQUIRE(flipped_floor != nullptr);
+    for (std::size_t i = 0; i < floor->uvs.size(); ++i) {
+        CHECK(flipped_floor->uvs[i].u == doctest::Approx(-floor->uvs[i].u).epsilon(1e-6));
+        CHECK(flipped_floor->uvs[i].v == doctest::Approx(-floor->uvs[i].v).epsilon(1e-6));
+    }
+}
+
+TEST_CASE("placement: relative alignment falls back to world axes on a degenerate frame") {
+    // slope_degenerate_hinge has a zero-length first wall; the slope bit is
+    // cleared so the floor exists, and the relative bit then has no frame.
+    const IndexedAtlas atlas = make_atlas();
+    const StructuralWorld degenerate = placement_world(
+        [](fauxbuild::mapv7::MapData& map) {
+            map.sectors[0].floorstat &= ~fauxbuild::mapv7::kStatSloped;
+            map.sectors[0].floorstat |= fauxbuild::mapv7::kStatPlaneRelative;
+        },
+        "slope_degenerate_hinge");
+    // Build must say so rather than guess silently.
+    bool noted = false;
+    for (const auto& note : degenerate.notes) {
+        if (note.detail.find("relative alignment") != std::string::npos) {
+            noted = true;
+        }
+    }
+    CHECK(noted);
+
+    // And the prepared UVs are exactly the world-axes ones (bit-identical to
+    // a plain build of the same room).
+    const StructuralWorld plain = placement_world(
+        [](fauxbuild::mapv7::MapData& map) {
+            map.sectors[0].floorstat &= ~fauxbuild::mapv7::kStatSloped;
+        },
+        "slope_degenerate_hinge");
+    const PreparedWorld degenerate_prepared = prepare(degenerate, atlas);
+    const PreparedWorld plain_prepared = prepare(plain, atlas);
+    const PreparedSurface* a = find_surface(degenerate_prepared, SurfaceKind::Floor);
+    const PreparedSurface* b = find_surface(plain_prepared, SurfaceKind::Floor);
+    REQUIRE(a != nullptr);
+    REQUIRE(b != nullptr);
+    CHECK(a->uvs == b->uvs);
+}
+
+TEST_CASE("placement: sloped and wedge spans change UV only, geometry stays verbatim") {
+    const IndexedAtlas atlas = make_atlas();
+    const auto with_placement = [](const char* fixture,
+                                   const std::function<void(fauxbuild::mapv7::MapData&)>& mutate) {
+        return placement_world(
+            [&](fauxbuild::mapv7::MapData& map) {
+                for (auto& wall : map.walls) {
+                    wall.cstat |= fauxbuild::mapv7::kWallCstatBottomAligned |
+                                  fauxbuild::mapv7::kWallCstatFlipY;
+                    wall.ypanning = 16;
+                }
+                if (mutate) {
+                    mutate(map);
+                }
+            },
+            fixture);
+    };
+
+    for (const char* fixture : {"ramp_floor_pos", "ramp_ceiling", "portal_slope_collapse"}) {
+        INFO("fixture ", fixture);
+        const StructuralWorld placed = with_placement(fixture, nullptr);
+        const StructuralWorld plain = placement_world(nullptr, fixture);
+        REQUIRE(placed.diagnostics.empty()); // no zero-area geometry appeared
+
+        // Same surfaces as the plain build, vertex for vertex, index for
+        // index: placement never rederives slope geometry.
+        REQUIRE(placed.surfaces.size() == plain.surfaces.size());
+        for (std::size_t i = 0; i < placed.surfaces.size(); ++i) {
+            CHECK(placed.surfaces[i].vertices == plain.surfaces[i].vertices);
+            CHECK(placed.surfaces[i].indices == plain.surfaces[i].indices);
+        }
+
+        const PreparedWorld p = prepare(placed, atlas);
+        bool saw_wedge = false;
+        bool saw_bottom_phase_zero = false;
+        for (const auto& surface : p.surfaces) {
+            if (surface.kind != SurfaceKind::SolidWall &&
+                surface.kind != SurfaceKind::PortalUpper &&
+                surface.kind != SurfaceKind::PortalLower) {
+                continue;
+            }
+            // Bottom-anchored: the lowest vertex (max Build Z) is phase 0
+            // modulo the pan (ypan 16/64 = 0.25).
+            double max_z = -1e300;
+            for (const auto& vertex : surface.vertices) {
+                max_z = std::max(max_z, to_build_point(vertex).z);
+            }
+            for (std::size_t i = 0; i < surface.vertices.size(); ++i) {
+                if (to_build_point(surface.vertices[i]).z == max_z) {
+                    // -(z - anchor)/scale + pan == -0 + 0.25 at the anchor.
+                    CHECK(surface.uvs[i].v == doctest::Approx(0.25).epsilon(1e-9));
+                    saw_bottom_phase_zero = true;
+                }
+            }
+            if (surface.vertices.size() == 3) {
+                saw_wedge = true;
+            }
+        }
+        CHECK(saw_bottom_phase_zero);
+        if (std::string(fixture) == "portal_slope_collapse") {
+            CHECK(saw_wedge); // the fixture's defining feature survived
+        }
+    }
+}
+
+TEST_CASE("placement: zero panning is byte-equivalent to the unpanned world") {
+    // panning bytes of 0 must not perturb a single float — including on
+    // surfaces that DO use flips, swap and relative alignment.
+    const IndexedAtlas atlas = make_atlas();
+    const auto placed = [](fauxbuild::mapv7::MapData& map) {
+        map.sectors[0].floorstat |= fauxbuild::mapv7::kStatPlaneSwapXY |
+                                    fauxbuild::mapv7::kStatPlaneFlipX |
+                                    fauxbuild::mapv7::kStatPlaneRelative;
+        for (auto& wall : map.walls) {
+            wall.cstat |= fauxbuild::mapv7::kWallCstatFlipX;
+        }
+    };
+    const PreparedWorld a = prepare(placement_world(placed), atlas);
+    const PreparedWorld b = prepare(placement_world(placed), atlas);
+    REQUIRE(a.surfaces.size() == b.surfaces.size());
+    for (std::size_t i = 0; i < a.surfaces.size(); ++i) {
+        CHECK(a.surfaces[i].uvs == b.surfaces[i].uvs); // determinism
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Seam-contract gates. The per-sector tables are caller-provided input, so an
+// incoherent world must produce a structured error, not an indexed read past
+// the end. Before these gates prepare_world indexed sector_frames blind: a
+// world with no frames read a null pointer (UBSan: "reference binding to null
+// pointer of type 'const StructuralSectorFrame'") and STILL returned ok,
+// building UVs from garbage. The failure mode was silent-wrong, not a crash,
+// which is why an error is required rather than an assertion.
+//
+// One case per TEST_CASE deliberately: a REQUIRE inside a SUBCASE aborts the
+// whole case, so grouping them would let the first failure mask the rest —
+// and the rejection matrix is the point.
+// ---------------------------------------------------------------------------
+
+namespace {
+
+// A well-formed world plus its atlas/palette, for the contract gates to break
+// one field at a time.
+StructuralWorld contract_world() {
+    StructuralWorld world = placement_world(nullptr);
+    REQUIRE(world.surfaces.empty() == false);
+    REQUIRE(world.sector_frames.size() == world.sector_appearance.size());
+    REQUIRE(world.sector_frames.empty() == false);
+    return world;
+}
+
+} // namespace
+
+TEST_CASE("seam contract: frames absent entirely while surfaces exist") {
+    StructuralWorld world = contract_world();
+    world.sector_frames.clear();
+    auto prepared = prepare_world(world, make_atlas(), make_palette());
+    REQUIRE(prepared.is_ok() == false);
+    CHECK(prepared.error().code == fauxbuild::ErrorCode::InvalidTopology);
+    CHECK(prepared.error().record == "world");
+}
+
+TEST_CASE("seam contract: frames truncated below the sector domain") {
+    StructuralWorld world = contract_world();
+    world.sector_frames.pop_back();
+    auto prepared = prepare_world(world, make_atlas(), make_palette());
+    REQUIRE(prepared.is_ok() == false);
+    CHECK(prepared.error().code == fauxbuild::ErrorCode::InvalidTopology);
+}
+
+TEST_CASE("seam contract: frames longer than the sector domain") {
+    // Over-long is refused too: a mismatched table means producer and consumer
+    // disagree about the domain, whichever way it leans.
+    StructuralWorld world = contract_world();
+    world.sector_frames.push_back({});
+    auto prepared = prepare_world(world, make_atlas(), make_palette());
+    REQUIRE(prepared.is_ok() == false);
+    CHECK(prepared.error().code == fauxbuild::ErrorCode::InvalidTopology);
+}
+
+TEST_CASE("seam contract: a negative surface sector") {
+    StructuralWorld world = contract_world();
+    world.surfaces[0].sector = -1;
+    auto prepared = prepare_world(world, make_atlas(), make_palette());
+    REQUIRE(prepared.is_ok() == false);
+    CHECK(prepared.error().code == fauxbuild::ErrorCode::InvalidRange);
+    CHECK(prepared.error().offset == 0); // the offending surface index
+}
+
+TEST_CASE("seam contract: a surface sector one past the end") {
+    StructuralWorld world = contract_world();
+    world.surfaces[0].sector = static_cast<std::int16_t>(world.sector_frames.size());
+    auto prepared = prepare_world(world, make_atlas(), make_palette());
+    REQUIRE(prepared.is_ok() == false);
+    CHECK(prepared.error().code == fauxbuild::ErrorCode::InvalidRange);
+}
+
+TEST_CASE("seam contract: a late surface's bad sector still rejects the whole world") {
+    // The domain is validated up front, so a violation on the LAST surface
+    // must leave nothing behind — not a PreparedWorld truncated at the first
+    // bad surface, which a per-surface guard inside the loop would produce.
+    StructuralWorld world = contract_world();
+    world.surfaces.back().sector = -1;
+    auto prepared = prepare_world(world, make_atlas(), make_palette());
+    REQUIRE(prepared.is_ok() == false);
+    CHECK(prepared.error().offset == world.surfaces.size() - 1);
+}
+
+TEST_CASE("seam contract: the valid boundary index still succeeds") {
+    // An off-by-one in the guard would reject the LAST real sector. Point a
+    // surface at it explicitly and require a full, correct preparation —
+    // the gate must reject incoherent worlds, not merely reject.
+    StructuralWorld world = contract_world();
+    const auto last = static_cast<std::int16_t>(world.sector_frames.size() - 1);
+    world.surfaces[0].sector = last;
+    auto prepared = prepare_world(world, make_atlas(), make_palette());
+    REQUIRE(prepared.is_ok());
+    const PreparedWorld p = prepared.take();
+    CHECK(p.surfaces.size() == world.surfaces.size());
+    CHECK(p.surfaces[0].sector == last);
+    CHECK(p.surfaces[0].uvs.size() == world.surfaces[0].vertices.size());
 }

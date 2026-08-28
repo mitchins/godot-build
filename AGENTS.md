@@ -66,10 +66,34 @@ live in `UvConventions`, are applied only in `core/src/prepared.cpp`, and a
 change is a single-site edit. No map-, tile- or level-specific value is
 permitted anywhere.
 
-Deferred: **panning, alignment and flip semantics are M6.2B — the next slice, not started**; sprites,
-masked/one-way walls and translucency are later M6 slices; visibility is M10.
-Residual local misalignment on authored multi-surface detail is those
-unimplemented semantics, not a defect in the baseline.
+Deferred: **M6.2B1 (panning, flips, swap-XY, relative and wall top/bottom
+alignment) is HUMAN-ATTESTED PASS 2026-08-28 on untouched E1L1 and is IN
+REVIEW — not merged, not yet ACCEPTED. Do not start M6.2B2 before it merges.**
+All interpretation stays in the
+one UV authority (`core/src/prepared.cpp`); `UvConventions` gained three
+provisional toggles (pan sign, relative-frame orientation x2). Relative
+alignment consumes `StructuralWorld::sector_frames` (first-wall A/B copied
+verbatim by the derivation; `prepared.cpp` may not reconstruct it). The
+smoosh bit (floorstat/ceilingstat 0x0008) stays UNSUPPORTED — no approved
+factor exists; it lands only with a human-ratified provisional factor.
+Zero/default placement remains byte-equivalent to the accepted M6.2A UVs —
+verified on real content, not only fixtures: with placement cleared, all 9046
+E1L1 prepared UVs are bit-for-bit identical to the M6.2A baseline.
+
+**Named residual after the B1 human gate — the cinema entrance.** Original
+E1L1 shows a bounded marquee/sign surface there; FauxBuild repeats an
+unrelated-looking base wall texture across the same rectangle. It is NOT
+attributed to B1 placement semantics: the texture is coherently repeated and
+correctly registered, it simply looks like the wrong texture for the surface —
+a placement defect misregisters a texture, it does not substitute one. Strong
+candidate: deferred masked/one-way wall presentation and `overpicnum`
+selection (preserved verbatim since M6.2A, consumed by nothing). Whoever picks
+it up: test those generic deferred semantics FIRST, and never alter the global
+UV/panning conventions or add a map, wall or tile exception to make it look
+right.
+
+Sprites, masked/one-way walls and translucency are later M6 slices;
+visibility is M10.
 
 **M5 — Static structural world viewer: ACCEPTED 2026-08-25.** All three
 slices accepted. Slice 1: pure-C++ structural derivation from authoritative
@@ -101,8 +125,9 @@ first-wall hinge, activated by stat 0x0002, sign from the directed hinge's 2D
 cross product, `heinum/256` from the 16:1 metric. A plane with no usable hinge
 is diagnosed and its dependent geometry omitted, never flattened (D0019).
 Baseline indexed textures landed in M6.2A (accepted; see above).
-Panning/alignment/flips (M6.2B), sprites, masked/one-way walls and
-translucency are not implemented; visibility (M10) is not started.
+Panning/alignment/flips (M6.2B1) are HUMAN-ATTESTED and in review; sprites,
+masked/one-way walls, translucency and the smoosh bit are not implemented;
+visibility (M10) is not started.
 
 M4 (ART, palette, lookup, tile tooling and the indexed atlas) was **ACCEPTED
 2026-08-24**: all six gate items met, D0013/D0014/D0015 ratified, and two

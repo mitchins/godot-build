@@ -160,6 +160,61 @@ else:
                     f"{path.relative_to(root)}:{lineno}: UV interpretation must live only in "
                     f"core/src/prepared.cpp (D0020): {line.strip()}")
 
+# M6.2B1 authored-frame pin: relative floor/ceiling alignment must consume the
+# sector's first-wall frame as COPIED by the structural derivation
+# (StructuralWorld::sector_frames), never reconstruct a first wall from
+# emitted wall surfaces or wall-list topology inside the UV authority. The
+# reconstruction route needs the wall-list terms below; prepared.cpp sees
+# neither MapData nor the wall list, only the verbatim frame.
+if uv_authority.exists():
+    frame_tokens = re.compile(r'\b(wallptr|wallnum|point2|nextwall|first_wall_search)\b')
+    for lineno, line in enumerate(uv_authority.read_text(encoding="utf-8").splitlines(), 1):
+        if frame_tokens.search(line):
+            violations.append(
+                f"core/src/prepared.cpp:{lineno}: the UV authority must consume "
+                f"StructuralWorld::sector_frames, not reconstruct the first wall: "
+                f"{line.strip()}")
+    # And the frame table itself is produced only by the structural core.
+    frame_owner = re.compile(r'sector_frames\s*(=|\.push_back|\.resize|\.assign|\.reserve)')
+    for path in sorted(core.rglob("*.cpp")) + sorted(core.rglob("*.hpp")):
+        if path == core / "src/structural.cpp" or path == core / "include/fauxbuild/structural.hpp":
+            continue
+        for lineno, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+            if frame_owner.search(line):
+                violations.append(
+                    f"{path.relative_to(root)}:{lineno}: sector_frames is structural "
+                    f"derivation output; only structural.cpp may fill it: {line.strip()}")
+
+# M6.2B1: authored placement bits are interpreted ONLY in the UV authority.
+# The view must not read placement fields at all; the structural core may
+# reference a bit solely to emit diagnostics (the degenerate relative-frame
+# note), never to place anything. The named constants exist so this pin is
+# greppable. Exempt: FauxStructuralFixture AUTHORS synthetic test content —
+# it writes a MAP with placement bits set, exactly like map fixtures set
+# slope bits; authoring content is not interpreting it.
+#
+# LIMIT OF THIS PIN — do not mistake it for the guarantee. It greps for the
+# NAMED constants, so it is a readability aid and a static tripwire against
+# the obvious mistake, nothing more. It cannot see a raw numeric placement
+# bit: `stat & 0x0008` in the view passes this check. The actual authority
+# guarantee is BEHAVIOURAL — godot/scripts/textured_boundary_test.gd proves
+# FauxBuildView uploads the PreparedWorld UVs verbatim, on
+# placement-carrying content, so any reinterpretation in the view fails
+# there however it is spelled. Strengthen that gate, not this grep; this is
+# deliberately not a parser.
+placement_tokens = re.compile(
+    r'\b(kStatPlaneSwapXY|kStatPlaneSmoosh|kStatPlaneFlipX|kStatPlaneFlipY|'
+    r'kStatPlaneRelative|kWallCstatBottomAligned|kWallCstatFlipX|kWallCstatFlipY)\b')
+fixture_harness = root / "extension/src/faux_structural_fixture.cpp"
+for path in sorted(root.glob("core/src/*.cpp")) + sorted(root.glob("extension/src/*.cpp")):
+    if path == uv_authority or path == core / "src/structural.cpp" or path == fixture_harness:
+        continue
+    for lineno, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+        if placement_tokens.search(line):
+            violations.append(
+                f"{path.relative_to(root)}:{lineno}: placement-bit interpretation belongs "
+                f"only to the UV authority (M6.2B1): {line.strip()}")
+
 if violations:
     print("layering check FAILED:")
     for v in violations:
@@ -168,5 +223,6 @@ if violations:
 
 print("layering check: core/ contains no Godot references; atlas payload is indexed; "
       "slope arithmetic has one authority; UV interpretation has one authority; "
+      "authored frames/placement bits live in their owners; "
       "structural derivation stays asset-free; FauxBuildView consumes StructuralWorld "
       "only; the content route lives in FauxStructuralSource")
