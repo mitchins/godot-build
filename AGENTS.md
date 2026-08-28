@@ -91,9 +91,14 @@ it up: test those generic deferred semantics FIRST, and never alter the global
 UV/panning conventions or add a map, wall or tile exception to make it look
 right.
 
-**M6.2C1 (masked portal layers + `overpicnum` selection) is DELIVERED at
-checkpoint 2026-08-28 and awaits the HUMAN cinema gate — do not open a PR
-before it.** `SurfaceKind::PortalMasked` is a distinct sixth kind spanning
+**M6.2C1 (masked portal layers, `overpicnum` selection and the D0021 indexed
+cutout) is HUMAN-ATTESTED PASS IN SCOPE 2026-08-28 on untouched E1L1 and is IN
+REVIEW — not merged, not yet ACCEPTED. The cinema marquee artwork is now
+visibly present; that is the oracle.** Residual, NOT this slice's: the marquee
+repeats far too many times — a generic wall repeat-scale question for M6.2C1c.
+Do NOT change PortalMasked geometry, overpicnum selection, the cutout
+sentinel, culling or B1 placement to fix repetition; those are attested
+correct. `SurfaceKind::PortalMasked` is a distinct sixth kind spanning
 the portal opening (same plane evaluations and zero-area protections as
 upper/lower; quad/wedge/omit), derived only in the structural core from the
 masked bit (cstat 0x0010). `prepare_world` owns THE effective-tile selection:
@@ -152,8 +157,10 @@ is diagnosed and its dependent geometry omitted, never flattened (D0019).
 Baseline indexed textures landed in M6.2A (accepted; see above).
 Panning/alignment/flips (M6.2B1) are ACCEPTED. Masked portal layers and
 `overpicnum` selection (M6.2C1) plus the binary indexed CUTOUT (M6.2C1b) are
-DELIVERED at checkpoint 2026-08-28, awaiting the human cinema gate (see above)
-— no PR before it. The cutout sentinel is palette index **255**, ratified as
+HUMAN-ATTESTED PASS IN SCOPE 2026-08-28 and in review (see above).
+**M6.2C1c is next: generic wall REPEAT semantics** — the marquee repeats far
+too many times, which is a repeat-scale question about the provisional UV
+conventions, not a masked-layer one. Do not start it before C1 merges. The cutout sentinel is palette index **255**, ratified as
 D0021 from black-box measurement over owned content: it is an INDEX semantic
 decided on the authoritative R8 index BEFORE any palette lookup, never on RGB,
 because entries 245 and 255 are both exact full magenta and **245 is NOT

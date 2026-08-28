@@ -1601,7 +1601,7 @@ M6 (slopes, indexed textures, UV/flags, sprites) is next and is where the
 shell stops looking like a CAD model.
 
 Next milestone work was not started.
-## M6 — Slopes, indexed textures, flags, and sprites — IN_PROGRESS (slices 1, 2A and 2B1 ACCEPTED; slice 2C1 DELIVERED at checkpoint 2026-08-28 — HUMAN cinema gate pending)
+## M6 — Slopes, indexed textures, flags, and sprites — IN_PROGRESS (slices 1, 2A and 2B1 ACCEPTED; slice 2C1 HUMAN-ATTESTED PASS IN SCOPE 2026-08-28, in review; slice 2C1c next)
 
 Gate summary: slope query and render share one function; UV/sprite-flag/palette-shade matrix
 fixtures pass; local E1L1 immediately recognizable; unsupported features listed explicitly.
@@ -2493,7 +2493,7 @@ docstring-coverage warning was explicitly not chased: it is a generic
 heuristic over touched functions, not a project gate, and boilerplate around
 well-commented internal helpers would be noise.
 
-### Slice 2C1 — masked portal layers and `overpicnum` selection — DELIVERED at checkpoint 2026-08-28 (HUMAN cinema gate pending)
+### Slice 2C1 — masked portal layers, `overpicnum` selection and indexed cutout — HUMAN-ATTESTED PASS IN SCOPE 2026-08-28 (in review; not merged, not yet ACCEPTED)
 
 **Scope: generic wall-layer selection.** Which texture a wall span presents,
 and which spans a wall contributes, when the authored masked/one-way bits say
@@ -2639,7 +2639,7 @@ PortalMasked into SolidWalls → both scene gates ("groups must be exactly
 global UV constant → the M6.2A/B1 regression pins and the masked UV model.
 
 **Slice 2C1b — masked binary cutout — delivered at checkpoint 2026-08-28
-(HUMAN cinema gate pending).** The C1 structural model, overpicnum selection,
+(attested with slice 2C1 below).** The C1 structural model, overpicnum selection,
 paired sided layers and `cull_back` are unchanged; E1L1 stays at 1948 surfaces
 / 5149 triangles / 19 masked layers, and every prepared row is bit-for-bit
 identical to C1.
@@ -2687,6 +2687,44 @@ surfaces, decision made after the RGB lookup, masked reverted to
 `cull_disabled`, and per-group shader proliferation. The neighbour-254 sabotage
 initially passed — the gate asserted the sentinel was *mentioned*, not that the
 comparison was exact — and the gate was tightened until it failed.
+
+**Slice 2C1 — HUMAN-ATTESTED PASS IN SCOPE 2026-08-28** by mitchellcurrie,
+on untouched E1L1 through `DUKE3D.GRP`. Attested evidence:
+
+- generic masked portal geometry exposes the authored opening layer;
+- the MASKED BIT, not `overpicnum != 0`, controls layer existence;
+- `PortalMasked` resolves `overpicnum`;
+- paired authored sides are preserved and back-face culled;
+- the D0021 index-255 binary cutout removes the transparent background;
+- **the actual cinema marquee artwork is now visibly present.**
+
+What the attestation settles. C1's compatibility question is answered: the
+cinema entrance was the M6.2B1 residual, it was correctly predicted to be
+deferred wall-layer semantics rather than a placement defect, and implementing
+masked layers + `overpicnum` + cutout generically — no map, wall or tile
+exception anywhere — made the right artwork appear. **The correct image
+appearing is the oracle**, and it is a strong one: wall-layer selection,
+overlay-tile resolution and the cutout sentinel all had to be right
+simultaneously for a recognisable marquee to emerge, and no one of them could
+have produced it alone. It also retrospectively validates the C1 provenance
+STOP: refusing to invent a transparent index, then measuring it black-box, is
+what made D0021 trustworthy rather than lucky.
+
+The attestation is **IN SCOPE**, not unconditional — see the residual below.
+
+**Named residual — excessive wall repetition. NOT attributed to this slice.**
+The marquee repeats far too many times horizontally and vertically. Its shape
+is wrong for a masked defect: selection, cutout and culling are all evidently
+correct — the right image, correctly bounded, with its background removed —
+and it is simply tiled too many times. That is a **generic wall repeat-scale**
+question about the provisional UV conventions, not about which layer or which
+texel was chosen.
+
+Binding on whoever picks it up (slice 2C1c): do NOT change `PortalMasked`
+geometry, `overpicnum` selection, the cutout sentinel, culling, or B1
+placement to fix repetition. Those are attested correct. If closing it ever
+appears to need a map, wall or tile exception, the generic model is wrong and
+the work stops — the same rule that has governed every slice since M6.2B.
 
 **Deferred ledger (explicit).**
 - **One-way (cstat 0x0020):** bit identity documented (row 9), positive
