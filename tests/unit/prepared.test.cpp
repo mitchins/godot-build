@@ -1123,3 +1123,77 @@ TEST_CASE("masked layer is additive: no other prepared surface moves") {
     }
     CHECK(masked_count == 2);
 }
+
+TEST_CASE("paired masked layers keep their OWN authored UVs") {
+    // M6.2C1 pre-gate correction pin. The two sides of a masked portal may
+    // carry distinct panning/repeat/flips/alignment. Preparation must keep
+    // both sides with their OWN UVs — never merged, averaged, deduplicated,
+    // or forced onto one side's placement. Proof form: the paired world's
+    // side-A UVs equal the SAME side's UVs in a world where ONLY side A is
+    // masked (and likewise for B), so nothing about the other side leaked in.
+    const IndexedAtlas atlas = make_atlas();
+    const auto authored = [](fauxbuild::mapv7::MapData& map, std::int16_t w, std::int16_t over,
+                             std::uint8_t xr, std::uint8_t yr, std::uint8_t xp, std::uint8_t yp,
+                             std::int16_t extra_cstat) {
+        auto& wall = map.walls[static_cast<std::size_t>(w)];
+        wall.cstat = static_cast<std::int16_t>(fauxbuild::mapv7::kWallCstatMasked | extra_cstat);
+        wall.overpicnum = over;
+        wall.xrepeat = xr;
+        wall.yrepeat = yr;
+        wall.xpanning = xp;
+        wall.ypanning = yp;
+    };
+
+    auto build = [&](bool side_a, bool side_b) {
+        return placement_world(
+            [&](fauxbuild::mapv7::MapData& map) {
+                // The fixture carries masked+210 on BOTH sides; an unselected
+                // side is cleared explicitly (overpicnum 210 is outside the
+                // two-tile gate atlas).
+                if (side_a) {
+                    // Side A: flip X, wide repeat, both pans.
+                    authored(map, 1, 0, 32, 8, 48, 12,
+                             static_cast<std::int16_t>(fauxbuild::mapv7::kWallCstatFlipX));
+                } else {
+                    map.walls[1].cstat = 0;
+                    map.walls[1].overpicnum = 0;
+                }
+                if (side_b) {
+                    // Side B: flip Y + bottom-align, tall repeat, one pan.
+                    authored(map, 7, 1, 8, 32, 0, 60,
+                             static_cast<std::int16_t>(fauxbuild::mapv7::kWallCstatFlipY |
+                                                       fauxbuild::mapv7::kWallCstatBottomAligned));
+                } else {
+                    map.walls[7].cstat = 0;
+                    map.walls[7].overpicnum = 0;
+                }
+            },
+            "masked_wall");
+    };
+
+    const PreparedWorld paired = prepare(build(true, true), atlas);
+    const PreparedWorld only_a = prepare(build(true, false), atlas);
+    const PreparedWorld only_b = prepare(build(false, true), atlas);
+
+    const PreparedSurface* pair_a = find_surface(paired, SurfaceKind::PortalMasked, 1);
+    const PreparedSurface* pair_b = find_surface(paired, SurfaceKind::PortalMasked, 7);
+    const PreparedSurface* solo_a = find_surface(only_a, SurfaceKind::PortalMasked, 1);
+    const PreparedSurface* solo_b = find_surface(only_b, SurfaceKind::PortalMasked, 7);
+    REQUIRE(pair_a != nullptr);
+    REQUIRE(pair_b != nullptr);
+    REQUIRE(solo_a != nullptr);
+    REQUIRE(solo_b != nullptr);
+
+    CHECK(pair_a->uvs == solo_a->uvs); // side A is exactly side A alone
+    CHECK(pair_b->uvs == solo_b->uvs); // side B is exactly side B alone
+    CHECK(pair_a->uvs != pair_b->uvs); // distinct authored placement survives
+    CHECK(pair_a->picnum == 0);
+    CHECK(pair_b->picnum == 1);
+    // Both vertices and indices are the untouched structural pair (coincident
+    // geometry, opposite winding), and they remain two surfaces.
+    std::size_t masked_count = 0;
+    for (const auto& surface : paired.surfaces) {
+        masked_count += surface.kind == SurfaceKind::PortalMasked ? 1 : 0;
+    }
+    CHECK(masked_count == 2);
+}

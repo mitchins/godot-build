@@ -113,6 +113,18 @@ Becomes binding at M5/M10 (first binding content at M5 slice 1). Rules fixed by 
   MILESTONES M6.2C1 pending provenance or a human-gate ruling. The whole masked span is
   never made translucent — transparency and translucency are different; true translucency
   remains out of scope.
+- **Presentation culling for paired masked layers (M6.2C1 pre-gate correction).** A masked
+  portal is TWO authored layers by design — one wall record per side, geometrically
+  coincident with OPPOSITE winding and possibly distinct placement fields — and they are
+  never deduplicated, merged, averaged or canonicalized. Because both sides would
+  otherwise draw at identical depth and z-fight, PortalMasked textured presentation uses
+  a second SHARED indexed shader variant with `render_mode unshaded, cull_back` (back-face
+  culling): each side's winding, which faces its own sector exactly as derived, presents
+  that side to its own half-space. Ordinary textured groups and the entire untextured
+  diagnostic viewer keep the accepted `cull_disabled` behaviour. This is presentation
+  only: vertices, indices, winding, UVs, tile selection and the global UV constants are
+  untouched, and resource sharing stays bounded at two shared shaders (ordinary + masked),
+  never one per group (the M6.2A sharing gate pins the bound).
 - Preferred texture path: R8 tile-index texture + palette/lookup texture + per-surface
   palette/shade/visibility = final unshaded color. Nearest sampling, no PBR, transparent-index
   discard, alpha scissor where possible; true translucency only when required.

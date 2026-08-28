@@ -1821,3 +1821,50 @@ TEST_CASE("render scale validation is total and free of float-to-integer UB") {
         CHECK_FALSE(accepts(std::numeric_limits<double>::denorm_min()));
     }
 }
+
+TEST_CASE("paired masked layers: two surfaces, opposite winding, never merged") {
+    // M6.2C1 pre-gate correction pin. A masked portal has TWO authored layers
+    // (one wall record per side), geometrically coincident BY DESIGN with
+    // opposite winding. The derivation must keep both, distinct, exactly as
+    // authored — deduplication, merging, averaging or canonicalizing them
+    // would destroy each side's own placement and facing.
+    const StructuralWorld world = build_fixture("masked_wall");
+    check_triangles_wellformed(world);
+    CHECK(count_kind(world, SurfaceKind::PortalMasked) == 2);
+    const StructuralSurface* a_side = find_surface(world, SurfaceKind::PortalMasked, 0, 1);
+    const StructuralSurface* b_side = find_surface(world, SurfaceKind::PortalMasked, 1, 7);
+    REQUIRE(a_side != nullptr);
+    REQUIRE(b_side != nullptr);
+
+    // Opposite winding: each side's first triangle faces its own sector, so
+    // the normals point against each other.
+    auto first_normal = [](const StructuralSurface& s) {
+        const StructuralVertex& a = s.vertices[s.indices[0]];
+        const StructuralVertex& b = s.vertices[s.indices[1]];
+        const StructuralVertex& c = s.vertices[s.indices[2]];
+        const double ux = b.x - a.x, uy = b.y - a.y, uz = b.z - a.z;
+        const double vx = c.x - a.x, vy = c.y - a.y, vz = c.z - a.z;
+        return Vec3{uy * vz - uz * vy, uz * vx - ux * vz, ux * vy - uy * vx};
+    };
+    const Vec3 na = first_normal(*a_side);
+    const Vec3 nb = first_normal(*b_side);
+    CHECK(na.x * nb.x + na.y * nb.y + na.z * nb.z < 0.0);
+
+    // Coincident by design: same world XY footprint (the render-space extent
+    // on both in-plane axes matches), so the pair is a genuine coincident
+    // opposite-facing double, not two parallel layers.
+    auto extent = [](const StructuralSurface& s, const double StructuralVertex::* axis) {
+        double lo = s.vertices[0].*axis, hi = s.vertices[0].*axis;
+        for (const auto& v : s.vertices) {
+            lo = v.*axis < lo ? v.*axis : lo;
+            hi = v.*axis > hi ? v.*axis : hi;
+        }
+        return std::pair<double, double>{lo, hi};
+    };
+    for (const double StructuralVertex::* axis : {&StructuralVertex::x, &StructuralVertex::z}) {
+        const auto [alo, ahi] = extent(*a_side, axis);
+        const auto [blo, bhi] = extent(*b_side, axis);
+        CHECK(alo == blo);
+        CHECK(ahi == bhi);
+    }
+}

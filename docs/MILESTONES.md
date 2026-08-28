@@ -2678,6 +2678,50 @@ fuzz clean; layering (with the new masked/selection/view pins), corpus,
 fbtool, format and both scene gates green. No PR opened; acceptance awaits
 the human visual review. M6 remains IN_PROGRESS.
 
+**Pre-HUMAN-gate correction (accepted Claude finding, 2026-08-28):
+presentation culling for paired masked layers.** The structural model was
+confirmed correct and is untouched: a masked portal remains TWO
+StructuralSurface/PreparedSurface instances (one per wall record),
+geometrically coincident BY DESIGN with OPPOSITE winding, each side free to
+carry distinct authored panning/repeat/placement — no deduplication,
+merging, averaging, canonicalization or side-choosing anywhere. The defect
+was presentation: the single indexed shader's global
+`render_mode unshaded, cull_disabled` (right for the M5 diagnostic shell)
+lets both coincident sides draw at identical depth and z-fight, visibly when
+their placement differs. Fix, presentation only: a SECOND shared shader
+variant — `kMaskedIndexedShader`, identical indexed path with
+`render_mode unshaded, cull_back` — selected per group for PortalMasked
+presentation only. Ordinary textured groups and the entire untextured
+diagnostic viewer keep the accepted cull_disabled behaviour. Vertices,
+indices, winding, UVs, picnum/overpicnum selection, B1 placement and the
+global UV constants are untouched (regression pins green). Resource sharing
+stays bounded: ONE shared ordinary Shader + ONE shared masked Shader for a
+whole presentation, never one per group — the M6.2A sharing gate now
+asserts exactly two distinct shaders for masked-bearing content. Paired
+gates added: core structural (two surfaces, opposite first-triangle
+normals, coincident extents — never merged), core prepared (each side's
+UVs equal the SAME side's UVs in a world where only that side is masked;
+distinct placement survives), and the consumer boundary (two PortalMasked
+groups with distinct UV arrays, opposite winding from the actual
+ArrayMesh triangles, masked groups' actual Shader code cull_back and not
+cull_disabled, ordinary groups cull_disabled and not cull_back, one shared
+masked shader + one shared ordinary shader, no aliasing). Negative tests
+observed red: masked shader reverted to cull_disabled; PortalMasked aliased
+to the ordinary shader; paired surfaces deduplicated (core counts AND the
+boundary's "expected exactly 2 PortalMasked groups"); both sides forced
+onto one side's UVs ("the ArrayMesh UVs are not the prepared UVs
+verbatim"). 192 cases green on dev/asan/release after the correction.
+
+**HUMAN gate (updated focus).** Same E1L1 command; inspect the cinema
+marquee, several other masked openings if visible, and a masked opening
+from BOTH sides where practical. Expected: no shimmer/z-fighting from the
+coincident paired layers; the appropriate authored side appears from each
+side; the cinema rectangle is judged as an overpicnum/masked-selection
+result rather than through double-draw noise; B1 surrounding alignment
+unchanged. If the cinema shows the correct image with opaque background
+pixels remaining, that is the already-deferred masked transparency
+question — do NOT hold geometry/layer selection responsible.
+
 Still deferred: one-way, transparent discard, translucency, sprites,
 non-zero pal and shade, smoosh, visibility — M6.2C2 and later own those.
 Nothing here branches on a map, a wall, or a tile.

@@ -107,7 +107,12 @@ DEFERRED: one-way (0x0020; no positive rule in approved provenance —
 inventoried, pinned uninterpreted), transparent-texel discard (no approved
 transparent index; masked layers render opaque for now), translucency,
 sprites, smoosh. The B1-era cinema paragraph above is the oracle for the
-pending gate, never a target.
+pending gate, never a target. **Pre-gate correction (accepted):** paired
+masked sides stay TWO coincident opposite-wound surfaces with their own
+placement — never deduplicated — and their TEXTURED presentation uses a
+second shared `cull_back` shader variant so the pair cannot z-fight;
+ordinary groups keep `cull_disabled`; two shared shaders total, never per
+group (sharing gate pins it).
 
 Sprites, one-way walls, transparent discard, translucency and smoosh are
 later M6 slices; visibility is M10.

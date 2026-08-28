@@ -134,38 +134,108 @@ func _test_uv_boundary(map_name: String) -> void:
 	check(nonzero > 0, "every prepared UV is zero; the authority produced nothing")
 
 
-func _test_masked_selection(map_name: String) -> void:
-	# M6.2C1 selection gates at the consumer boundary. The view must receive
-	# an already prepared picnum/page/rect: the masked groups sample the
-	# OVERPICNUM tiles (0 and 1 on the two portal sides), and no extra group
-	# exists for the solid masked wall or the non-masked overpicnum carrier.
-	check(source.present_dir_textured(dir, map_name, view),
-		"masked presentation failed: " + source.get_last_error())
-
-	var masked_zero := 0
-	var masked_one := 0
-	var masked_total := 0
+func _group_arrays(group_prefix: String) -> Array:
+	# All groups whose name starts with the prefix: [verts, uvs, indices] each.
+	var out := []
 	for child in view.get_children():
 		if not (child is MeshInstance3D) or child.mesh == null:
 			continue
-		if not child.name.begins_with("PortalMasked_"):
+		if not child.name.begins_with(group_prefix):
 			continue
-		masked_total += 1
-		if child.name.begins_with("PortalMasked_0_"):
-			masked_zero += 1
-		if child.name.begins_with("PortalMasked_1_"):
-			masked_one += 1
-	check(masked_total == 2,
-		"masked portal has two sides, expected exactly 2 PortalMasked groups, got %d"
-			% masked_total)
-	check(masked_zero == 1,
-		"overpicnum 0 is TILE 0: exactly one PortalMasked group must sample tile 0, got %d"
-			% masked_zero)
-	check(masked_one == 1,
-		"exactly one PortalMasked group must sample tile 1 (overpicnum), got %d" % masked_one)
+		var arrays: Array = child.mesh.surface_get_arrays(0)
+		out.append([child, arrays[Mesh.ARRAY_VERTEX], arrays[Mesh.ARRAY_TEX_UV],
+			arrays[Mesh.ARRAY_INDEX]])
+	return out
 
-	# The masked groups' UVs are real (the authority produced them), and the
-	# verbatim comparison in _test_uv_boundary already covered these surfaces.
+
+func _first_triangle_normal(verts: PackedVector3Array, indices: PackedInt32Array) -> Vector3:
+	var a := verts[indices[0]]
+	var b := verts[indices[1]]
+	var c := verts[indices[2]]
+	return (b - a).cross(c - a)
+
+
+func _test_masked_selection(map_name: String) -> void:
+	# M6.2C1 selection + paired-layer gates at the consumer boundary. The view
+	# must receive an already prepared picnum/page/rect: the masked groups
+	# sample the OVERPICNUM tiles (0 and 1 on the two portal sides), and no
+	# extra group exists for the solid masked wall or the non-masked overpicnum
+	# carrier. The paired portal sides are coincident by design with opposite
+	# winding and DISTINCT authored placement: both must survive as separate
+	# groups with their own UVs, and their presentation must back-face cull
+	# (one shared masked shader variant) so the two sides cannot z-fight.
+	check(source.present_dir_textured(dir, map_name, view),
+		"masked presentation failed: " + source.get_last_error())
+
+	var masked_groups := _group_arrays("PortalMasked_")
+	check(masked_groups.size() == 2,
+		"paired masked portal has two sides; expected exactly 2 PortalMasked groups "
+			+ "(no deduplication), got %d" % masked_groups.size())
+	if masked_groups.size() != 2:
+		return
+
+	var by_tile := {}
+	for entry in masked_groups:
+		var child: MeshInstance3D = entry[0]
+		if child.name.begins_with("PortalMasked_0_"):
+			by_tile[0] = entry
+		if child.name.begins_with("PortalMasked_1_"):
+			by_tile[1] = entry
+	check(by_tile.has(0) and by_tile.has(1),
+		"expected one PortalMasked group per overlay tile (0 = the zero case, 1)")
+
+	# Each side keeps its OWN authored UVs (distinct placement per side), and
+	# the verbatim comparison in _test_uv_boundary already proved these are
+	# the prepared UVs unchanged — so distinct prepared UVs at the boundary
+	# prove distinct authored sides survived preparation.
+	var uvs_a: PackedVector2Array = by_tile[0][2]
+	var uvs_b: PackedVector2Array = by_tile[1][2]
+	check(uvs_a.size() == 4 and uvs_b.size() == 4,
+		"each masked side is a quad (4 vertices)")
+	check(uvs_a != uvs_b,
+		"the two portal sides carry DISTINCT authored placement; identical UV arrays "
+			+ "mean one side's placement was dropped or shared")
+
+	# Opposite winding: the paired layers are coincident with normals facing
+	# their own sectors. The first triangle's normal of each group must point
+	# against the other's (dot < 0).
+	var n_a := _first_triangle_normal(by_tile[0][1], by_tile[0][3])
+	var n_b := _first_triangle_normal(by_tile[1][1], by_tile[1][3])
+	check(n_a.dot(n_b) < 0.0,
+		"paired masked layers must have OPPOSITE winding (normals dot %f, want < 0)"
+			% n_a.dot(n_b))
+
+	# Presentation culling, read from the ACTUAL Shader resources: masked
+	# groups back-face cull, ordinary groups stay cull_disabled.
+	var masked_shader_ids := {}
+	var ordinary_shader_ids := {}
+	for child in view.get_children():
+		if not (child is MeshInstance3D):
+			continue
+		var material = child.material_override
+		if not (material is ShaderMaterial) or material.shader == null:
+			continue
+		var code: String = material.shader.code
+		if child.name.begins_with("PortalMasked_"):
+			check(code.contains("cull_back"),
+				"masked presentation must back-face cull (cull_back)")
+			check(not code.contains("cull_disabled"),
+				"masked presentation must not be cull_disabled (z-fighting)")
+			masked_shader_ids[material.shader.get_instance_id()] = true
+		else:
+			check(code.contains("cull_disabled"),
+				"ordinary textured groups keep the accepted cull_disabled behaviour")
+			check(not code.contains("cull_back"),
+				"ordinary textured groups must not back-face cull")
+			ordinary_shader_ids[material.shader.get_instance_id()] = true
+	check(masked_shader_ids.size() == 1,
+		"all masked groups must share ONE masked shader variant, got %d"
+			% masked_shader_ids.size())
+	check(ordinary_shader_ids.size() == 1,
+		"all ordinary groups must share ONE ordinary shader variant, got %d"
+			% ordinary_shader_ids.size())
+	check(masked_shader_ids.keys()[0] != ordinary_shader_ids.keys()[0],
+		"masked and ordinary groups must not alias to one shader variant")
 
 
 func _test_indexed_upload() -> void:
@@ -216,9 +286,10 @@ func _test_indexed_upload() -> void:
 		checked += 1
 	check(checked > 0, "no textured group was inspected")
 
-	# Resource reuse: one texture per PAGE and one shared Shader, not one of
-	# each per group. E1L1 is 173 groups over 3 pages; per-group uploads would
-	# be 173 copies of the same megabytes.
+	# Resource reuse: one texture per PAGE and ONE shared Shader per VARIANT
+	# (ordinary + masked, M6.2C1), not one of each per group. E1L1 is 173
+	# groups over 3 pages; per-group uploads would be 173 copies of the same
+	# megabytes, and per-group shaders would be 173 compilations of two codes.
 	var page_textures := {}
 	var shaders := {}
 	var groups := 0
@@ -238,8 +309,11 @@ func _test_indexed_upload() -> void:
 	check(page_textures.size() < groups,
 		"each group uploaded its own atlas page (%d textures for %d groups)"
 			% [page_textures.size(), groups])
-	check(shaders.size() == 1,
-		"the indexed shader must be shared, got %d distinct shaders" % shaders.size())
+	# The current content has masked groups, so BOTH variants are live: the
+	# bound is exactly two, never per group.
+	check(shaders.size() == 2,
+		"expected exactly the two shared indexed shader variants (ordinary + masked), "
+			+ "got %d" % shaders.size())
 
 
 func _test_transactional_failure(map_name: String) -> void:

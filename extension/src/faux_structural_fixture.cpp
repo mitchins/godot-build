@@ -279,17 +279,35 @@ godot::String FauxStructuralFixture::write_masked_map(const godot::String& direc
         return "";
     }
     auto& data = map.value();
-    // Masked portal: both sides of the shared edge, distinct overlay tiles.
+    // Masked portal: both sides of the shared edge, distinct overlay tiles AND
+    // deliberately DISTINCT authored placement per side (repeats, pans,
+    // flips, bottom-align) — the paired-layer gates prove each side keeps its
+    // own UVs through preparation and the boundary, with no deduplication or
+    // side-sharing of placement.
     data.walls[1].cstat |= fauxbuild::mapv7::kWallCstatMasked;
     data.walls[1].overpicnum = 0; // tile 0, deliberately — no zero sentinel
+    data.walls[1].xrepeat = 32;
+    data.walls[1].yrepeat = 8;
+    data.walls[1].xpanning = 48;
+    data.walls[1].ypanning = 12;
+    data.walls[1].cstat |= fauxbuild::mapv7::kWallCstatFlipX;
     data.walls[7].cstat |= fauxbuild::mapv7::kWallCstatMasked;
     data.walls[7].overpicnum = 1;
+    data.walls[7].xrepeat = 8;
+    data.walls[7].yrepeat = 32;
+    data.walls[7].ypanning = 60;
+    data.walls[7].cstat |=
+        fauxbuild::mapv7::kWallCstatFlipY | fauxbuild::mapv7::kWallCstatBottomAligned;
     // Solid wall with the masked bit: reported, no layer manufactured.
     data.walls[0].cstat |= fauxbuild::mapv7::kWallCstatMasked;
     data.walls[0].overpicnum = 1;
     // Solid wall with a nonzero overpicnum and NO masked bit: the converse.
     data.walls[2].overpicnum = 1;
-    for (auto& wall : data.walls) {
+    for (std::size_t i = 0; i < data.walls.size(); ++i) {
+        if (i == 1 || i == 7) {
+            continue; // the paired sides keep their distinct authored values
+        }
+        auto& wall = data.walls[i];
         wall.xrepeat = 16;
         wall.yrepeat = 16;
     }
