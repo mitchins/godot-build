@@ -109,10 +109,11 @@ appearance field (layering pin). E1L1 counts moved 1929/5111/252 →
 1948/5149/233, exactly +19 masked quads (all 19 masked walls open at both
 endpoints) and −19 obsolete deferral notes — full ledger in MILESTONES.
 DEFERRED: one-way (0x0020; no positive rule in approved provenance —
-inventoried, pinned uninterpreted), transparent-texel discard (no approved
-transparent index; masked layers render opaque for now), translucency,
-sprites, smoosh. The B1-era cinema paragraph above is the oracle for the
-pending gate, never a target. **Pre-gate correction (accepted):** paired
+inventoried, pinned uninterpreted), cstat translucency, sprites, smoosh.
+(Transparent-texel discard is NO LONGER deferred — slice 2C1b implements it
+under D0021; the text above describes C1 before that landed.) The B1-era
+cinema paragraph above was the oracle for the gate, never a target, and the
+gate has since PASSED. **Pre-gate correction (accepted):** paired
 masked sides stay TWO coincident opposite-wound surfaces with their own
 placement — never deduplicated — and their TEXTURED presentation uses a
 second shared `cull_back` shader variant so the pair cannot z-fight;

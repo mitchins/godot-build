@@ -164,8 +164,8 @@ func _ready() -> void:
 		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 	print("structural-view: WASD move, Q/E down/up, Shift fast, mouse look, "
 		+ "Escape releases the mouse, click recaptures")
-	print("structural-view: C toggles ceilings (hidden at start); 1-5 toggle "
-		+ "floors/ceilings/solid walls/portal upper/portal lower")
+	print("structural-view: C toggles ceilings (hidden at start); 1-6 toggle "
+		+ "floors/ceilings/solid walls/portal upper/portal lower/portal masked")
 	print("structural-view: O = architectural overview, P = authored start position "
 		+ "(exact, unsnapped)")
 

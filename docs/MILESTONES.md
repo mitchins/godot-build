@@ -2748,7 +2748,8 @@ the work stops — the same rule that has governed every slice since M6.2B.
   of scope for baseline presentation; later slices.
 - **Smoosh:** unchanged from B1 — no approved factor.
 
-**HUMAN gate: PENDING.** The cinema entrance is the oracle, not a target:
+**HUMAN gate: RAN and PASSED IN SCOPE 2026-08-28** — see the attestation
+below. The cinema entrance was the oracle, never a target; reproduce with:
 
 ```sh
 scons config=dev extension
@@ -2757,19 +2758,19 @@ scons config=dev extension
   --grp "$PWD/local_reference/duke/DUKE3D.GRP" --map E1L1.MAP --textured
 ```
 
-Success: the bad rectangle moves toward the original bounded cinema
-marquee/sign; no map/tile/wall exception; surrounding B1 alignment
-unchanged; global UV/panning constants byte-for-byte untouched (pinned). If
-the sign appears with the expected texture but other masked content renders
-opaque where it should be transparent, C1 may still PASS with transparent
-discard named next. If the cinema is unchanged: inspect whether that wall
-actually entered PortalMasked and which generic selector ran — do NOT tweak
-UVs.
+Success criteria as written at the checkpoint: the bad rectangle moves
+toward the original bounded cinema marquee/sign; no map/tile/wall exception;
+surrounding B1 alignment unchanged; global UV/panning constants byte-for-byte
+untouched (pinned). **All met.** The branch anticipating opaque masked texels
+was taken and closed within the slice: transparent discard was named next,
+measured black-box, and landed as C1b (D0021). The remaining residual is
+excessive REPETITION of an otherwise correct marquee — a repeat-scale
+question, recorded below and assigned to 2C1c.
 
-**Checkpoint reached.** Gates: 190 core cases green on dev/asan/release;
+**Checkpoint reached** (figures as at the C1 checkpoint; slice 2C1b below
+carried them to 197 cases). Gates: 190 core cases green on dev/asan/release;
 fuzz clean; layering (with the new masked/selection/view pins), corpus,
-fbtool, format and both scene gates green. No PR opened; acceptance awaits
-the human visual review. M6 remains IN_PROGRESS.
+fbtool, format and both scene gates green. M6 remains IN_PROGRESS.
 
 **Pre-HUMAN-gate correction (accepted Claude finding, 2026-08-28):
 presentation culling for paired masked layers.** The structural model was

@@ -186,6 +186,10 @@ func _test_masked_selection(map_name: String) -> void:
 	check(by_tile.has(0) and by_tile.has(2),
 		"expected one PortalMasked group per overlay tile (0 = the zero case and the "
 			+ "no-sentinel case, 2 = gate_cut which carries the sentinel texel)")
+	if not (by_tile.has(0) and by_tile.has(2)):
+		# Indexing a missing key raises and aborts _ready, which would throw
+		# away every failure recorded so far -- the gate must report, not die.
+		return
 
 	# Each side keeps its OWN authored UVs (distinct placement per side), and
 	# the verbatim comparison in _test_uv_boundary already proved these are

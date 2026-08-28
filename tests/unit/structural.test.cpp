@@ -1853,15 +1853,22 @@ TEST_CASE("paired masked layers: two surfaces, opposite winding, never merged") 
     // Coincident by design: same world XY footprint (the render-space extent
     // on both in-plane axes matches), so the pair is a genuine coincident
     // opposite-facing double, not two parallel layers.
-    auto extent = [](const StructuralSurface& s, const double StructuralVertex::* axis) {
-        double lo = s.vertices[0].*axis, hi = s.vertices[0].*axis;
+    // A plain accessor, not a pointer-to-member: clang-format versions
+    // disagree about `Type Class::*name` spacing, and CI's differs from some
+    // developer machines. Nothing here needs the exotic syntax.
+    using Axis = double (*)(const StructuralVertex&);
+    auto extent = [](const StructuralSurface& s, Axis axis) {
+        double lo = axis(s.vertices[0]);
+        double hi = lo;
         for (const auto& v : s.vertices) {
-            lo = v.*axis < lo ? v.*axis : lo;
-            hi = v.*axis > hi ? v.*axis : hi;
+            lo = axis(v) < lo ? axis(v) : lo;
+            hi = axis(v) > hi ? axis(v) : hi;
         }
         return std::pair<double, double>{lo, hi};
     };
-    for (const double StructuralVertex::* axis : {&StructuralVertex::x, &StructuralVertex::z}) {
+    const Axis axes[] = {[](const StructuralVertex& v) { return v.x; },
+                         [](const StructuralVertex& v) { return v.z; }};
+    for (const Axis axis : axes) {
         const auto [alo, ahi] = extent(*a_side, axis);
         const auto [blo, bhi] = extent(*b_side, axis);
         CHECK(alo == blo);
