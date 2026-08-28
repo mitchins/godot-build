@@ -114,7 +114,13 @@ bool relative_frame(const StructuralSectorFrame& frame, const UvConventions& c, 
         ux = -ux;
         uy = -uy;
     }
-    // Left perpendicular of the directed first wall.
+    // Left perpendicular of the U direction AS RESOLVED ABOVE -- deliberately
+    // NOT of the raw wall direction. Reversing U therefore reverses V with
+    // it, which is the point: the frame stays right-handed, so the U toggle
+    // rotates the frame by 180 degrees instead of mirroring the texture. A V
+    // basis pinned to the raw wall would flip handedness whenever U alone was
+    // reversed. `floor_relative_v_is_left_perp` then chooses the perpendicular
+    // side within that frame, independently.
     vx = -uy;
     vy = ux;
     if (!c.floor_relative_v_is_left_perp) {

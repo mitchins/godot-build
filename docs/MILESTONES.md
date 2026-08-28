@@ -2370,8 +2370,9 @@ implementing a control → the regression pin. A stale-extension rebuild
 (5) and a dangling-temporary use-after-free caught by asan were the two
 real defects the red runs surfaced; both fixed.
 
-**E1L1 before/after visual result: PENDING — the HUMAN gate has not run.**
-Same command as M6.2A:
+**E1L1 before/after visual result: the HUMAN gate RAN and PASSED
+2026-08-28 — see the attestation below for what it settles.** Reproduce with
+the same command as M6.2A:
 
 ```sh
 scons config=dev extension
@@ -2383,7 +2384,9 @@ scons config=dev extension
 Success criteria (unchanged from the brief): global scale coherent, no
 regression of ordinary surfaces, improved registration of authored local
 detail, vent/panel-type details more coherent where MAP placement fields
-explain the discrepancy, no map/tile-specific fix exists.
+explain the discrepancy, no map/tile-specific fix exists. **All met** — one
+residual anomaly at the cinema entrance is recorded below and is explicitly
+NOT attributed to this slice's placement semantics.
 
 **Review closeout, 2026-08-28 (pre-human-gate).** Three findings from the
 checkpoint review, all closed; no placement semantics were added, no global
