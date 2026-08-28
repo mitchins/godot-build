@@ -151,6 +151,14 @@ struct UvConventions {
 // picnum is out of range or unpopulated — deliberately, rather than silently
 // substituting a placeholder tile.
 //
+// M6.2C1: this seam owns THE effective-texture selection, centralized and
+// explicit — ordinary wall kinds resolve appearance.picnum, PortalMasked
+// resolves appearance.overpicnum (the documented masked/one-way overlay tile).
+// overpicnum == 0 is tile 0, never "no overlay": no approved provenance
+// establishes a sentinel. A nonzero overpicnum on an ordinary surface selects
+// nothing. The consumer receives the resolved picnum/page/rect and must not
+// re-derive any of it (pinned by ci/check_layering.py).
+//
 // `world` is caller-provided, so its per-sector tables are validated as
 // EXTERNAL input before any surface is prepared, never assumed and never
 // FB_CHECKed: `sector_frames` must cover the same sector index domain as

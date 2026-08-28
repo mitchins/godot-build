@@ -13,8 +13,9 @@ const KIND_CEILING := 1
 const KIND_SOLID_WALL := 2
 const KIND_PORTAL_UPPER := 3
 const KIND_PORTAL_LOWER := 4
+const KIND_PORTAL_MASKED := 5
 
-const GROUPS := ["Floors", "Ceilings", "SolidWalls", "PortalUpper", "PortalLower"]
+const GROUPS := ["Floors", "Ceilings", "SolidWalls", "PortalUpper", "PortalLower", "PortalMasked"]
 
 var failures := 0
 var harness: FauxStructuralFixture
@@ -48,6 +49,7 @@ func _ready() -> void:
 	_test_non_convex_verbatim()
 	_test_multi_loop_verbatim()
 	_test_portals_and_no_closing_quad()
+	_test_masked_layer()
 	_test_asymmetric_transform_probe()
 	_test_stale_kind_groups()
 	_test_rebuild_round_trip()
@@ -173,6 +175,35 @@ func _test_portals_and_no_closing_quad() -> void:
 	check_group("PortalUpper", KIND_PORTAL_UPPER, "portal_heights")
 	check_group("PortalLower", KIND_PORTAL_LOWER, "portal_heights")
 	check_group("SolidWalls", KIND_SOLID_WALL, "portal_heights")
+
+
+# D2. the masked portal layer (M6.2C1) --------------------------------------
+
+func _test_masked_layer() -> void:
+	# The masked_wall fixture carries the masked bit on both sides of a
+	# windowed portal: the sixth diagnostic group appears with exactly the
+	# structural masked surfaces, alongside the upper/lower spans of the same
+	# wall. A world without masked content (every case above) still presents
+	# five groups — historical behaviour stays historical, documented rather
+	# than preserved by hiding the new surface.
+	present_fixture("masked_wall", "masked_wall")
+	check(view.get_group_names() == PackedStringArray(
+			["Floors", "Ceilings", "SolidWalls", "PortalUpper", "PortalLower", "PortalMasked"]),
+		"masked_wall: six groups expected, got " + str(view.get_group_names()))
+	check_group("PortalUpper", KIND_PORTAL_UPPER, "masked_wall")
+	check_group("PortalLower", KIND_PORTAL_LOWER, "masked_wall")
+	check_group("PortalMasked", KIND_PORTAL_MASKED, "masked_wall")
+
+	# Exactly two masked surfaces (one per portal side), 4 vertices and
+	# 2 triangles each, read at the real ArrayMesh boundary.
+	var masked := actual_arrays("PortalMasked")
+	if masked.is_empty():
+		check(false, "masked_wall: PortalMasked group missing at the boundary")
+		return
+	check(masked.vertices.size() == 8,
+		"masked_wall: 2 x 4 masked vertices expected, got %d" % masked.vertices.size())
+	check(masked.indices.size() == 12,
+		"masked_wall: 2 x 6 masked indices expected, got %d" % masked.indices.size())
 
 
 # E. asymmetric transform probe ---------------------------------------------

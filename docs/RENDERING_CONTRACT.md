@@ -89,7 +89,30 @@ Becomes binding at M5/M10 (first binding content at M5 slice 1). Rules fixed by 
   provisional factor (M6.2B2 or human-gate ruling). Layering guards pin all of this.
 - Wall spans are generated only where visible (solid, upper, lower, masked, one-way) — never
   full portal quads clipped later. (M5 generates structural upper/lower spans only;
-  masked/one-way semantics arrive at M6 and are diagnosed-not-interpreted before that.)
+  **M6.2C1 delivers the masked layer**: a portal wall carrying the documented masked bit
+  (cstat 0x0010, PROVENANCE row 9) emits a distinct `SurfaceKind::PortalMasked` span across
+  the portal OPENING itself — endpoints from the same own/neighbour plane evaluations as
+  the upper/lower spans, the same zero-area protections (quad open at both endpoints,
+  triangular wedge closed at exactly one, omitted when closed at both), never a full quad
+  clipped later. PortalUpper/PortalLower keep their meanings (solid spans above/below the
+  opening). Appearance stays raw; a masked bit on a SOLID wall is reported and manufactures
+  no layer. One-way (cstat 0x0020) is DEFERRED — no approved provenance establishes a
+  positive rendering rule; it is inventoried (28 portal + 8 solid walls across the six
+  owned maps) and pinned uninterpreted.)
+- **Effective-texture selection is owned by the M6.2 seam (M6.2C1), centralized and
+  explicit:** ordinary wall kinds present `appearance.picnum`; `PortalMasked` presents
+  `appearance.overpicnum` (the documented masked/one-way overlay tile). **`overpicnum == 0`
+  is tile 0, never "no overlay"** — no approved provenance establishes a zero sentinel.
+  Conversely a nonzero `overpicnum` alone selects nothing (305 non-masked walls across the
+  six owned maps carry one; the masked bit selects the layer, the field does not). The view
+  receives the resolved picnum/page/rect and reads no appearance field (layering pin).
+  **Transparent-texel discard is NOT implemented**: no approved provenance establishes a
+  transparent palette index (the ART format page states "Transparent pixels? No" at the
+  format level), so the masked layer currently renders opaque through the base palette
+  path; the index is not invented from familiarity, and the deferral is ledgered in
+  MILESTONES M6.2C1 pending provenance or a human-gate ruling. The whole masked span is
+  never made translucent — transparency and translucency are different; true translucency
+  remains out of scope.
 - Preferred texture path: R8 tile-index texture + palette/lookup texture + per-surface
   palette/shade/visibility = final unshaded color. Nearest sampling, no PBR, transparent-index
   discard, alpha scissor where possible; true translucency only when required.

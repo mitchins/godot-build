@@ -1076,21 +1076,342 @@ TEST_CASE("sloped geometry comes from the evaluator, and walls meet it exactly")
     CHECK(wall_heights.size() > 2);
 }
 
-TEST_CASE("masked walls are noted as deferred, spans stay plain") {
+TEST_CASE("masked portal walls: the opening layer, spans coexist, appearance raw") {
+    // M6.2C1. The masked_wall fixture is the windowed portal: from A's side
+    // wall 1 emits upper [0,4096], masked [4096,8192] and lower [8192,16384];
+    // from B's side wall 7 emits ONLY the masked layer (B's spans lie inside
+    // the opening). The masked layer is a distinct kind, not a re-encoding of
+    // PortalUpper/PortalLower, and the appearance stays raw: picnum is NOT
+    // overwritten with overpicnum here.
     const StructuralWorld world = build_fixture("masked_wall");
     check_triangles_wellformed(world);
-    std::size_t masked_notes = 0;
-    for (const auto& note : world.notes) {
-        if (note.record == std::string("wall[1]") || note.record == std::string("wall[7]")) {
-            CHECK(note.detail.find("masked wall") != std::string::npos);
-            ++masked_notes;
+
+    CHECK(count_kind(world, SurfaceKind::PortalUpper) == 1);
+    CHECK(count_kind(world, SurfaceKind::PortalLower) == 1);
+    CHECK(count_kind(world, SurfaceKind::PortalMasked) == 2);
+    const StructuralSurface* a_masked = find_surface(world, SurfaceKind::PortalMasked, 0, 1);
+    const StructuralSurface* b_masked = find_surface(world, SurfaceKind::PortalMasked, 1, 7);
+    REQUIRE(a_masked != nullptr);
+    REQUIRE(b_masked != nullptr);
+
+    // Open at both endpoints -> quad: 4 vertices, 2 triangles.
+    for (const StructuralSurface* masked : {a_masked, b_masked}) {
+        CHECK(masked->vertices.size() == 4);
+        CHECK(masked->indices.size() == 6);
+        // Appearance preserved raw, verbatim from the wall record.
+        CHECK(masked->appearance.picnum == 0);
+        CHECK(masked->appearance.overpicnum == 210);
+        CHECK(masked->appearance.raw_stat == 0x0010);
+    }
+
+    // The masked layer spans exactly the window: Build Z [4096, 8192] over
+    // the vertical scale 2048*16 = 32768 -> render Y [-0.25, -0.125].
+    auto y_extent = [](const StructuralSurface& s) {
+        double lo = s.vertices[0].y, hi = s.vertices[0].y;
+        for (const auto& v : s.vertices) {
+            lo = v.y < lo ? v.y : lo;
+            hi = v.y > hi ? v.y : hi;
+        }
+        return std::pair<double, double>{lo, hi};
+    };
+    const auto [mlo, mhi] = y_extent(*a_masked);
+    CHECK(mlo == -8192.0 / 32768.0);
+    CHECK(mhi == -4096.0 / 32768.0);
+
+    // Canonical order per wall: portal_upper, then portal_lower, then
+    // portal_masked.
+    std::size_t upper_at = 0, lower_at = 0, masked_at = 0;
+    for (std::size_t i = 0; i < world.surfaces.size(); ++i) {
+        if (world.surfaces[i].kind == SurfaceKind::PortalUpper && world.surfaces[i].wall == 1) {
+            upper_at = i;
+        }
+        if (world.surfaces[i].kind == SurfaceKind::PortalLower && world.surfaces[i].wall == 1) {
+            lower_at = i;
+        }
+        if (world.surfaces[i].kind == SurfaceKind::PortalMasked && world.surfaces[i].sector == 0) {
+            masked_at = i;
         }
     }
-    CHECK(masked_notes == 2);
-    // Equal heights in this fixture: the masked portal walls emit no spans at
-    // all beyond the notes.
-    CHECK(count_kind(world, SurfaceKind::PortalUpper) == 0);
-    CHECK(count_kind(world, SurfaceKind::PortalLower) == 0);
+    CHECK(upper_at < lower_at);
+    CHECK(lower_at < masked_at);
+
+    // The feature is implemented; masked portal walls carry no deferral note.
+    for (const auto& note : world.notes) {
+        CHECK(note.detail.find("masked") == std::string::npos);
+    }
+}
+
+TEST_CASE("masked layer on an equal-height portal spans the full opening") {
+    // Equal, properly ordered sectors (ceiling 0, floor 16384): the opening
+    // IS the whole wall, so the masked layer is a full-height quad — no
+    // upper/lower spans exist to bound it. (two_sector_portal itself carries
+    // the make_sector default inverted interval, which has no opening; this
+    // case needs the real-content ordering.)
+    fauxbuild::mapv7::MapData map;
+    const std::int32_t u = 1024;
+    const std::int32_t ax[] = {0, u, u, 0};
+    const std::int32_t ay[] = {0, 0, u, u};
+    for (std::size_t i = 0; i < 4; ++i) {
+        map.walls.push_back(fauxbuild::mapv7::Wall());
+        map.walls[i].x = ax[i];
+        map.walls[i].y = ay[i];
+        map.walls[i].point2 = static_cast<std::int16_t>((i + 1) % 4);
+    }
+    const std::int32_t bx[] = {u, 2 * u, 2 * u, u};
+    const std::int32_t by[] = {0, 0, u, u};
+    for (std::size_t i = 0; i < 4; ++i) {
+        map.walls.push_back(fauxbuild::mapv7::Wall());
+        map.walls[4 + i].x = bx[i];
+        map.walls[4 + i].y = by[i];
+        map.walls[4 + i].point2 = static_cast<std::int16_t>(4 + (i + 1) % 4);
+    }
+    map.walls[1].nextwall = 7;
+    map.walls[1].nextsector = 1;
+    map.walls[7].nextwall = 1;
+    map.walls[7].nextsector = 0;
+    for (int s = 0; s < 2; ++s) {
+        map.sectors.push_back(fauxbuild::mapv7::Sector());
+        map.sectors[static_cast<std::size_t>(s)].wallptr = static_cast<std::int16_t>(4 * s);
+        map.sectors[static_cast<std::size_t>(s)].wallnum = 4;
+        map.sectors[static_cast<std::size_t>(s)].floorz = 16384;
+        map.sectors[static_cast<std::size_t>(s)].ceilingz = 0;
+    }
+    for (const std::int16_t w : {std::int16_t{1}, std::int16_t{7}}) {
+        map.walls[static_cast<std::size_t>(w)].cstat = fauxbuild::mapv7::kWallCstatMasked;
+        map.walls[static_cast<std::size_t>(w)].overpicnum = 9;
+    }
+    auto world = build_structural_world(map);
+    REQUIRE(world.is_ok());
+
+    check_triangles_wellformed(world.value());
+    CHECK(count_kind(world.value(), SurfaceKind::PortalUpper) == 0);
+    CHECK(count_kind(world.value(), SurfaceKind::PortalLower) == 0);
+    CHECK(count_kind(world.value(), SurfaceKind::PortalMasked) == 2);
+    CHECK(count_kind(world.value(), SurfaceKind::SolidWall) == 6);
+    for (const StructuralSurface& s : world.value().surfaces) {
+        if (s.kind == SurfaceKind::PortalMasked) {
+            CHECK(s.vertices.size() == 4);
+            CHECK(s.indices.size() == 6);
+            CHECK(s.appearance.overpicnum == 9);
+            double lo = s.vertices[0].y, hi = s.vertices[0].y;
+            for (const auto& v : s.vertices) {
+                lo = v.y < lo ? v.y : lo;
+                hi = v.y > hi ? v.y : hi;
+            }
+            CHECK(lo == -16384.0 / 32768.0);
+            CHECK(hi == 0.0);
+        }
+    }
+}
+
+TEST_CASE("masked layer collapses to a wedge when a slope closes the opening at one end") {
+    // The opening endpoints come from the same plane evaluations as the
+    // upper/lower spans: B's floor slopes up to meet the shared ceiling at
+    // the far endpoint, so the masked layer degenerates to ONE triangle
+    // exactly like any other span (no zero-area triangle reaches a consumer).
+    fauxbuild::mapv7::MapData map;
+    const std::int32_t u = 1024;
+    const std::int32_t ax[] = {0, u, u, 0};
+    const std::int32_t ay[] = {0, 0, u, u};
+    for (std::size_t i = 0; i < 4; ++i) {
+        map.walls.push_back(fauxbuild::mapv7::Wall());
+        map.walls[i].x = ax[i];
+        map.walls[i].y = ay[i];
+        map.walls[i].point2 = static_cast<std::int16_t>((i + 1) % 4);
+    }
+    const std::int32_t bx[] = {u, 2 * u, 2 * u, u};
+    const std::int32_t by[] = {0, 0, u, u};
+    for (std::size_t i = 0; i < 4; ++i) {
+        map.walls.push_back(fauxbuild::mapv7::Wall());
+        map.walls[4 + i].x = bx[i];
+        map.walls[4 + i].y = by[i];
+        map.walls[4 + i].point2 = static_cast<std::int16_t>(4 + (i + 1) % 4);
+    }
+    map.walls[1].nextwall = 7;
+    map.walls[1].nextsector = 1;
+    map.walls[7].nextwall = 1;
+    map.walls[7].nextsector = 0;
+    // A: flat [0, 16384]. B: flat ceiling 0, floor base 16384 sloping about
+    // B's first wall (u,0)->(2u,0) with heinum -4096: evaluated floor is
+    // 16384 - 16y, reaching 0 (the ceiling) at y = 1024.
+    map.sectors.push_back(fauxbuild::mapv7::Sector());
+    map.sectors[0].wallptr = 0;
+    map.sectors[0].wallnum = 4;
+    map.sectors[0].floorz = 16384;
+    map.sectors[0].ceilingz = 0;
+    map.sectors.push_back(fauxbuild::mapv7::Sector());
+    map.sectors[1].wallptr = 4;
+    map.sectors[1].wallnum = 4;
+    map.sectors[1].floorz = 16384;
+    map.sectors[1].ceilingz = 0;
+    map.sectors[1].floorstat = fauxbuild::mapv7::kStatSloped;
+    map.sectors[1].floorheinum = -4096;
+    for (const std::int16_t w : {std::int16_t{1}, std::int16_t{7}}) {
+        map.walls[static_cast<std::size_t>(w)].cstat = fauxbuild::mapv7::kWallCstatMasked;
+        map.walls[static_cast<std::size_t>(w)].overpicnum = 4;
+    }
+
+    auto world = build_structural_world(map);
+    REQUIRE(world.is_ok());
+    check_triangles_wellformed(world.value());
+    CHECK(count_kind(world.value(), SurfaceKind::PortalMasked) == 2);
+    for (const StructuralSurface& s : world.value().surfaces) {
+        if (s.kind != SurfaceKind::PortalMasked) {
+            continue;
+        }
+        INFO("sector ", s.sector, " wall ", s.wall);
+        CHECK(s.vertices.size() == 3);
+        CHECK(s.indices.size() == 3);
+        // The surviving corner is the OPEN endpoint (y = 0, Build Z floor
+        // 16384); the collapsed corner (y = 1024) contributes one vertex.
+        double lo = s.vertices[0].y, hi = s.vertices[0].y;
+        for (const auto& v : s.vertices) {
+            lo = v.y < lo ? v.y : lo;
+            hi = v.y > hi ? v.y : hi;
+        }
+        CHECK(lo == doctest::Approx(-16384.0 / 32768.0).epsilon(1e-12));
+        CHECK(hi == 0.0);
+    }
+}
+
+TEST_CASE("masked layer is omitted when the opening is closed at both endpoints") {
+    // B's vertical interval is inverted (floor 4096 above ceiling 8192
+    // numerically), so the shared opening has no positive extent and the
+    // masked bit must not manufacture a layer any more than it manufactures
+    // upper/lower spans.
+    fauxbuild::mapv7::MapData map;
+    const std::int32_t u = 1024;
+    const std::int32_t ax[] = {0, u, u, 0};
+    const std::int32_t ay[] = {0, 0, u, u};
+    for (std::size_t i = 0; i < 4; ++i) {
+        map.walls.push_back(fauxbuild::mapv7::Wall());
+        map.walls[i].x = ax[i];
+        map.walls[i].y = ay[i];
+        map.walls[i].point2 = static_cast<std::int16_t>((i + 1) % 4);
+    }
+    const std::int32_t bx[] = {u, 2 * u, 2 * u, u};
+    const std::int32_t by[] = {0, 0, u, u};
+    for (std::size_t i = 0; i < 4; ++i) {
+        map.walls.push_back(fauxbuild::mapv7::Wall());
+        map.walls[4 + i].x = bx[i];
+        map.walls[4 + i].y = by[i];
+        map.walls[4 + i].point2 = static_cast<std::int16_t>(4 + (i + 1) % 4);
+    }
+    map.walls[1].nextwall = 7;
+    map.walls[1].nextsector = 1;
+    map.walls[7].nextwall = 1;
+    map.walls[7].nextsector = 0;
+    map.sectors.push_back(fauxbuild::mapv7::Sector());
+    map.sectors[0].wallptr = 0;
+    map.sectors[0].wallnum = 4;
+    map.sectors[0].floorz = 16384;
+    map.sectors[0].ceilingz = 0;
+    map.sectors.push_back(fauxbuild::mapv7::Sector());
+    map.sectors[1].wallptr = 4;
+    map.sectors[1].wallnum = 4;
+    map.sectors[1].floorz = 4096;
+    map.sectors[1].ceilingz = 8192;
+    for (const std::int16_t w : {std::int16_t{1}, std::int16_t{7}}) {
+        map.walls[static_cast<std::size_t>(w)].cstat = fauxbuild::mapv7::kWallCstatMasked;
+        map.walls[static_cast<std::size_t>(w)].overpicnum = 4;
+    }
+
+    auto world = build_structural_world(map);
+    REQUIRE(world.is_ok());
+    CHECK(count_kind(world.value(), SurfaceKind::PortalMasked) == 0);
+    // The upper/lower spans legitimately survive (B's planes sit inside A's
+    // interval, so the wall solidifies above and below the vanished
+    // opening); only the masked layer has nothing to span.
+    CHECK(count_kind(world.value(), SurfaceKind::PortalUpper) == 1);
+    CHECK(count_kind(world.value(), SurfaceKind::PortalLower) == 1);
+}
+
+TEST_CASE("converse trap: a nonzero overpicnum alone never creates a masked layer") {
+    // 305 non-masked walls across the six owned maps carry a nonzero
+    // overpicnum (E1L1: 60 of 79). The masked BIT selects the layer; the
+    // field is preserved verbatim and consumed by nothing on ordinary kinds.
+    auto map = map_fixture("portal_heights");
+    REQUIRE(map.is_ok());
+    for (const std::int16_t w : {std::int16_t{1}, std::int16_t{7}}) {
+        map.value().walls[static_cast<std::size_t>(w)].overpicnum = 77;
+    }
+    auto world = build_structural_world(map.value());
+    REQUIRE(world.is_ok());
+
+    CHECK(count_kind(world.value(), SurfaceKind::PortalMasked) == 0);
+    CHECK(count_kind(world.value(), SurfaceKind::PortalUpper) == 1);
+    CHECK(count_kind(world.value(), SurfaceKind::PortalLower) == 1);
+    const StructuralSurface* upper = find_surface(world.value(), SurfaceKind::PortalUpper, 0, 1);
+    REQUIRE(upper != nullptr);
+    CHECK(upper->appearance.overpicnum == 77); // preserved, not consumed
+    CHECK(upper->appearance.picnum == 0);
+}
+
+TEST_CASE("masked bit on a solid wall reports and manufactures nothing") {
+    // A solid wall has no portal opening; no semantics are invented for the
+    // bit there. It is preserved raw and reported with a note.
+    auto map = map_fixture("square_room");
+    REQUIRE(map.is_ok());
+    map.value().walls[0].cstat = fauxbuild::mapv7::kWallCstatMasked;
+    map.value().walls[0].overpicnum = 5;
+    auto world = build_structural_world(map.value());
+    REQUIRE(world.is_ok());
+
+    CHECK(count_kind(world.value(), SurfaceKind::PortalMasked) == 0);
+    const StructuralSurface* solid = find_surface(world.value(), SurfaceKind::SolidWall, 0, 0);
+    REQUIRE(solid != nullptr);
+    CHECK(solid->appearance.raw_stat == fauxbuild::mapv7::kWallCstatMasked);
+    CHECK(solid->appearance.overpicnum == 5);
+    bool noted = false;
+    for (const auto& note : world.value().notes) {
+        if (note.record == "wall[0]" &&
+            note.detail.find("masked bit on a non-portal wall") != std::string::npos) {
+            noted = true;
+        }
+    }
+    CHECK(noted);
+}
+
+TEST_CASE("setting the masked bit changes nothing about any other surface") {
+    // The masked layer is purely additive: same world with and without the
+    // bit, every non-PortalMasked surface must be identical — geometry,
+    // indices and raw appearance all byte-for-byte.
+    auto plain_map = map_fixture("portal_heights");
+    auto masked_map = map_fixture("portal_heights");
+    REQUIRE(plain_map.is_ok());
+    REQUIRE(masked_map.is_ok());
+    for (const std::int16_t w : {std::int16_t{1}, std::int16_t{7}}) {
+        masked_map.value().walls[static_cast<std::size_t>(w)].cstat =
+            fauxbuild::mapv7::kWallCstatMasked; // overpicnum stays 0: tile 0, no sentinel
+    }
+    auto plain = build_structural_world(plain_map.value());
+    auto masked = build_structural_world(masked_map.value());
+    REQUIRE(plain.is_ok());
+    REQUIRE(masked.is_ok());
+
+    std::size_t plain_at = 0;
+    for (const auto& surface : masked.value().surfaces) {
+        if (surface.kind == SurfaceKind::PortalMasked) {
+            continue; // the additive layer itself
+        }
+        REQUIRE(plain_at < plain.value().surfaces.size());
+        const StructuralSurface& before = plain.value().surfaces[plain_at++];
+        CHECK(surface.kind == before.kind);
+        CHECK(surface.sector == before.sector);
+        CHECK(surface.wall == before.wall);
+        CHECK(surface.vertices == before.vertices);
+        CHECK(surface.indices == before.indices);
+        // The one legitimate appearance difference: the authored bit itself
+        // lands in raw_stat of the OTHER spans of the same wall. Clearing it
+        // must yield exactly the plain world's appearance — any further
+        // difference (a rewritten picnum, a moved pan) is a real regression.
+        fauxbuild::SurfaceAppearance got = surface.appearance;
+        got.raw_stat =
+            static_cast<std::int16_t>(got.raw_stat & ~fauxbuild::mapv7::kWallCstatMasked);
+        CHECK(got == before.appearance);
+    }
+    CHECK(plain_at == plain.value().surfaces.size());
+    CHECK(count_kind(masked.value(), SurfaceKind::PortalMasked) == 2);
 }
 
 // ---------------------------------------------------------------------------

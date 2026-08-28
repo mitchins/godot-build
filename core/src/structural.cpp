@@ -632,6 +632,8 @@ const char* surface_kind_name(SurfaceKind kind) {
         return "portal_upper";
     case SurfaceKind::PortalLower:
         return "portal_lower";
+    case SurfaceKind::PortalMasked:
+        return "portal_masked";
     }
     return "unknown";
 }
@@ -1138,14 +1140,40 @@ Result<StructuralWorld> build_structural_world(const mapv7::MapData& map,
                               opening_bottom, sector.floorz, std::min(floor_a, n_floor_a), floor_a,
                               std::min(floor_b, n_floor_b), floor_b, left);
                 }
+                // The authored MASKED layer spanning the opening itself
+                // (M6.2C1), for a portal wall carrying the documented masked
+                // bit. The opening endpoints come from the SAME authoritative
+                // own/neighbour plane evaluations the upper/lower spans use:
+                // the top of the opening at an endpoint is the upper span's
+                // lower edge there (max of the two evaluated ceilings), and
+                // the bottom is the lower span's upper edge (min of the two
+                // evaluated floors). A nonzero overpicnum NEVER creates this
+                // layer — only the masked bit does (the converse trap: 305
+                // non-masked walls across the six owned maps carry one). The
+                // layer needs all four planes of both sectors, exactly the
+                // union of the upper and lower span dependencies (D0019).
+                if ((wall.cstat & mapv7::kWallCstatMasked) != 0 && ceiling_plane_defined &&
+                    n_ceiling_defined && floor_plane_defined && n_floor_defined) {
+                    emit_span(SurfaceKind::PortalMasked, static_cast<std::int16_t>(wi), wall,
+                              opening_top, opening_bottom, std::max(ceil_a, n_ceil_a),
+                              std::min(floor_a, n_floor_a), std::max(ceil_b, n_ceil_b),
+                              std::min(floor_b, n_floor_b), left);
+                }
             }
 
             if ((wall.cstat & mapv7::kWallCstatMasked) != 0) {
-                world.notes.push_back({"wall[" + std::to_string(wi) + "]",
-                                       "masked wall (cstat 0x0010, overpicnum " +
-                                           std::to_string(wall.overpicnum) +
-                                           "); M5 emits plain structural spans only; M6 owns "
-                                           "masked/one-way wall semantics"});
+                if (wall.nextsector == mapv7::kNoIndex) {
+                    // The bit is preserved raw in SurfaceAppearance, but a
+                    // SOLID wall has no portal opening, so no masked layer is
+                    // derivable. No semantics are invented for it (3 walls
+                    // across the six owned maps; 0 on E1L1).
+                    world.notes.push_back({"wall[" + std::to_string(wi) + "]",
+                                           "masked bit on a non-portal wall (cstat 0x0010); "
+                                           "no portal opening exists, so no masked layer is "
+                                           "emitted (bit preserved raw in appearance)"});
+                }
+                // A masked PORTAL wall is implemented (PortalMasked above);
+                // the surface itself is the report, like every other span.
             } else if (wall.cstat != 0) {
                 if (!saw_uninterpreted_cstat) {
                     saw_uninterpreted_cstat = true;

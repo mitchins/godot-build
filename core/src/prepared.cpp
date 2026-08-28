@@ -11,6 +11,22 @@ namespace {
 // Every provisional convention is applied here and nowhere else. A consumer
 // that recomputes a UV is a defect, and check_layering pins that.
 
+// THE effective-texture selection (M6.2C1), centralized and explicit. Ordinary
+// wall kinds present appearance.picnum; PortalMasked presents
+// appearance.overpicnum — the documented masked/one-way overlay tile
+// (PROVENANCE row 9: "Texture index into ART file for masked/one-way walls").
+// Selection is by SURFACE KIND (the structural layer decision), never by
+// re-reading the cstat bit here, and never by the nonzero-ness of any field:
+// overpicnum == 0 is TILE 0, a normal texture index — no approved provenance
+// establishes a zero sentinel, so the masked layer with overpicnum 0 prepares
+// tile 0 exactly like any other tile number. Conversely a nonzero overpicnum
+// on an ORDINARY surface selects nothing: it is preserved verbatim in
+// appearance and consumed by nothing (305 non-masked walls across the six
+// owned maps carry one).
+std::int16_t effective_tile(SurfaceKind kind, const SurfaceAppearance& appearance) {
+    return kind == SurfaceKind::PortalMasked ? appearance.overpicnum : appearance.picnum;
+}
+
 struct TexelScale {
     double units_per_tile_u = 1.0;
     double units_per_tile_v = 1.0;
@@ -287,19 +303,29 @@ Result<PreparedWorld> prepare_world(const StructuralWorld& world, const IndexedA
 
     for (std::size_t i = 0; i < world.surfaces.size(); ++i) {
         const StructuralSurface& surface = world.surfaces[i];
-        const auto picnum = static_cast<std::uint32_t>(surface.appearance.picnum);
-        if (surface.appearance.picnum < 0 || picnum >= atlas.tiles.size()) {
+        // The ONE selection site: picnum for ordinary kinds, overpicnum for
+        // PortalMasked (see effective_tile). Everything downstream — range
+        // check, tile lookup, the prepared picnum the consumer sees — uses
+        // this resolved value and nothing else.
+        const std::int16_t selected = effective_tile(surface.kind, surface.appearance);
+        const auto tile_index = static_cast<std::uint32_t>(selected);
+        if (selected < 0 || tile_index >= atlas.tiles.size()) {
             return Result<PreparedWorld>::err(
                 {"prepared", static_cast<std::uint64_t>(i), "surface", ErrorCode::InvalidName,
-                 "picnum " + std::to_string(surface.appearance.picnum) +
-                     " is outside the atlas tile namespace"});
+                 "effective tile " + std::to_string(selected) + " (picnum " +
+                     std::to_string(surface.appearance.picnum) + ", overpicnum " +
+                     std::to_string(surface.appearance.overpicnum) +
+                     ") is outside the atlas "
+                     "tile namespace"});
         }
-        const AtlasTileEntry& tile = atlas.tiles[picnum];
+        const AtlasTileEntry& tile = atlas.tiles[tile_index];
         if (!tile.populated || tile.page < 0 || tile.width <= 0 || tile.height <= 0) {
             return Result<PreparedWorld>::err(
                 {"prepared", static_cast<std::uint64_t>(i), "surface", ErrorCode::Unsupported,
-                 "picnum " + std::to_string(surface.appearance.picnum) +
-                     " has no populated atlas tile"});
+                 "effective tile " + std::to_string(selected) + " (picnum " +
+                     std::to_string(surface.appearance.picnum) + ", overpicnum " +
+                     std::to_string(surface.appearance.overpicnum) +
+                     ") has no populated atlas tile"});
         }
 
         PreparedSurface out;
@@ -308,7 +334,7 @@ Result<PreparedWorld> prepare_world(const StructuralWorld& world, const IndexedA
         out.wall = surface.wall;
         out.appearance = surface.appearance;
         out.page = tile.page;
-        out.picnum = static_cast<std::int32_t>(picnum);
+        out.picnum = static_cast<std::int32_t>(tile_index);
         // Geometry passes through verbatim: preparation adds UVs, nothing else.
         out.vertices = surface.vertices;
         out.indices = surface.indices;

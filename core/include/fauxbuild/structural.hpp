@@ -21,6 +21,14 @@ enum class SurfaceKind {
     SolidWall,
     PortalUpper,
     PortalLower,
+    // M6.2C1: the authored layer spanning a portal OPENING on a wall carrying
+    // the documented masked bit (cstat 0x0010, PROVENANCE row 9). It is NOT a
+    // re-encoding of the opening's complement: PortalUpper/PortalLower remain
+    // the solid spans ABOVE/BELOW the opening, and PortalMasked covers the
+    // opening itself — derived from the same own/neighbour plane evaluations,
+    // emitted only where that opening has area (quad open at both endpoints,
+    // triangular wedge closed at exactly one, omitted when closed at both).
+    PortalMasked,
 };
 
 const char* surface_kind_name(SurfaceKind kind);
@@ -163,7 +171,8 @@ struct StructuralSectorFrame {
 struct StructuralWorld {
     // Canonical order (tested): sector ascending; per sector floor, ceiling,
     // then walls ascending by wall index; a portal wall contributes
-    // portal_upper before portal_lower. Nothing else may reorder surfaces.
+    // portal_upper, then portal_lower, then portal_masked (only present when
+    // the documented masked bit is set). Nothing else may reorder surfaces.
     std::vector<StructuralSurface> surfaces;
     // Exactly one entry per source sector, in source order: index it with a
     // surface's `sector`. Present for every sector, including ones that emit
@@ -301,7 +310,10 @@ bool slope_is_evaluable(const mapv7::MapData& map, std::int16_t sector_index, Su
 // Derive the static structural shell of a validated MAP v7 world: floors and
 // ceilings triangulated with holes preserved, solid walls as single vertical
 // spans, portal walls as upper/lower spans outside the vertical opening only
-// (never a full quad across the opening). Sloped sectors are evaluated through
+// (never a full quad across the opening), plus — for a portal wall carrying
+// the documented masked bit (cstat 0x0010) — the PortalMasked layer spanning
+// the opening itself, by the same authoritative plane evaluations and the
+// same zero-area protections (M6.2C1). Sloped sectors are evaluated through
 // `surface_z_at` (M6 slice 1); a span that slope closes at one endpoint is
 // emitted as a triangular wedge, and one closed at both is omitted, so no
 // zero-area triangle ever reaches a consumer. Malformed or

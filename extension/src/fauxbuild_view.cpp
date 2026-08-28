@@ -30,7 +30,7 @@ namespace fauxbuild_godot {
 
 namespace {
 
-constexpr std::size_t kKindCount = 5;
+constexpr std::size_t kKindCount = 6;
 
 std::size_t kind_index(fauxbuild::SurfaceKind kind) {
     switch (kind) {
@@ -44,6 +44,8 @@ std::size_t kind_index(fauxbuild::SurfaceKind kind) {
         return 3;
     case fauxbuild::SurfaceKind::PortalLower:
         return 4;
+    case fauxbuild::SurfaceKind::PortalMasked:
+        return 5;
     }
     return 0; // unreachable; all enum values handled above
 }
@@ -54,12 +56,17 @@ struct GroupSpec {
     godot::Color color; // diagnostic only; not a compatibility contract
 };
 
+// M6.2C1: the sixth diagnostic group. Historical M5 content produced five;
+// a world WITH masked surfaces now presents six, and a world without them
+// still presents five (empty kinds have no node). The change is documented,
+// not hidden by folding PortalMasked into another kind's group.
 const GroupSpec kGroups[kKindCount] = {
     {fauxbuild::SurfaceKind::Floor, "Floors", godot::Color(0.29f, 0.65f, 0.35f)},
     {fauxbuild::SurfaceKind::Ceiling, "Ceilings", godot::Color(0.35f, 0.50f, 0.80f)},
     {fauxbuild::SurfaceKind::SolidWall, "SolidWalls", godot::Color(0.75f, 0.75f, 0.75f)},
     {fauxbuild::SurfaceKind::PortalUpper, "PortalUpper", godot::Color(0.92f, 0.62f, 0.18f)},
     {fauxbuild::SurfaceKind::PortalLower, "PortalLower", godot::Color(0.82f, 0.30f, 0.24f)},
+    {fauxbuild::SurfaceKind::PortalMasked, "PortalMasked", godot::Color(0.64f, 0.48f, 0.78f)},
 };
 
 // Godot's mesh index arrays are int32; nothing here may narrow silently.

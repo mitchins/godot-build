@@ -66,6 +66,12 @@ viewer_forbidden = re.compile(
     r'\b(map_v7|mapv7|map_synth|map_io|map_validate|build_structural_world|'
     r'to_render_space|GrpMount|Vfs|AssetSet|IndexedAtlas|ResourceSaver|'
     r'prepare_world|UvConventions|units_per_texel|repeat_factor)\b')
+# M6.2C1: the view receives an already prepared picnum/page/rect and must not
+# re-derive any of it — so it may not read the appearance block at all (the
+# cstat masked bit, overpicnum, or any raw field), and not select by wall
+# kind either: those are layer/selection decisions owned by the structural
+# core and the prepared seam.
+viewer_appearance = re.compile(r'\b(appearance|overpicnum|raw_stat|cstat)\b')
 for path in view_files:
     text = path.read_text(encoding="utf-8")
     for inc in view_include.findall(text):
@@ -76,6 +82,13 @@ for path in view_files:
         if viewer_forbidden.search(line):
             violations.append(f"{path.relative_to(root)}:{lineno}: FauxBuildView must not "
                               f"reference world production: {line.strip()}")
+        # The appearance pin flags CODE, not prose: comments in the view
+        # headers legitimately describe what the view must NOT read.
+        code_only = line.split("//", 1)[0]
+        if viewer_appearance.search(code_only):
+            violations.append(f"{path.relative_to(root)}:{lineno}: FauxBuildView must not read "
+                              f"appearance fields; it receives a prepared picnum/page/rect "
+                              f"(M6.2C1): {line.strip()}")
 
 # M5 slice 3 source-owner guard: pin that the real-content route
 # (mount -> VFS -> MAP reader -> structural derivation -> view seam) lives
@@ -215,6 +228,35 @@ for path in sorted(root.glob("core/src/*.cpp")) + sorted(root.glob("extension/sr
                 f"{path.relative_to(root)}:{lineno}: placement-bit interpretation belongs "
                 f"only to the UV authority (M6.2B1): {line.strip()}")
 
+# M6.2C1 masked-layer pins. The masked cstat bit decides STRUCTURE (whether a
+# portal wall emits the PortalMasked layer), so its interpretation belongs
+# only to the structural derivation; overpicnum is copied verbatim there and
+# SELECTED only at the prepared seam (by surface kind, never by re-reading
+# the bit). Exempt: raw MAP record handling (map_io reads/writes the field as
+# bytes, map_diff compares records verbatim, map_synth AUTHORS committed
+# fixtures) and the extension fixture harness (authors test content, exactly
+# like the placement bits). kWallCstatOneWay is DEFERRED — no code may branch
+# on it anywhere; the only allowed mentions are the constant's own definition
+# and its inventory comment.
+masked_tokens = re.compile(r'\b(kWallCstatMasked|kWallCstatOneWay|overpicnum)\b')
+masked_exempt = {
+    core / "src/structural.cpp",   # the layer decision + verbatim appearance copy
+    uv_authority,                  # the one effective-tile selection
+    core / "src/map_io.cpp",       # raw record read/write
+    core / "src/map_diff.cpp",     # raw record comparison
+    core / "src/map_synth.cpp",    # committed fixture authoring
+    fixture_harness,               # synthetic boundary-content authoring
+}
+for path in sorted(root.glob("core/src/*.cpp")) + sorted(root.glob("extension/src/*.cpp")):
+    if path in masked_exempt:
+        continue
+    for lineno, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+        if masked_tokens.search(line):
+            violations.append(
+                f"{path.relative_to(root)}:{lineno}: masked/one-way wall-bit interpretation "
+                f"belongs only to the structural derivation, and overpicnum selection only "
+                f"to the prepared seam (M6.2C1): {line.strip()}")
+
 if violations:
     print("layering check FAILED:")
     for v in violations:
@@ -224,5 +266,7 @@ if violations:
 print("layering check: core/ contains no Godot references; atlas payload is indexed; "
       "slope arithmetic has one authority; UV interpretation has one authority; "
       "authored frames/placement bits live in their owners; "
+      "the masked layer belongs to the structural derivation and overpicnum selection "
+      "to the prepared seam; the view reads no appearance field; "
       "structural derivation stays asset-free; FauxBuildView consumes StructuralWorld "
       "only; the content route lives in FauxStructuralSource")

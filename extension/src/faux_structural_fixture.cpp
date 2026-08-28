@@ -37,6 +37,8 @@ void FauxStructuralFixture::_bind_methods() {
                          &FauxStructuralFixture::write_fixture_map);
     ClassDB::bind_method(godot::D_METHOD("write_placement_map", "directory"),
                          &FauxStructuralFixture::write_placement_map);
+    ClassDB::bind_method(godot::D_METHOD("write_masked_map", "directory"),
+                         &FauxStructuralFixture::write_masked_map);
     ClassDB::bind_method(godot::D_METHOD("write_fixture_grp", "entries", "directory", "file_name"),
                          &FauxStructuralFixture::write_fixture_grp);
     ClassDB::bind_method(godot::D_METHOD("write_fixture_assets", "directory"),
@@ -103,7 +105,7 @@ bool FauxStructuralFixture::present(const godot::String& name, FauxBuildView* vi
 
 namespace {
 
-// GDScript callers pass 0..4; anything else is a caller bug and fails
+// GDScript callers pass 0..5; anything else is a caller bug and fails
 // cleanly (empty result) rather than throwing across the binding boundary.
 bool kind_from_int(std::int32_t kind, fauxbuild::SurfaceKind* out) {
     switch (kind) {
@@ -121,6 +123,9 @@ bool kind_from_int(std::int32_t kind, fauxbuild::SurfaceKind* out) {
         return true;
     case 4:
         *out = fauxbuild::SurfaceKind::PortalLower;
+        return true;
+    case 5:
+        *out = fauxbuild::SurfaceKind::PortalMasked;
         return true;
     default:
         return false;
@@ -237,6 +242,67 @@ godot::String FauxStructuralFixture::write_placement_map(const godot::String& di
         return "";
     }
     const std::string vfs_name = "PLACEMENT.MAP";
+    const std::filesystem::path out = std::filesystem::path(dir) / vfs_name;
+    std::ofstream stream(out, std::ios::binary | std::ios::trunc);
+    if (!stream) {
+        last_error_ = "cannot open '" + godot::String(out.string().c_str()) + "' for writing";
+        return "";
+    }
+    stream.write(reinterpret_cast<const char*>(bytes.value().data()),
+                 static_cast<std::streamsize>(bytes.value().size()));
+    stream.close();
+    if (!stream) {
+        last_error_ = "failed writing '" + godot::String(out.string().c_str()) + "'";
+        return "";
+    }
+    return vfs_name.c_str();
+}
+
+godot::String FauxStructuralFixture::write_masked_map(const godot::String& directory) {
+    // M6.2C1: the masked-layer boundary gate content. The portal_heights
+    // window geometry with authored masked walls: the portal walls carry the
+    // masked bit with overpicnum 0 (TILE 0 — the zero case, gate_a) on one
+    // side and overpicnum 1 (gate_b) on the other; a solid wall carries the
+    // masked bit with a nonzero overpicnum (no opening exists, no layer may
+    // be manufactured); and a plain solid wall carries a nonzero overpicnum
+    // WITHOUT the bit (the converse: preserved, consumed by nothing). All
+    // original synthetic content; picnums address the gate tileset.
+    last_error_ = "";
+    const std::string dir = directory.utf8().get_data();
+    if (dir.empty()) {
+        last_error_ = "write_masked_map needs an output directory";
+        return "";
+    }
+    auto map = fauxbuild::synth::map_fixture("portal_heights");
+    if (!map.is_ok()) {
+        last_error_ = godot::String("fixture: ") + map.error().to_string().c_str();
+        return "";
+    }
+    auto& data = map.value();
+    // Masked portal: both sides of the shared edge, distinct overlay tiles.
+    data.walls[1].cstat |= fauxbuild::mapv7::kWallCstatMasked;
+    data.walls[1].overpicnum = 0; // tile 0, deliberately — no zero sentinel
+    data.walls[7].cstat |= fauxbuild::mapv7::kWallCstatMasked;
+    data.walls[7].overpicnum = 1;
+    // Solid wall with the masked bit: reported, no layer manufactured.
+    data.walls[0].cstat |= fauxbuild::mapv7::kWallCstatMasked;
+    data.walls[0].overpicnum = 1;
+    // Solid wall with a nonzero overpicnum and NO masked bit: the converse.
+    data.walls[2].overpicnum = 1;
+    for (auto& wall : data.walls) {
+        wall.xrepeat = 16;
+        wall.yrepeat = 16;
+    }
+    data.sectors[0].floorpicnum = 0;
+    data.sectors[0].ceilingpicnum = 1;
+    data.sectors[1].floorpicnum = 1;
+    data.sectors[1].ceilingpicnum = 0;
+    auto bytes = fauxbuild::write_map(data);
+    if (!bytes.is_ok()) {
+        last_error_ = godot::String("serialize: ") + bytes.error().to_string().c_str();
+        return "";
+    }
+    const std::string vfs_name = "MASKED.MAP";
     const std::filesystem::path out = std::filesystem::path(dir) / vfs_name;
     std::ofstream stream(out, std::ios::binary | std::ios::trunc);
     if (!stream) {

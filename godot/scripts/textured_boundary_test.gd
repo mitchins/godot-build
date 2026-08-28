@@ -50,11 +50,20 @@ func _ready() -> void:
 	# subtests below.
 	var placement_map := harness.write_placement_map(dir)
 	check(placement_map != "", "placement map write failed: " + harness.get_last_error())
+	# M6.2C1: masked-layer content (masked portal walls with overpicnum 0 AND
+	# 1, a masked solid wall, and a non-masked overpicnum carrier) goes
+	# through the same consumer boundary.
+	var masked_map := harness.write_masked_map(dir)
+	check(masked_map != "", "masked map write failed: " + harness.get_last_error())
 	check(harness.write_fixture_assets(dir) != "",
 		"fixture asset write failed: " + harness.get_last_error())
 
 	if failures == 0:
 		_test_uv_boundary(placement_map)
+	if failures == 0:
+		_test_uv_boundary(masked_map)
+	if failures == 0:
+		_test_masked_selection(masked_map)
 	if failures == 0:
 		_test_indexed_upload()
 	if failures == 0:
@@ -123,6 +132,40 @@ func _test_uv_boundary(map_name: String) -> void:
 		if want_uv[i] != Vector2.ZERO:
 			nonzero += 1
 	check(nonzero > 0, "every prepared UV is zero; the authority produced nothing")
+
+
+func _test_masked_selection(map_name: String) -> void:
+	# M6.2C1 selection gates at the consumer boundary. The view must receive
+	# an already prepared picnum/page/rect: the masked groups sample the
+	# OVERPICNUM tiles (0 and 1 on the two portal sides), and no extra group
+	# exists for the solid masked wall or the non-masked overpicnum carrier.
+	check(source.present_dir_textured(dir, map_name, view),
+		"masked presentation failed: " + source.get_last_error())
+
+	var masked_zero := 0
+	var masked_one := 0
+	var masked_total := 0
+	for child in view.get_children():
+		if not (child is MeshInstance3D) or child.mesh == null:
+			continue
+		if not child.name.begins_with("PortalMasked_"):
+			continue
+		masked_total += 1
+		if child.name.begins_with("PortalMasked_0_"):
+			masked_zero += 1
+		if child.name.begins_with("PortalMasked_1_"):
+			masked_one += 1
+	check(masked_total == 2,
+		"masked portal has two sides, expected exactly 2 PortalMasked groups, got %d"
+			% masked_total)
+	check(masked_zero == 1,
+		"overpicnum 0 is TILE 0: exactly one PortalMasked group must sample tile 0, got %d"
+			% masked_zero)
+	check(masked_one == 1,
+		"exactly one PortalMasked group must sample tile 1 (overpicnum), got %d" % masked_one)
+
+	# The masked groups' UVs are real (the authority produced them), and the
+	# verbatim comparison in _test_uv_boundary already covered these surfaces.
 
 
 func _test_indexed_upload() -> void:
