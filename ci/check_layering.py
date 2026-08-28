@@ -112,11 +112,13 @@ for path in view_files:
             violations.append(f"{path.relative_to(root)}: core include '{inc}' not allowed "
                               "in FauxBuildView (structural.hpp / prepared.hpp only)")
     lines = text.splitlines()
-    for lineno, line in enumerate(lines, 1):
-        if viewer_forbidden.search(line):
-            violations.append(f"{path.relative_to(root)}:{lineno}: FauxBuildView must not "
-                              f"reference world production: {line.strip()}")
+    # Both view pins flag CODE, not prose. These files legitimately DESCRIBE
+    # what they must not reference, so the comment stripper applies to the
+    # forbidden-reference scan exactly as it does to the appearance scan.
     for lineno, code_only in strip_comments(lines):
+        if viewer_forbidden.search(code_only):
+            violations.append(f"{path.relative_to(root)}:{lineno}: FauxBuildView must not "
+                              f"reference world production: {lines[lineno - 1].strip()}")
         if viewer_appearance.search(code_only):
             violations.append(f"{path.relative_to(root)}:{lineno}: FauxBuildView must not read "
                               f"appearance fields; it receives a prepared picnum/page/rect "
