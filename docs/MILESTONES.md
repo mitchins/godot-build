@@ -1601,7 +1601,7 @@ M6 (slopes, indexed textures, UV/flags, sprites) is next and is where the
 shell stops looking like a CAD model.
 
 Next milestone work was not started.
-## M6 — Slopes, indexed textures, flags, and sprites — IN_PROGRESS (slices 1 and 2A ACCEPTED 2026-08-26; slice 2B1 HUMAN-ATTESTED PASS 2026-08-28, in review — not yet merged or ACCEPTED)
+## M6 — Slopes, indexed textures, flags, and sprites — IN_PROGRESS (slices 1 and 2A ACCEPTED 2026-08-26; slice 2B1 ACCEPTED 2026-08-28; slice 2C next)
 
 Gate summary: slope query and render share one function; UV/sprite-flag/palette-shade matrix
 fixtures pass; local E1L1 immediately recognizable; unsupported features listed explicitly.
@@ -2233,7 +2233,7 @@ What the slice settled, and what it deliberately did not:
   remaining texture work is about authored controls, not about rediscovering
   engine constants.
 
-### Slice 2B1 — authored texture placement — HUMAN-ATTESTED PASS 2026-08-28 (in review; not merged, not yet ACCEPTED)
+### Slice 2B1 — authored texture placement — ACCEPTED 2026-08-28
 
 Scope: **make authored texture placement behave properly — panning, flips, and
 alignment flags.** These are the fields M6.2A preserved verbatim in
@@ -2482,6 +2482,57 @@ base wall texture across the same rectangle.
 Still deferred: masked/one-way walls, translucency, sprites, non-zero pal and
 shade, visibility — M6.2B2 and later own those. Nothing here branches on a
 map, a tile ID, or a level.
+
+**Acceptance, 2026-08-28.** M6.2B1 is **ACCEPTED** and merged as PR #10
+(squash `3b3a50d`; the repository allows squash merges only). The ruling
+confirmed the relative-V-basis behaviour as intentional and coherent, the
+attestation date as a UTC-vs-local artefact rather than an error, the seam
+validation as correctly placed before any surface preparation, and that no
+"fix" crept into the accepted global UV constants. The CodeRabbit
+docstring-coverage warning was explicitly not chased: it is a generic
+heuristic over touched functions, not a project gate, and boilerplate around
+well-commented internal helpers would be noise.
+
+### Slice 2C — wall presentation semantics: masked/one-way walls and `overpicnum` — NEXT, not started
+
+**Scope: generic wall-layer selection.** Which texture a wall span presents,
+and which spans a wall contributes, when the authored masked/one-way bits say
+the wall has an over-layer. `overpicnum` has been preserved verbatim on
+`SurfaceAppearance` since M6.2A and is consumed by nothing; `cstat 0x0010` has
+been diagnosed-not-interpreted with a note since M5.
+
+Deliberately NOT chosen next: the smoosh factor. It stayed unattributable at
+the B1 human gate, and no approved provenance establishes a factor, so it
+would be a guess. This slice has a real oracle instead.
+
+**The oracle.** The cinema entrance is the **human symptom, not the target**:
+original E1L1 shows a bounded marquee/sign surface where FauxBuild repeats an
+unrelated-looking base wall texture across the same rectangle. If generic
+wall-layer selection is right, that rectangle should move toward a bounded
+sign **without any E1L1-specific knowledge anywhere**. That is an unusually
+strong real-content check — a wrong rule cannot produce a correctly bounded
+sign by accident. The same standing rule applies: if making it look right
+needs a map branch, a wall/tile exception or a per-level tolerance, the
+generic model is wrong and the slice stops.
+
+**Inventory (aggregate, E1L1).** 19 walls carry the masked bit; all 19 are
+PORTAL walls, all 19 have `overpicnum != 0`, and in all 19 the overpicnum
+differs from the wall's `picnum` — so every one of them would visibly change.
+Separately, **79 walls have `overpicnum != 0` and 60 of those are NOT masked**:
+a nonzero `overpicnum` is therefore NOT by itself a licence to present it. The
+masked bit selects the layer; the field alone does not. Any implementation
+that keys off `overpicnum != 0` is wrong on 60 of 79 E1L1 walls, and the
+M3-corroborated association (P(overpicnum != 0 | masked) = 0.979 vs 0.029
+base, n = 15303) is the direction of the implication, not its converse.
+
+**Expect the E1L1 surface count to CHANGE — and account for it exactly.**
+Every previous slice held 1929/5111 fixed and treated any movement as a
+defect. This one may legitimately add spans, because all 19 masked walls are
+portal walls and a masked layer plausibly occupies the opening between the
+two spans rather than replacing either. That makes the baseline a REPORTING
+obligation, not a pass/fail: report the new counts with a span-by-span
+account of which walls contributed what and why. An unexplained delta, or a
+delta on a wall with no masked bit, is a defect.
 
 ### [SUPERSEDED — the Mapster UV programme was abandoned 2026-08-26] M6.2A black-box boards — generated 2026-08-26, awaiting HUMAN attestation
 

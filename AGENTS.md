@@ -66,9 +66,8 @@ live in `UvConventions`, are applied only in `core/src/prepared.cpp`, and a
 change is a single-site edit. No map-, tile- or level-specific value is
 permitted anywhere.
 
-Deferred: **M6.2B1 (panning, flips, swap-XY, relative and wall top/bottom
-alignment) is HUMAN-ATTESTED PASS 2026-08-28 on untouched E1L1 and is IN
-REVIEW — not merged, not yet ACCEPTED. Do not start M6.2B2 before it merges.**
+**M6.2B1 (panning, flips, swap-XY, relative and wall top/bottom alignment) is
+ACCEPTED 2026-08-28**, HUMAN-ATTESTED on untouched E1L1 and merged as PR #10.
 All interpretation stays in the
 one UV authority (`core/src/prepared.cpp`); `UvConventions` gained three
 provisional toggles (pan sign, relative-frame orientation x2). Relative
@@ -125,9 +124,16 @@ first-wall hinge, activated by stat 0x0002, sign from the directed hinge's 2D
 cross product, `heinum/256` from the 16:1 metric. A plane with no usable hinge
 is diagnosed and its dependent geometry omitted, never flattened (D0019).
 Baseline indexed textures landed in M6.2A (accepted; see above).
-Panning/alignment/flips (M6.2B1) are HUMAN-ATTESTED and in review; sprites,
-masked/one-way walls, translucency and the smoosh bit are not implemented;
-visibility (M10) is not started.
+Panning/alignment/flips (M6.2B1) are ACCEPTED. Sprites, masked/one-way walls,
+translucency and the smoosh bit are not implemented; visibility (M10) is not
+started. **M6.2C is next: generic wall-layer selection — masked/one-way wall
+presentation and `overpicnum`.** Its oracle is the cinema-entrance residual
+above, as a human SYMPTOM, never a target. Note the trap: 79 E1L1 walls have
+`overpicnum != 0` but only 19 are masked, so a nonzero `overpicnum` is not by
+itself a licence to present it — the masked bit selects the layer. Smoosh was
+deliberately NOT chosen next: it stayed unattributable at the B1 gate and no
+approved provenance establishes a factor, so it would be a guess; M6.2C has a
+real oracle instead.
 
 M4 (ART, palette, lookup, tile tooling and the indexed atlas) was **ACCEPTED
 2026-08-24**: all six gate items met, D0013/D0014/D0015 ratified, and two
