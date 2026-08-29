@@ -91,8 +91,40 @@ it up: test those generic deferred semantics FIRST, and never alter the global
 UV/panning conventions or add a map, wall or tile exception to make it look
 right.
 
-Sprites, masked/one-way walls and translucency are later M6 slices;
-visibility is M10.
+**M6.2C1 (masked portal layers, `overpicnum` selection and the D0021 indexed
+cutout) is HUMAN-ATTESTED PASS IN SCOPE 2026-08-28 on untouched E1L1 and is IN
+REVIEW — not merged, not yet ACCEPTED. The cinema marquee artwork is now
+visibly present; that is the oracle.** Residual, NOT this slice's: the marquee
+repeats far too many times — a generic wall repeat-scale question for M6.2C1c.
+Do NOT change PortalMasked geometry, overpicnum selection, the cutout
+sentinel, culling or B1 placement to fix repetition; those are attested
+correct. `SurfaceKind::PortalMasked` is a distinct sixth kind spanning
+the portal opening (same plane evaluations and zero-area protections as
+upper/lower; quad/wedge/omit), derived only in the structural core from the
+masked bit (cstat 0x0010). `prepare_world` owns THE effective-tile selection:
+`PortalMasked -> overpicnum`, everything else `picnum`; **overpicnum == 0 is
+tile 0**, never a sentinel, and a nonzero overpicnum alone selects nothing
+(60 of 79 nonzero carriers on E1L1 are not masked). The view reads no
+appearance field (layering pin). E1L1 counts moved 1929/5111/252 →
+1948/5149/233, exactly +19 masked quads (all 19 masked walls open at both
+endpoints) and −19 obsolete deferral notes — full ledger in MILESTONES.
+DEFERRED: one-way (0x0020; no positive rule in approved provenance —
+inventoried, pinned uninterpreted), cstat translucency, sprites, smoosh.
+(Transparent-texel discard is NO LONGER deferred — slice 2C1b implements it
+under D0021; the text above describes C1 before that landed.) The B1-era
+cinema paragraph above was the oracle for the gate, never a target, and the
+gate has since PASSED. **Pre-gate correction (accepted):** paired
+masked sides stay TWO coincident opposite-wound surfaces with their own
+placement — never deduplicated — and their TEXTURED presentation uses a
+second shared `cull_back` shader variant so the pair cannot z-fight;
+ordinary groups keep `cull_disabled`; two shared shaders total, never per
+group (sharing gate pins it).
+
+Binary indexed CUTOUT landed in M6.2C1b (D0021, sentinel index 255):
+cutout-enabled surfaces discard sentinel texels, decided on the R8 INDEX
+before any palette lookup — never on RGB, since 245 shares the colour and is
+NOT transparent. Sprites, one-way walls, cstat translucency and smoosh are
+later M6 slices; visibility is M10.
 
 **M5 — Static structural world viewer: ACCEPTED 2026-08-25.** All three
 slices accepted. Slice 1: pure-C++ structural derivation from authoritative
@@ -124,16 +156,21 @@ first-wall hinge, activated by stat 0x0002, sign from the directed hinge's 2D
 cross product, `heinum/256` from the 16:1 metric. A plane with no usable hinge
 is diagnosed and its dependent geometry omitted, never flattened (D0019).
 Baseline indexed textures landed in M6.2A (accepted; see above).
-Panning/alignment/flips (M6.2B1) are ACCEPTED. Sprites, masked/one-way walls,
-translucency and the smoosh bit are not implemented; visibility (M10) is not
-started. **M6.2C is next: generic wall-layer selection — masked/one-way wall
-presentation and `overpicnum`.** Its oracle is the cinema-entrance residual
-above, as a human SYMPTOM, never a target. Note the trap: 79 E1L1 walls have
-`overpicnum != 0` but only 19 are masked, so a nonzero `overpicnum` is not by
-itself a licence to present it — the masked bit selects the layer. Smoosh was
-deliberately NOT chosen next: it stayed unattributable at the B1 gate and no
-approved provenance establishes a factor, so it would be a guess; M6.2C has a
-real oracle instead.
+Panning/alignment/flips (M6.2B1) are ACCEPTED. Masked portal layers and
+`overpicnum` selection (M6.2C1) plus the binary indexed CUTOUT (M6.2C1b) are
+HUMAN-ATTESTED PASS IN SCOPE 2026-08-28 and in review (see above).
+**M6.2C1c is next: generic wall REPEAT semantics** — the marquee repeats far
+too many times, which is a repeat-scale question about the provisional UV
+conventions, not a masked-layer one. Do not start it before C1 merges. The cutout sentinel is palette index **255**, ratified as
+D0021 from black-box measurement over owned content: it is an INDEX semantic
+decided on the authoritative R8 index BEFORE any palette lookup, never on RGB,
+because entries 245 and 255 are both exact full magenta and **245 is NOT
+transparent**. Cutout is a property of the SURFACE, never the tile — owned
+content uses the same tile as a masked overlay and as an ordinary opaque wall.
+Sprites, one-way walls, cstat translucency and the smoosh bit are not
+implemented; visibility (M10) is not started. The 79/19 overpicnum trap is now load-bearing and pinned: a nonzero
+`overpicnum` is not by itself a licence to present it — the masked bit
+selects the layer.
 
 M4 (ART, palette, lookup, tile tooling and the indexed atlas) was **ACCEPTED
 2026-08-24**: all six gate items met, D0013/D0014/D0015 ratified, and two

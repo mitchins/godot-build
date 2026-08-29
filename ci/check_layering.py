@@ -66,16 +66,64 @@ viewer_forbidden = re.compile(
     r'\b(map_v7|mapv7|map_synth|map_io|map_validate|build_structural_world|'
     r'to_render_space|GrpMount|Vfs|AssetSet|IndexedAtlas|ResourceSaver|'
     r'prepare_world|UvConventions|units_per_texel|repeat_factor)\b')
+# M6.2C1: the view receives an already prepared picnum/page/rect and must not
+# re-derive any of it — so it may not read the appearance block at all (the
+# cstat masked bit, overpicnum, or any raw field), and not select by wall
+# kind either: those are layer/selection decisions owned by the structural
+# core and the prepared seam.
+viewer_appearance = re.compile(r'\b(appearance|overpicnum|raw_stat|cstat)\b')
+
+
+def strip_comments(lines):
+    """Yield (lineno, code) with // and /* */ comment text removed.
+
+    The ownership pins flag CODE, not prose: these files legitimately DESCRIBE
+    what they must not read. `line.split("//")` alone missed block comments, so
+    a `/* overpicnum */` note failed the gate spuriously.
+    """
+    in_block = False
+    for lineno, line in enumerate(lines, 1):
+        code = []
+        i = 0
+        while i < len(line):
+            if in_block:
+                end = line.find("*/", i)
+                if end < 0:
+                    i = len(line)
+                else:
+                    in_block = False
+                    i = end + 2
+                continue
+            if line.startswith("//", i):
+                break
+            if line.startswith("/*", i):
+                in_block = True
+                i += 2
+                continue
+            code.append(line[i])
+            i += 1
+        yield lineno, "".join(code)
+
+
 for path in view_files:
     text = path.read_text(encoding="utf-8")
     for inc in view_include.findall(text):
         if inc not in ("fauxbuild/structural.hpp", "fauxbuild/prepared.hpp"):
             violations.append(f"{path.relative_to(root)}: core include '{inc}' not allowed "
                               "in FauxBuildView (structural.hpp / prepared.hpp only)")
-    for lineno, line in enumerate(text.splitlines(), 1):
-        if viewer_forbidden.search(line):
+    lines = text.splitlines()
+    # Both view pins flag CODE, not prose. These files legitimately DESCRIBE
+    # what they must not reference, so the comment stripper applies to the
+    # forbidden-reference scan exactly as it does to the appearance scan.
+    for lineno, code_only in strip_comments(lines):
+        if viewer_forbidden.search(code_only):
             violations.append(f"{path.relative_to(root)}:{lineno}: FauxBuildView must not "
-                              f"reference world production: {line.strip()}")
+                              f"reference world production: {lines[lineno - 1].strip()}")
+        if viewer_appearance.search(code_only):
+            violations.append(f"{path.relative_to(root)}:{lineno}: FauxBuildView must not read "
+                              f"appearance fields; it receives a prepared picnum/page/rect "
+                              f"(M6.2C1): {lines[lineno - 1].strip()}")
+
 
 # M5 slice 3 source-owner guard: pin that the real-content route
 # (mount -> VFS -> MAP reader -> structural derivation -> view seam) lives
@@ -209,11 +257,103 @@ fixture_harness = root / "extension/src/faux_structural_fixture.cpp"
 for path in sorted(root.glob("core/src/*.cpp")) + sorted(root.glob("extension/src/*.cpp")):
     if path == uv_authority or path == core / "src/structural.cpp" or path == fixture_harness:
         continue
-    for lineno, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
-        if placement_tokens.search(line):
+    lines = path.read_text(encoding="utf-8").splitlines()
+    for lineno, code_only in strip_comments(lines):
+        if placement_tokens.search(code_only):
             violations.append(
                 f"{path.relative_to(root)}:{lineno}: placement-bit interpretation belongs "
-                f"only to the UV authority (M6.2B1): {line.strip()}")
+                f"only to the UV authority (M6.2B1): {lines[lineno - 1].strip()}")
+
+# M6.2C1 masked-layer pins. The masked cstat bit decides STRUCTURE (whether a
+# portal wall emits the PortalMasked layer), so its interpretation belongs
+# only to the structural derivation; overpicnum is copied verbatim there and
+# SELECTED only at the prepared seam (by surface kind, never by re-reading
+# the bit). Exempt: raw MAP record handling (map_io reads/writes the field as
+# bytes, map_diff compares records verbatim, map_synth AUTHORS committed
+# fixtures) and the extension fixture harness (authors test content, exactly
+# like the placement bits). kWallCstatOneWay is DEFERRED — no code may branch
+# on it anywhere; the only allowed mentions are the constant's own definition
+# and its inventory comment.
+masked_tokens = re.compile(r'\b(kWallCstatMasked|kWallCstatOneWay|overpicnum)\b')
+masked_exempt = {
+    core / "src/structural.cpp",   # the layer decision + verbatim appearance copy
+    uv_authority,                  # the one effective-tile selection
+    core / "src/map_io.cpp",       # raw record read/write
+    core / "src/map_diff.cpp",     # raw record comparison
+    core / "src/map_synth.cpp",    # committed fixture authoring
+    fixture_harness,               # synthetic boundary-content authoring
+}
+# Headers are scanned too: an inline implementation in a .hpp would otherwise
+# bypass this pin entirely. The DEFINITION sites are exempt — map_v7.hpp
+# declares the cstat bits, structural.hpp declares the verbatim appearance
+# field, prepared.hpp declares the seam that consumes it.
+masked_exempt |= {
+    core / "include/fauxbuild/map_v7.hpp",
+    core / "include/fauxbuild/structural.hpp",
+    core / "include/fauxbuild/prepared.hpp",
+}
+masked_scan = (sorted(root.glob("core/src/*.cpp")) + sorted(root.glob("extension/src/*.cpp")) +
+               sorted(root.glob("core/include/fauxbuild/*.hpp")) +
+               sorted(root.glob("extension/include/fauxbuild_godot/*.hpp")))
+for path in masked_scan:
+    if path in masked_exempt:
+        continue
+    lines = path.read_text(encoding="utf-8").splitlines()
+    for lineno, code_only in strip_comments(lines):
+        if masked_tokens.search(code_only):
+            violations.append(
+                f"{path.relative_to(root)}:{lineno}: masked/one-way wall-bit interpretation "
+                f"belongs only to the structural derivation, and overpicnum selection only "
+                f"to the prepared seam (M6.2C1): {lines[lineno - 1].strip()}")
+
+# M6.2C1b cutout pins. The sentinel is ONE ratified compatibility constant
+# (fauxbuild::kMaskedCutoutIndex, D0021) carried to the consumer on the
+# prepared world. Nothing outside core/src/prepared.cpp may state the value,
+# and the view must select its presentation from the prepared cutout FLAG, not
+# by rediscovering the masked kind or bit. Note the same limit as the M6.2B1
+# placement pin: a bare `255` cannot be grepped apart from any other 255, so
+# this catches the named constant and the obvious literal spellings only --
+# the real guarantee is behavioural, in godot/scripts/textured_boundary_test.gd,
+# which reads the shader's actual sentinel uniform back and requires it to be
+# the prepared world's.
+sentinel_owner = re.compile(r'\bkMaskedCutoutIndex\b')
+for path in masked_scan:
+    if path == uv_authority or path == core / "include/fauxbuild/prepared.hpp":
+        continue
+    lines = path.read_text(encoding="utf-8").splitlines()
+    for lineno, code_only in strip_comments(lines):
+        if sentinel_owner.search(code_only):
+            violations.append(
+                f"{path.relative_to(root)}:{lineno}: the cutout sentinel is stated once in "
+                f"core/src/prepared.cpp and carried on PreparedWorld (D0021): "
+                f"{lines[lineno - 1].strip()}")
+# Shader selection must key on the prepared cutout flag, never on the surface
+# kind. A same-line check is not enough — the view could assign
+# `kind == PortalMasked` to a local and branch on that later — so this counts
+# occurrences instead: PortalMasked may appear in the view EXACTLY TWICE, once
+# in kind_index's switch and once in the kGroups diagnostic table. A third
+# mention is a kind-based decision by construction, whatever it is spelled.
+kExpectedMaskedKindMentions = 2
+for path in view_files:
+    lines = path.read_text(encoding="utf-8").splitlines()
+    mentions = [(n, c) for n, c in strip_comments(lines)
+                if re.search(r'\bSurfaceKind::PortalMasked\b', c)]
+    if path.suffix == ".cpp" and len(mentions) != kExpectedMaskedKindMentions:
+        where = ", ".join(str(n) for n, _ in mentions) or "none"
+        violations.append(
+            f"{path.relative_to(root)}: SurfaceKind::PortalMasked may appear in the view only "
+            f"as a diagnostic group label (kind_index + kGroups = "
+            f"{kExpectedMaskedKindMentions} mentions); found {len(mentions)} at line(s) "
+            f"{where}. Cutout presentation is selected from PreparedSurface::cutout_enabled "
+            f"(M6.2C1b), never rediscovered from the kind — including indirectly via a local.")
+    for lineno, code_only in strip_comments(lines):
+        picks_presentation = ("set_shader" in code_only or "material" in code_only.lower()
+                              or "->set_code" in code_only)
+        if picks_presentation and re.search(r'\bSurfaceKind\b', code_only):
+            violations.append(
+                f"{path.relative_to(root)}:{lineno}: the view selects cutout presentation from "
+                f"PreparedSurface::cutout_enabled, never by rediscovering the surface kind "
+                f"(M6.2C1b): {lines[lineno - 1].strip()}")
 
 if violations:
     print("layering check FAILED:")
@@ -224,5 +364,7 @@ if violations:
 print("layering check: core/ contains no Godot references; atlas payload is indexed; "
       "slope arithmetic has one authority; UV interpretation has one authority; "
       "authored frames/placement bits live in their owners; "
+      "the masked layer belongs to the structural derivation and overpicnum selection "
+      "to the prepared seam; the view reads no appearance field; "
       "structural derivation stays asset-free; FauxBuildView consumes StructuralWorld "
       "only; the content route lives in FauxStructuralSource")

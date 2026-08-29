@@ -43,6 +43,7 @@ namespace {
 const char* kTileset = R"(tileset prepared_gate
 tile gate_a 64 64 pattern=checker a=16 b=60 square=24
 tile gate_b 128 64 pattern=checker a=20 b=56 square=24
+tile gate_cut 16 16 pattern=indexed
 )";
 
 IndexedAtlas make_atlas() {
@@ -889,4 +890,432 @@ TEST_CASE("seam contract: the valid boundary index still succeeds") {
     CHECK(p.surfaces.size() == world.surfaces.size());
     CHECK(p.surfaces[0].sector == last);
     CHECK(p.surfaces[0].uvs.size() == world.surfaces[0].vertices.size());
+}
+
+// ---------------------------------------------------------------------------
+// M6.2C1: effective-texture selection for the masked layer.
+// ---------------------------------------------------------------------------
+
+namespace {
+
+StructuralWorld masked_world(const std::function<void(fauxbuild::mapv7::MapData&)>& mutate,
+                             const char* fixture = "masked_wall") {
+    return placement_world(mutate, fixture);
+}
+
+// M6.2C1b: one masked opening whose two authored sides present DIFFERENT
+// overlay tiles -- gate_cut (tile 2, which carries exactly one texel of every
+// index, sentinel included) and gate_a (tile 0, which carries none) -- plus an
+// ordinary solid wall presenting gate_cut as its own picnum. That last one is
+// the control the documentation makes load-bearing: the same tile, opaque.
+StructuralWorld cutout_world() {
+    return masked_world([](fauxbuild::mapv7::MapData& map) {
+        map.walls[1].cstat |= fauxbuild::mapv7::kWallCstatMasked;
+        map.walls[1].overpicnum = 2; // sentinel-bearing overlay
+        map.walls[7].cstat |= fauxbuild::mapv7::kWallCstatMasked;
+        map.walls[7].overpicnum = 0; // no sentinel texel: opaque masked layer
+        map.walls[2].picnum = 2;     // ordinary surface, same tile, stays opaque
+    });
+}
+
+} // namespace
+
+TEST_CASE("selection: PortalMasked prepares overpicnum, ordinary kinds keep picnum") {
+    // The one selection rule, centralized in prepare_world: the masked layer
+    // presents the overlay tile; every ordinary surface presents its own
+    // picnum — on the SAME wall, so a transposition cannot pass by accident.
+    const IndexedAtlas atlas = make_atlas();
+    const StructuralWorld world = masked_world([](fauxbuild::mapv7::MapData& map) {
+        map.walls[1].cstat |= fauxbuild::mapv7::kWallCstatMasked;
+        map.walls[1].overpicnum = 1;
+        map.walls[7].cstat |= fauxbuild::mapv7::kWallCstatMasked;
+        map.walls[7].overpicnum = 1;
+    });
+    const PreparedWorld p = prepare(world, atlas);
+
+    const PreparedSurface* masked = find_surface(p, SurfaceKind::PortalMasked, 1);
+    const PreparedSurface* upper = find_surface(p, SurfaceKind::PortalUpper, 1);
+    const PreparedSurface* lower = find_surface(p, SurfaceKind::PortalLower, 1);
+    REQUIRE(masked != nullptr);
+    REQUIRE(upper != nullptr);
+    REQUIRE(lower != nullptr);
+    CHECK(masked->picnum == 1);
+    CHECK(masked->page == atlas.tiles[1].page);
+    CHECK(masked->rect_w ==
+          doctest::Approx(static_cast<double>(atlas.tiles[1].width) / atlas.page_width));
+    CHECK(upper->picnum == 0);
+    CHECK(lower->picnum == 0);
+    // The raw appearance still carries both fields verbatim; only the
+    // resolved picnum differs.
+    CHECK(masked->appearance.overpicnum == 1);
+    CHECK(masked->appearance.picnum == 0);
+}
+
+TEST_CASE("selection: masked portal with overpicnum 0 prepares TILE 0") {
+    // The critical zero case. No approved provenance establishes a zero
+    // sentinel, so 0 is a tile number like any other: the masked layer must
+    // resolve atlas tile 0, populated with its own rect — never fall back to
+    // picnum, never skip the layer. (All 145 masked walls across the six
+    // owned maps carry a nonzero overpicnum, so this is synthetic-only
+    // reachability — pinned here precisely because real content cannot
+    // catch a regression.) Sabotage `if (overpicnum != 0)` goes red here.
+    const IndexedAtlas atlas = make_atlas();
+    REQUIRE(atlas.tiles[0].populated);
+    REQUIRE(atlas.tiles[1].populated);
+    const bool distinct_rects =
+        atlas.tiles[0].x != atlas.tiles[1].x || atlas.tiles[0].y != atlas.tiles[1].y;
+    REQUIRE(distinct_rects); // so the tile-0 rect check below has teeth
+
+    const StructuralWorld world = masked_world([](fauxbuild::mapv7::MapData& map) {
+        for (const std::int16_t w : {std::int16_t{1}, std::int16_t{7}}) {
+            auto& wall = map.walls[static_cast<std::size_t>(w)];
+            wall.cstat |= fauxbuild::mapv7::kWallCstatMasked;
+            wall.overpicnum = 0; // tile 0, deliberately, on BOTH sides
+        }
+        map.walls[1].picnum = 1; // differs, so a fallback to picnum is visible
+    });
+    const PreparedWorld p = prepare(world, atlas);
+    const PreparedSurface* masked = find_surface(p, SurfaceKind::PortalMasked, 1);
+    REQUIRE(masked != nullptr);
+    CHECK(masked->picnum == 0);
+    CHECK(masked->page == atlas.tiles[0].page);
+    CHECK(masked->rect_x ==
+          doctest::Approx(static_cast<double>(atlas.tiles[0].x) / atlas.page_width));
+    CHECK(masked->rect_w ==
+          doctest::Approx(static_cast<double>(atlas.tiles[0].width) / atlas.page_width));
+}
+
+TEST_CASE("selection: a nonzero overpicnum on an ordinary surface selects picnum") {
+    // The converse at the seam: overpicnum travels with non-masked walls in
+    // real content (305 across the six owned maps) and must select nothing.
+    const IndexedAtlas atlas = make_atlas();
+    const StructuralWorld world = placement_world(
+        [](fauxbuild::mapv7::MapData& map) {
+            for (auto& wall : map.walls) {
+                wall.overpicnum = 1; // nonzero everywhere, masked bit clear
+            }
+        },
+        "portal_heights");
+    const PreparedWorld p = prepare(world, atlas);
+    CHECK(find_surface(p, SurfaceKind::PortalMasked) == nullptr);
+    for (const auto& surface : p.surfaces) {
+        INFO("kind ", static_cast<int>(surface.kind), " wall ", surface.wall);
+        CHECK(surface.picnum == 0);
+        // Floors/ceilings carry no overpicnum (wall spans only); on every
+        // wall span the field is preserved verbatim and unconsumed.
+        if (surface.wall >= 0) {
+            CHECK(surface.appearance.overpicnum == 1);
+        }
+    }
+}
+
+TEST_CASE("selection: an out-of-range effective tile is a structured error") {
+    const IndexedAtlas atlas = make_atlas();
+
+    // Masked wall whose overpicnum names a tile the atlas does not have.
+    const StructuralWorld bad_overlay = masked_world([](fauxbuild::mapv7::MapData& map) {
+        map.walls[1].cstat |= fauxbuild::mapv7::kWallCstatMasked;
+        map.walls[1].overpicnum = 5; // atlas holds 0..1
+    });
+    auto prepared = prepare_world(bad_overlay, atlas, make_palette());
+    REQUIRE(prepared.is_ok() == false);
+    CHECK(prepared.error().code == fauxbuild::ErrorCode::InvalidName);
+    CHECK(prepared.error().detail.find("overpicnum") != std::string::npos);
+
+    // And an ordinary wall's picnum out of range still errors naming picnum.
+    const StructuralWorld bad_picnum = placement_world(
+        [](fauxbuild::mapv7::MapData& map) { map.walls[0].picnum = 9; }, "portal_heights");
+    auto rejected = prepare_world(bad_picnum, atlas, make_palette());
+    REQUIRE(rejected.is_ok() == false);
+    CHECK(rejected.error().detail.find("picnum") != std::string::npos);
+}
+
+TEST_CASE("masked layer UVs follow the wall model exactly") {
+    // Full-height opening on a properly ordered equal-height portal: the
+    // masked quad's UVs are the wall-span values, hand-derived. Wall 1 runs
+    // (1024,0)->(1024,1024) with repeats 8/8: one texel spans
+    // 16*(8/64)*64 = 128 world units along U and 256*(8/64)*64 = 2048 Build
+    // Z units along V, anchored at the top (Build Z 0). The quad's vertices
+    // arrive A@0, B@0, B@16384, A@16384 -> U (0,8,8,0), V (0,0,8,8), exactly.
+    const IndexedAtlas atlas = make_atlas();
+    fauxbuild::mapv7::MapData map;
+    const std::int32_t u = 1024;
+    const std::int32_t ax[] = {0, u, u, 0};
+    const std::int32_t ay[] = {0, 0, u, u};
+    for (std::size_t i = 0; i < 4; ++i) {
+        map.walls.push_back(fauxbuild::mapv7::Wall());
+        map.walls[i].x = ax[i];
+        map.walls[i].y = ay[i];
+        map.walls[i].point2 = static_cast<std::int16_t>((i + 1) % 4);
+        map.walls[i].xrepeat = 8;
+        map.walls[i].yrepeat = 8;
+    }
+    const std::int32_t bx[] = {u, 2 * u, 2 * u, u};
+    const std::int32_t by[] = {0, 0, u, u};
+    for (std::size_t i = 0; i < 4; ++i) {
+        map.walls.push_back(fauxbuild::mapv7::Wall());
+        map.walls[4 + i].x = bx[i];
+        map.walls[4 + i].y = by[i];
+        map.walls[4 + i].point2 = static_cast<std::int16_t>(4 + (i + 1) % 4);
+        map.walls[4 + i].xrepeat = 8;
+        map.walls[4 + i].yrepeat = 8;
+    }
+    map.walls[1].nextwall = 7;
+    map.walls[1].nextsector = 1;
+    map.walls[7].nextwall = 1;
+    map.walls[7].nextsector = 0;
+    for (int s = 0; s < 2; ++s) {
+        map.sectors.push_back(fauxbuild::mapv7::Sector());
+        map.sectors[static_cast<std::size_t>(s)].wallptr = static_cast<std::int16_t>(4 * s);
+        map.sectors[static_cast<std::size_t>(s)].wallnum = 4;
+        map.sectors[static_cast<std::size_t>(s)].floorz = 16384;
+        map.sectors[static_cast<std::size_t>(s)].ceilingz = 0;
+    }
+    for (const std::int16_t w : {std::int16_t{1}, std::int16_t{7}}) {
+        map.walls[static_cast<std::size_t>(w)].cstat = fauxbuild::mapv7::kWallCstatMasked;
+        map.walls[static_cast<std::size_t>(w)].overpicnum = 0;
+    }
+    auto built = build_structural_world(map);
+    REQUIRE(built.is_ok());
+    const PreparedWorld p = prepare(built.value(), atlas);
+    const PreparedSurface* masked = find_surface(p, SurfaceKind::PortalMasked, 1);
+    REQUIRE(masked != nullptr);
+    REQUIRE(masked->uvs.size() == 4);
+    // Geometry passes through verbatim for the masked layer too.
+    const fauxbuild::StructuralSurface* source = nullptr;
+    for (const auto& surface : built.value().surfaces) {
+        if (surface.kind == SurfaceKind::PortalMasked && surface.wall == 1) {
+            source = &surface;
+            break;
+        }
+    }
+    REQUIRE(source != nullptr);
+    CHECK(masked->vertices == source->vertices);
+    CHECK(masked->indices == source->indices);
+
+    const float expected_u[4] = {0.0f, 8.0f, 8.0f, 0.0f};
+    const float expected_v[4] = {0.0f, 0.0f, 8.0f, 8.0f};
+    for (std::size_t i = 0; i < 4; ++i) {
+        CHECK(masked->uvs[i].u == expected_u[i]);
+        CHECK(masked->uvs[i].v == expected_v[i]);
+    }
+}
+
+TEST_CASE("masked layer is additive: no other prepared surface moves") {
+    // The C1 analogue of the B1 regression pin. Setting the masked bit (with
+    // overpicnum 0) must leave every other prepared surface byte-identical:
+    // same vertices, indices, UVs, resolved tile, page and rect.
+    const IndexedAtlas atlas = make_atlas();
+    const StructuralWorld plain = placement_world(nullptr, "portal_heights");
+    const StructuralWorld masked = placement_world(
+        [](fauxbuild::mapv7::MapData& map) {
+            for (const std::int16_t w : {std::int16_t{1}, std::int16_t{7}}) {
+                map.walls[static_cast<std::size_t>(w)].cstat |= fauxbuild::mapv7::kWallCstatMasked;
+                map.walls[static_cast<std::size_t>(w)].overpicnum = 0;
+            }
+        },
+        "portal_heights");
+    const PreparedWorld plain_p = prepare(plain, atlas);
+    const PreparedWorld masked_p = prepare(masked, atlas);
+
+    std::size_t plain_at = 0;
+    for (const auto& surface : masked_p.surfaces) {
+        if (surface.kind == SurfaceKind::PortalMasked) {
+            continue;
+        }
+        REQUIRE(plain_at < plain_p.surfaces.size());
+        const PreparedSurface& before = plain_p.surfaces[plain_at++];
+        CHECK(surface.kind == before.kind);
+        CHECK(surface.vertices == before.vertices);
+        CHECK(surface.indices == before.indices);
+        CHECK(surface.uvs == before.uvs);
+        CHECK(surface.picnum == before.picnum);
+        CHECK(surface.page == before.page);
+    }
+    CHECK(plain_at == plain_p.surfaces.size());
+    std::size_t masked_count = 0;
+    for (const auto& surface : masked_p.surfaces) {
+        masked_count += surface.kind == SurfaceKind::PortalMasked ? 1 : 0;
+    }
+    CHECK(masked_count == 2);
+}
+
+TEST_CASE("paired masked layers keep their OWN authored UVs") {
+    // M6.2C1 pre-gate correction pin. The two sides of a masked portal may
+    // carry distinct panning/repeat/flips/alignment. Preparation must keep
+    // both sides with their OWN UVs — never merged, averaged, deduplicated,
+    // or forced onto one side's placement. Proof form: the paired world's
+    // side-A UVs equal the SAME side's UVs in a world where ONLY side A is
+    // masked (and likewise for B), so nothing about the other side leaked in.
+    const IndexedAtlas atlas = make_atlas();
+    const auto authored = [](fauxbuild::mapv7::MapData& map, std::int16_t w, std::int16_t over,
+                             std::uint8_t xr, std::uint8_t yr, std::uint8_t xp, std::uint8_t yp,
+                             std::int16_t extra_cstat) {
+        auto& wall = map.walls[static_cast<std::size_t>(w)];
+        wall.cstat = static_cast<std::int16_t>(fauxbuild::mapv7::kWallCstatMasked | extra_cstat);
+        wall.overpicnum = over;
+        wall.xrepeat = xr;
+        wall.yrepeat = yr;
+        wall.xpanning = xp;
+        wall.ypanning = yp;
+    };
+
+    auto build = [&](bool side_a, bool side_b) {
+        return placement_world(
+            [&](fauxbuild::mapv7::MapData& map) {
+                // The fixture carries masked+210 on BOTH sides; an unselected
+                // side is cleared explicitly (overpicnum 210 is outside the
+                // two-tile gate atlas).
+                if (side_a) {
+                    // Side A: flip X, wide repeat, both pans.
+                    authored(map, 1, 0, 32, 8, 48, 12,
+                             static_cast<std::int16_t>(fauxbuild::mapv7::kWallCstatFlipX));
+                } else {
+                    map.walls[1].cstat = 0;
+                    map.walls[1].overpicnum = 0;
+                }
+                if (side_b) {
+                    // Side B: flip Y + bottom-align, tall repeat, one pan.
+                    authored(map, 7, 1, 8, 32, 0, 60,
+                             static_cast<std::int16_t>(fauxbuild::mapv7::kWallCstatFlipY |
+                                                       fauxbuild::mapv7::kWallCstatBottomAligned));
+                } else {
+                    map.walls[7].cstat = 0;
+                    map.walls[7].overpicnum = 0;
+                }
+            },
+            "masked_wall");
+    };
+
+    const PreparedWorld paired = prepare(build(true, true), atlas);
+    const PreparedWorld only_a = prepare(build(true, false), atlas);
+    const PreparedWorld only_b = prepare(build(false, true), atlas);
+
+    const PreparedSurface* pair_a = find_surface(paired, SurfaceKind::PortalMasked, 1);
+    const PreparedSurface* pair_b = find_surface(paired, SurfaceKind::PortalMasked, 7);
+    const PreparedSurface* solo_a = find_surface(only_a, SurfaceKind::PortalMasked, 1);
+    const PreparedSurface* solo_b = find_surface(only_b, SurfaceKind::PortalMasked, 7);
+    REQUIRE(pair_a != nullptr);
+    REQUIRE(pair_b != nullptr);
+    REQUIRE(solo_a != nullptr);
+    REQUIRE(solo_b != nullptr);
+
+    CHECK(pair_a->uvs == solo_a->uvs); // side A is exactly side A alone
+    CHECK(pair_b->uvs == solo_b->uvs); // side B is exactly side B alone
+    CHECK(pair_a->uvs != pair_b->uvs); // distinct authored placement survives
+    CHECK(pair_a->picnum == 0);
+    CHECK(pair_b->picnum == 1);
+    // Both vertices and indices are the untouched structural pair (coincident
+    // geometry, opposite winding), and they remain two surfaces.
+    std::size_t masked_count = 0;
+    for (const auto& surface : paired.surfaces) {
+        masked_count += surface.kind == SurfaceKind::PortalMasked ? 1 : 0;
+    }
+    CHECK(masked_count == 2);
+}
+
+// ---------------------------------------------------------------------------
+// M6.2C1b — masked binary cutout. The prepared seam carries two facts and no
+// more: a per-surface `cutout_enabled` and one world-level `transparent_index`.
+// Everything about WHICH texels vanish is the consumer's, decided from the
+// authoritative R8 index; nothing here rewrites a pixel or derives an RGBA
+// form.
+// ---------------------------------------------------------------------------
+
+TEST_CASE("cutout: only prepared masked layers enable it") {
+    // The flag tracks the STRUCTURAL layer decision, nothing else. An ordinary
+    // wall, floor or ceiling never enables cutout even when it presents a tile
+    // full of sentinel texels — that is the documented distinction, and the
+    // reason the flag lives on the surface rather than on the tile.
+    const IndexedAtlas atlas = make_atlas();
+    const StructuralWorld world = cutout_world();
+    const PreparedWorld p = prepare(world, atlas);
+
+    std::size_t masked = 0;
+    std::size_t ordinary = 0;
+    for (const auto& surface : p.surfaces) {
+        if (surface.kind == SurfaceKind::PortalMasked) {
+            ++masked;
+            CHECK(surface.cutout_enabled);
+        } else {
+            ++ordinary;
+            CHECK(surface.cutout_enabled == false);
+        }
+    }
+    CHECK(masked == 2); // both authored sides of the one masked opening
+    CHECK(ordinary > 0);
+}
+
+TEST_CASE("cutout: the same tile cuts out as a masked layer and stays opaque otherwise") {
+    // The load-bearing case, and the one real content actually contains:
+    // owned maps use tiles carrying sentinel texels BOTH as masked overpicnums
+    // and as ordinary wall picnums. Cutout must follow the surface, so the two
+    // uses of one tile must disagree about the flag while agreeing about the
+    // resolved tile.
+    const IndexedAtlas atlas = make_atlas();
+    const PreparedWorld p = prepare(cutout_world(), atlas);
+
+    const PreparedSurface* cutting = nullptr;
+    const PreparedSurface* opaque = nullptr;
+    for (const auto& surface : p.surfaces) {
+        if (surface.picnum != 2) {
+            continue; // gate_cut, the tile that carries the sentinel texel
+        }
+        if (surface.kind == SurfaceKind::PortalMasked) {
+            cutting = &surface;
+        } else if (surface.kind == SurfaceKind::SolidWall) {
+            opaque = &surface;
+        }
+    }
+    REQUIRE(cutting != nullptr);
+    REQUIRE(opaque != nullptr);
+    CHECK(cutting->picnum == opaque->picnum); // the very same tile
+    CHECK(cutting->page == opaque->page);
+    CHECK(cutting->cutout_enabled);
+    CHECK(opaque->cutout_enabled == false);
+}
+
+TEST_CASE("cutout: the sentinel is one centralized world-level fact") {
+    const IndexedAtlas atlas = make_atlas();
+    const PreparedWorld p = prepare(cutout_world(), atlas);
+    CHECK(p.transparent_index == fauxbuild::kMaskedCutoutIndex);
+    CHECK(p.transparent_index == 255);
+    // D0021 is an INDEX semantic. The 245/255 RGB collision belongs to the
+    // human/black-box evidence recorded in the decision ledger; this synthetic
+    // test pins only the centralized sentinel and complete palette payload.
+    REQUIRE(p.palette_rgb.size() == fauxbuild::kPaletteBytes);
+}
+
+TEST_CASE("cutout: the atlas stays indexed R8 and no pixel is rewritten") {
+    // Cutout must not be baked. The prepared payload is byte-identical to the
+    // atlas it came from, sentinel texels included: nothing is substituted,
+    // no alpha channel appears, and no RGBA copy becomes authoritative.
+    const IndexedAtlas atlas = make_atlas();
+    const PreparedWorld p = prepare(cutout_world(), atlas);
+    CHECK(p.atlas_pixels == atlas.pixels);
+    CHECK(p.atlas_pixels.size() ==
+          static_cast<std::size_t>(p.page_width) * p.page_height * p.page_count);
+    std::size_t sentinels = 0;
+    for (const std::uint8_t texel : p.atlas_pixels) {
+        if (texel == fauxbuild::kMaskedCutoutIndex) {
+            ++sentinels;
+        }
+    }
+    CHECK(sentinels > 0); // gate_cut really does carry the sentinel
+}
+
+TEST_CASE("cutout: index recovery from R8 is exact for every palette index") {
+    // The consumer recovers the integer index from a normalized R8 sample as
+    // int(round(raw * 255.0)). This is the arithmetic that must not let a
+    // NEIGHBOUR fall into the sentinel: 254 discarded instead of 255 would be
+    // a silent visual defect with no test to catch it. R8 unorm gives exactly
+    // k/255 for index k, so the round trip is exact — proved here over the
+    // whole domain rather than assumed, mirroring the shader's expression.
+    for (int k = 0; k <= 255; ++k) {
+        INFO("index ", k);
+        const float raw = static_cast<float>(k) / 255.0f;
+        const int recovered = static_cast<int>(std::lround(static_cast<double>(raw) * 255.0));
+        CHECK(recovered == k);
+        CHECK((recovered == fauxbuild::kMaskedCutoutIndex) == (k == 255));
+    }
 }

@@ -36,6 +36,37 @@ struct PreparedUV {
     bool operator==(const PreparedUV&) const = default;
 };
 
+// The masked-wall binary cutout sentinel (M6.2C1b), HUMAN-RATIFIED
+// 2026-08-28 for the currently supported palette/compatibility profile.
+//
+// The approved documentation (PROVENANCE row 16, InfoSuite) establishes the
+// SEMANTIC — a texture may contain a pink colour whose pixels disappear on
+// masked walls and stay opaque on ordinary surfaces — but establishes NO
+// numeric index. The index was resolved by black-box measurement over legally
+// owned content through this project's own loaders, never from source
+// archaeology, and the measurement is the evidence:
+//
+//   - TWO base-palette entries are exact full magenta, 245 and 255, so RGB
+//     alone cannot identify the sentinel. This is an INDEX semantic, not
+//     "the colour magenta": index 245 is NOT transparent despite matching.
+//   - index 245: 0 texels in the masked-overpicnum tile population, and
+//     absent from every surface tile the six owned maps exercise.
+//   - index 255: 32060 texels = 44.66% of that population, in 8 of its 10
+//     tiles.
+//   - floor and ceiling tiles (211 tiles, 1.42M texels) contain ZERO index
+//     255 — authors never place it where it cannot cut out.
+//   - tiles containing index 255 are used BOTH as masked overpicnums and as
+//     ordinary wall picnums, which proves cutout is per-SURFACE behaviour and
+//     never a property of the tile.
+//   - some masked tiles contain no index 255 at all, so masked never implies
+//     whole-surface transparency.
+//
+// SCOPE: ratified for the current supported compatibility profile only. It is
+// NOT claimed as a universal invariant of every Build-derived palette; if
+// later legally supported content disproves it, reopen the convention. This
+// is the single site to change (docs/DECISIONS.md D0021).
+inline constexpr std::uint8_t kMaskedCutoutIndex = 255;
+
 struct PreparedSurface {
     SurfaceKind kind = SurfaceKind::Floor;
     std::int16_t sector = 0;
@@ -57,6 +88,18 @@ struct PreparedSurface {
 
     SurfaceAppearance appearance;
 
+    // M6.2C1b: the ONE render fact the consumer needs for cutout behaviour.
+    // True only for prepared masked portal layers. The consumer selects its
+    // presentation from THIS flag — it must not rediscover the masked cstat
+    // bit, overpicnum, or the surface kind to decide (pinned by
+    // ci/check_layering.py and by the boundary gate).
+    //
+    // It is a property of the SURFACE, not of the tile: the same tile is used
+    // both as a masked overlay and as an ordinary wall texture in owned
+    // content, and must cut out in the first case and stay opaque in the
+    // second.
+    bool cutout_enabled = false;
+
     bool operator==(const PreparedSurface&) const = default;
 };
 
@@ -71,6 +114,12 @@ struct PreparedWorld {
     std::int32_t page_count = 0;
     // 256 RGB triples of the base palette, expanded to 8-bit.
     std::vector<std::uint8_t> palette_rgb;
+    // M6.2C1b: the single centralized palette-level cutout fact, carried once
+    // for the whole world rather than per surface. A cutout-enabled surface
+    // discards exactly the texels whose INDEX equals this value; the decision
+    // is made on the authoritative R8 index and never on palette RGB, because
+    // two palette entries share the sentinel's colour (see kMaskedCutoutIndex).
+    std::uint8_t transparent_index = kMaskedCutoutIndex;
 
     bool operator==(const PreparedWorld&) const = default;
 };
@@ -150,6 +199,14 @@ struct UvConventions {
 // Compose geometry and assets. Fails with a structured error when a surface's
 // picnum is out of range or unpopulated — deliberately, rather than silently
 // substituting a placeholder tile.
+//
+// M6.2C1: this seam owns THE effective-texture selection, centralized and
+// explicit — ordinary wall kinds resolve appearance.picnum, PortalMasked
+// resolves appearance.overpicnum (the documented masked/one-way overlay tile).
+// overpicnum == 0 is tile 0, never "no overlay": no approved provenance
+// establishes a sentinel. A nonzero overpicnum on an ordinary surface selects
+// nothing. The consumer receives the resolved picnum/page/rect and must not
+// re-derive any of it (pinned by ci/check_layering.py).
 //
 // `world` is caller-provided, so its per-sector tables are validated as
 // EXTERNAL input before any surface is prepared, never assumed and never

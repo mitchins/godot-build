@@ -89,7 +89,47 @@ Becomes binding at M5/M10 (first binding content at M5 slice 1). Rules fixed by 
   provisional factor (M6.2B2 or human-gate ruling). Layering guards pin all of this.
 - Wall spans are generated only where visible (solid, upper, lower, masked, one-way) — never
   full portal quads clipped later. (M5 generates structural upper/lower spans only;
-  masked/one-way semantics arrive at M6 and are diagnosed-not-interpreted before that.)
+  **M6.2C1 delivers the masked layer**: a portal wall carrying the documented masked bit
+  (cstat 0x0010, PROVENANCE row 9) emits a distinct `SurfaceKind::PortalMasked` span across
+  the portal OPENING itself — endpoints from the same own/neighbour plane evaluations as
+  the upper/lower spans, the same zero-area protections (quad open at both endpoints,
+  triangular wedge closed at exactly one, omitted when closed at both), never a full quad
+  clipped later. PortalUpper/PortalLower keep their meanings (solid spans above/below the
+  opening). Appearance stays raw; a masked bit on a SOLID wall is reported and manufactures
+  no layer. One-way (cstat 0x0020) is DEFERRED — no approved provenance establishes a
+  positive rendering rule; it is inventoried (28 portal + 8 solid walls across the six
+  owned maps) and pinned uninterpreted.)
+- **Effective-texture selection is owned by the M6.2 seam (M6.2C1), centralized and
+  explicit:** ordinary wall kinds present `appearance.picnum`; `PortalMasked` presents
+  `appearance.overpicnum` (the documented masked/one-way overlay tile). **`overpicnum == 0`
+  is tile 0, never "no overlay"** — no approved provenance establishes a zero sentinel.
+  Conversely a nonzero `overpicnum` alone selects nothing (305 non-masked walls across the
+  six owned maps carry one; the masked bit selects the layer, the field does not). The view
+  receives the resolved picnum/page/rect and reads no appearance field (layering pin).
+**Binary indexed cutout (M6.2C1b, D0021).** A prepared surface carries
+  `cutout_enabled` (true only for masked layers) and the world carries one `transparent_index`;
+  the consumer discards texels whose PALETTE INDEX equals it. The decision is made on the
+  authoritative R8 index BEFORE the palette lookup and never on sampled RGB — palette entries
+  245 and 255 are both exact full magenta and 245 is NOT transparent, so this is an index
+  semantic, not a colour. The index was not documented anywhere approved; it was resolved by
+  black-box measurement over owned content and human-ratified (D0021), scoped to the current
+  compatibility profile. Cutout is a property of the SURFACE, never the tile: owned content
+  uses the same tile as a masked overlay and as an ordinary opaque wall. Indexed R8 stays
+  authoritative — no atlas pixel is rewritten and no RGBA form is produced. The whole masked span is
+  never made translucent — transparency and translucency are different; true translucency
+  remains out of scope.
+- **Presentation culling for paired masked layers (M6.2C1 pre-gate correction).** A masked
+  portal is TWO authored layers by design — one wall record per side, geometrically
+  coincident with OPPOSITE winding and possibly distinct placement fields — and they are
+  never deduplicated, merged, averaged or canonicalized. Because both sides would
+  otherwise draw at identical depth and z-fight, PortalMasked textured presentation uses
+  a second SHARED indexed shader variant with `render_mode unshaded, cull_back` (back-face
+  culling): each side's winding, which faces its own sector exactly as derived, presents
+  that side to its own half-space. Ordinary textured groups and the entire untextured
+  diagnostic viewer keep the accepted `cull_disabled` behaviour. This is presentation
+  only: vertices, indices, winding, UVs, tile selection and the global UV constants are
+  untouched, and resource sharing stays bounded at two shared shaders (ordinary + masked),
+  never one per group (the M6.2A sharing gate pins the bound).
 - Preferred texture path: R8 tile-index texture + palette/lookup texture + per-surface
   palette/shade/visibility = final unshaded color. Nearest sampling, no PBR, transparent-index
   discard, alpha scissor where possible; true translucency only when required.

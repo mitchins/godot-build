@@ -1601,7 +1601,7 @@ M6 (slopes, indexed textures, UV/flags, sprites) is next and is where the
 shell stops looking like a CAD model.
 
 Next milestone work was not started.
-## M6 — Slopes, indexed textures, flags, and sprites — IN_PROGRESS (slices 1 and 2A ACCEPTED 2026-08-26; slice 2B1 ACCEPTED 2026-08-28; slice 2C next)
+## M6 — Slopes, indexed textures, flags, and sprites — IN_PROGRESS (slices 1, 2A and 2B1 ACCEPTED; slice 2C1 HUMAN-ATTESTED PASS IN SCOPE 2026-08-28, in review; slice 2C1c next)
 
 Gate summary: slope query and render share one function; UV/sprite-flag/palette-shade matrix
 fixtures pass; local E1L1 immediately recognizable; unsupported features listed explicitly.
@@ -2493,7 +2493,7 @@ docstring-coverage warning was explicitly not chased: it is a generic
 heuristic over touched functions, not a project gate, and boilerplate around
 well-commented internal helpers would be noise.
 
-### Slice 2C — wall presentation semantics: masked/one-way walls and `overpicnum` — NEXT, not started
+### Slice 2C1 — masked portal layers, `overpicnum` selection and indexed cutout — HUMAN-ATTESTED PASS IN SCOPE 2026-08-28 (in review; not merged, not yet ACCEPTED)
 
 **Scope: generic wall-layer selection.** Which texture a wall span presents,
 and which spans a wall contributes, when the authored masked/one-way bits say
@@ -2515,24 +2515,311 @@ sign by accident. The same standing rule applies: if making it look right
 needs a map branch, a wall/tile exception or a per-level tolerance, the
 generic model is wrong and the slice stops.
 
-**Inventory (aggregate, E1L1).** 19 walls carry the masked bit; all 19 are
-PORTAL walls, all 19 have `overpicnum != 0`, and in all 19 the overpicnum
-differs from the wall's `picnum` — so every one of them would visibly change.
-Separately, **79 walls have `overpicnum != 0` and 60 of those are NOT masked**:
-a nonzero `overpicnum` is therefore NOT by itself a licence to present it. The
-masked bit selects the layer; the field alone does not. Any implementation
-that keys off `overpicnum != 0` is wrong on 60 of 79 E1L1 walls, and the
-M3-corroborated association (P(overpicnum != 0 | masked) = 0.979 vs 0.029
-base, n = 15303) is the direction of the implication, not its converse.
+**Provenance re-verification (2026-08-28, existing approved rows only — no
+new sources).** The published MAP description (PROVENANCE row 9) was
+re-verified for the wall cstat table: bit 4 `0x0010` = "masking wall"; bit 5
+`0x0020` = "1-way wall"; `overpicnum` = "Texture index into ART file for
+masked/one-way walls". The masked bit was already M3-corroborated
+(P(overpicnum != 0 | set) = 0.979 vs 0.029, n = 15303). The one-way bit NAME
+is documented but NO positive rendering rule is (which side presents, how it
+differs from masked) — a bit name is not semantics, so one-way is DEFERRED
+with an inventory and an explicit ledger below. The approved ART (row 10) and
+palette (row 11) pages were re-checked for a transparent palette index: the
+ART page states "Transparent pixels? No" at the format level and neither page
+documents an index — so at C1 **transparent-texel discard was NOT implemented**
+and no index was invented from familiarity. *(Superseded by slice 2C1b below:
+the InfoSuite documentation supplies the SEMANTIC, and the index was then
+resolved black-box over owned content and ratified as D0021 — index 255. The
+refusal to guess is what made the later measurement worth trusting.)*
 
-**Expect the E1L1 surface count to CHANGE — and account for it exactly.**
-Every previous slice held 1929/5111 fixed and treated any movement as a
-defect. This one may legitimately add spans, because all 19 masked walls are
-portal walls and a masked layer plausibly occupies the opening between the
-two spans rather than replacing either. That makes the baseline a REPORTING
-obligation, not a pass/fail: report the new counts with a span-by-span
-account of which walls contributed what and why. An unexplained delta, or a
-delta on a wall with no masked bit, is a defect.
+**Structural model (delivered).** `SurfaceKind::PortalMasked` is a distinct
+kind — NOT an encoding of PortalUpper/PortalLower, whose meanings are
+unchanged (solid spans above/below the opening). For a portal wall carrying
+`cstat 0x0010`, the opening endpoints come from the SAME authoritative
+own/neighbour plane evaluations the upper/lower spans use: the opening's top
+at an endpoint is the upper span's lower edge there (max of the two evaluated
+ceilings), its bottom is the lower span's upper edge (min of the two
+evaluated floors). A masked span is emitted only where the opening has area,
+through the same `emit_span` zero-area protections as every other span: open
+at both endpoints → quad (2 triangles); collapsed at exactly one → triangular
+wedge (1); collapsed at both → omitted. Never a full quad clipped later. The
+layer needs all four planes of both sectors (the union of the upper and
+lower dependencies; D0019 omission rules apply). `SurfaceAppearance` stays
+raw: picnum remains picnum, overpicnum remains overpicnum, cstat stays raw —
+nothing is rewritten in the structural core. A masked bit on a SOLID wall
+preserves and reports the bit (a note) and manufactures no layer — there is
+no portal opening to span. Canonical order per wall: portal_upper,
+portal_lower, then portal_masked.
+
+**Prepared-layer selection (delivered).** `prepare_world` owns THE
+effective-texture selection, centralized in one function
+(`effective_tile`): ordinary wall kinds present `appearance.picnum`;
+`PortalMasked` presents `appearance.overpicnum`. Selection is by SURFACE
+KIND, never by re-reading the cstat bit, and never by the nonzero-ness of
+any field: **`overpicnum == 0` is tile 0**, a normal texture index — no
+approved provenance establishes a zero sentinel, so a masked portal with
+overpicnum 0 prepares tile 0 exactly like any other tile number (synthetic
+gate; synthetic-only reachability, since all 145 masked walls across the six
+owned maps carry a nonzero overpicnum — precisely why real content cannot
+catch a regression and the gate must). Conversely a nonzero overpicnum on an
+ORDINARY surface selects nothing: it is preserved verbatim and consumed by
+nothing. `FauxBuildView` receives the resolved picnum/page/rect and reads no
+appearance field at all — pinned by `ci/check_layering.py`
+(`appearance|overpicnum|raw_stat|cstat` forbidden in the view).
+
+**Aggregate inventory (six owned maps, 15303 walls; AGGREGATES only
+committed).** Masked portal walls 142 (E1L1 19 — all portal, all with
+overpicnum != 0, all differing from picnum); masked solid walls 3 (E1L1 0);
+overpicnum != 0 on non-masked walls 305 (E1L1 60 of 79 — the converse trap
+population); one-way bit 0x0020: 28 portal + 8 solid (E1L1 8 portal, 0
+solid), never combined with masked; translucency bit 0x0080 alongside masked
+on 14 walls; no bits outside the documented set on any masked wall.
+
+**Count accounting (the reporting obligation).** E1L1 moved
+1929/5111 → **1948 surfaces / 5149 triangles**, notes 252 → 233:
+
+- +19 surfaces, +38 triangles: the 19 masked portal wall records each
+  contributed ONE PortalMasked quad (open at both endpoints, 2 triangles
+  each); none wedge, none omitted.
+- −19 notes: the M5-era "masked wall ... M6 owns semantics" deferral notes
+  are obsolete for implemented portal masked walls (the surface is now the
+  report, like every other span); no solid masked walls exist on E1L1, so no
+  new notes replaced them.
+
+Six maps: 15022/40603/1787 → **15164 surfaces / 40887 triangles / 1645
+notes** (+142/+284/−142 — all 142 masked layers are quads; wedge and
+omission are synthetic-only reachability, pinned by tests). Per map:
+E1L1 19/38, E1L2 12/24, E1L3 46/92, E1L4 32/64, E1L5 21/42, E1L6 12/24
+(masked surfaces / masked triangles). The per-wall-id ledger (wall ids
+47–1594 and their states) was produced for review by a throwaway scanner
+over the legally owned GRP and is NOT committed — wall-level extracts are
+more specific than project policy allows in-repo; the aggregates above and
+the exact E1L1 arithmetic fully explain every count movement.
+
+**Grouping audit (no silent aliasing).** Every explicit SurfaceKind consumer
+was widened: `surface_kind_name` (`portal_masked`), the view's kind table
+(sixth diagnostic group "PortalMasked", muted violet; worlds without masked
+content still present five groups — historical M5 behaviour stays
+historical, documented rather than preserved by hiding the new surface), the
+fixture's kind ints (0..5), `fbtool inspect-structural` (counts[6] +
+"portal masked spans" line), the scene-test GROUPS/KIND constants, and the
+human viewer's palette/toggle (KEY_6). No default or fallthrough aliases
+PortalMasked to another kind — the enum switch handles it explicitly
+everywhere.
+
+**Synthetic matrix.** Core (structural): the windowed `masked_wall` fixture
+(upper+lower+masked coexist on one wall; extent == the window; canonical
+order upper < lower < masked; appearance raw; no deferral note); full-height
+opening on an equal-height portal; slope wedge (opening closed at one
+endpoint by an evaluated plane — 3 vertices, 1 triangle, the open corner
+survives); omission when closed at both; the converse (nonzero overpicnum,
+masked clear → no layer, field preserved); masked-on-solid (no layer
+manufactured, bit reported); additivity (± masked bit leaves every other
+surface byte-identical, the bit itself excepted in raw_stat). Core
+(prepared): selection (overpicnum vs picnum on the SAME wall); the zero
+case (overpicnum 0 → tile 0's page/rect, distinct tiles so a fallback is
+visible); the converse at the seam; out-of-range effective tile as a
+structured error naming the field; masked UVs follow the wall model exactly
+(hand-derived (0,8,8,0)/(0,0,8,8) on a full-height quad); prepared-level
+additivity (no other surface's UVs/tiles move). Boundary: the textured
+consumer gate runs MASKED.MAP (masked portal with overpicnum 0 AND 1, a
+masked solid wall, and a non-masked overpicnum carrier) through the real
+route — UV verbatim on masked content, exactly two PortalMasked groups
+sampling tile 0 and tile 1; the untextured structural gate proves the sixth
+group equals the StructuralWorld's masked surfaces at the ArrayMesh
+boundary.
+
+**Sabotages observed red:** (1) selection transposed (masked resolves
+picnum) → selection, zero-case and error gates; (2) `if (overpicnum != 0)`
+zero-sentinel fallback → the tile-0 gate; (3) nonzero overpicnum creating
+the layer → the converse gate; (4) zero-area protections bypassed for the
+masked layer → wedge/omit/additivity gates; (5) `kind_index` aliasing
+PortalMasked into SolidWalls → both scene gates ("groups must be exactly
+...", "expected exactly 2 PortalMasked groups, got 0"); (6) mutating a
+global UV constant → the M6.2A/B1 regression pins and the masked UV model.
+
+**Slice 2C1b — masked binary cutout — delivered at checkpoint 2026-08-28
+(attested with slice 2C1 below).** The C1 structural model, overpicnum selection,
+paired sided layers and `cull_back` are unchanged; E1L1 stays at 1948 surfaces
+/ 5149 triangles / 19 masked layers, and every prepared row is bit-for-bit
+identical to C1.
+
+The transparency ledger entry below was closed by measurement, not by
+familiarity. The approved documentation names the SEMANTIC (a pink colour that
+disappears on masked walls and stays opaque elsewhere) but no numeric index, so
+the index was resolved black-box over owned content and **HUMAN-RATIFIED as
+D0021**: palette index **255**. Crucially, RGB could not have answered it —
+palette entries 245 and 255 are both exact full magenta, and 245 is NOT
+transparent. The measurement that separates them: 245 appears 0 times in the
+masked-overpicnum tile population and in no surface tile of the six owned maps,
+while 255 covers 44.66% of that population (32060 texels, 8 of 10 tiles); floor
+and ceiling tiles contain zero 255 across 211 tiles and 1.42M texels; and tiles
+carrying 255 are used both as masked overpicnums and as ordinary wall picnums,
+independently proving cutout is per-SURFACE, never per-tile.
+
+Architecture: `PreparedWorld::transparent_index` (one centralized fact) and
+`PreparedSurface::cutout_enabled` (true only for prepared masked layers). The
+consumer holds no palette convention of its own and does not rediscover the
+masked bit, overpicnum or surface kind. Indexed R8 stays authoritative —
+nothing rewrites a pixel, no RGBA copy exists, and the prepared payload is
+byte-identical to its atlas. Still exactly two shared shader variants: a masked
+tile with no sentinel texels renders opaque through the same cutout shader, so
+no third "masked opaque" variant exists.
+
+E1L1 real-content report: `transparent_index` = 255; 19 cutout-enabled
+surfaces and 1929 not; the 4 distinct masked tiles hold 24676 texels of which
+**15426 (62.51%) are the sentinel** and will be discarded (per tile — 503:3202,
+560:36, 663:2882, 913:9306). No UV bit, vertex, index, resolved overpicnum or
+structural count moved.
+
+What the gates can and cannot prove. Headless Godot rasterizes nothing, so no
+pixel assertion is possible and none is claimed. What IS proved by execution:
+the prepared flag is true only for masked layers and false for the same tile on
+an ordinary wall; the sentinel is one world-level value; the atlas payload is
+byte-identical with sentinel texels intact; and `int(round(raw * 255.0))`
+recovers every index 0..255 exactly, so no neighbour can fall into the
+comparison. At the boundary, the shader resources are read back and required to
+discard, to compare **exactly** `index == transparent_index`, to do so before
+the palette lookup, to receive the sentinel from the prepared world, and to
+reach only cutout-enabled groups. Seven sabotages were observed red: sentinel
+changed to 245, discard removed, neighbour 254 discarded, discard on ordinary
+surfaces, decision made after the RGB lookup, masked reverted to
+`cull_disabled`, and per-group shader proliferation. The neighbour-254 sabotage
+initially passed — the gate asserted the sentinel was *mentioned*, not that the
+comparison was exact — and the gate was tightened until it failed.
+
+**Slice 2C1 — HUMAN-ATTESTED PASS IN SCOPE 2026-08-28** by mitchellcurrie,
+on untouched E1L1 through `DUKE3D.GRP`. Attested evidence:
+
+- generic masked portal geometry exposes the authored opening layer;
+- the MASKED BIT, not `overpicnum != 0`, controls layer existence;
+- `PortalMasked` resolves `overpicnum`;
+- paired authored sides are preserved and back-face culled;
+- the D0021 index-255 binary cutout removes the transparent background;
+- **the actual cinema marquee artwork is now visibly present.**
+
+What the attestation settles. C1's compatibility question is answered: the
+cinema entrance was the M6.2B1 residual, it was correctly predicted to be
+deferred wall-layer semantics rather than a placement defect, and implementing
+masked layers + `overpicnum` + cutout generically — no map, wall or tile
+exception anywhere — made the right artwork appear. **The correct image
+appearing is the oracle**, and it is a strong one: wall-layer selection,
+overlay-tile resolution and the cutout sentinel all had to be right
+simultaneously for a recognisable marquee to emerge, and no one of them could
+have produced it alone. It also retrospectively validates the C1 provenance
+STOP: refusing to invent a transparent index, then measuring it black-box, is
+what made D0021 trustworthy rather than lucky.
+
+The attestation is **IN SCOPE**, not unconditional — see the residual below.
+
+**Named residual — excessive wall repetition. NOT attributed to this slice.**
+The marquee repeats far too many times horizontally and vertically. Its shape
+is wrong for a masked defect: selection, cutout and culling are all evidently
+correct — the right image, correctly bounded, with its background removed —
+and it is simply tiled too many times. That is a **generic wall repeat-scale**
+question about the provisional UV conventions, not about which layer or which
+texel was chosen.
+
+Binding on whoever picks it up (slice 2C1c): do NOT change `PortalMasked`
+geometry, `overpicnum` selection, the cutout sentinel, culling, or B1
+placement to fix repetition. Those are attested correct. If closing it ever
+appears to need a map, wall or tile exception, the generic model is wrong and
+the work stops — the same rule that has governed every slice since M6.2B.
+
+**Deferred ledger (explicit).**
+- **One-way (cstat 0x0020):** bit identity documented (row 9), positive
+  rendering rule NOT established by any approved source → NOT implemented,
+  NOT combined into the masked code path. Inventory: 28 portal + 8 solid
+  walls across the six owned maps, never alongside the masked bit. Named
+  constant `kWallCstatOneWay` exists for the deferral's greppability; no
+  code branches on it (layering pin).
+- **Transparent-texel discard — CLOSED by slice 2C1b (D0021, index 255).**
+  At C1 no approved provenance established an index, so none was invented and
+  the masked layer rendered fully opaque. The index was subsequently resolved
+  by black-box measurement over owned content and human-ratified; the entry
+  is kept because the reasoning is the evidence. Historical text follows: if
+  the HUMAN cinema gate shows the
+  selection is right but transparent regions of masked content render
+  opaque, C1 geometry/selection may still PASS with transparent-index
+  handling named as the next generic masked-wall requirement (its own
+  provenance gate first).
+- **Translucency (0x0080, 14 masked walls), translucency-reversing
+  (0x0200), blocking bits, invisible-wall bottoms-swapped (0x0002):** out
+  of scope for baseline presentation; later slices.
+- **Smoosh:** unchanged from B1 — no approved factor.
+
+**HUMAN gate: RAN and PASSED IN SCOPE 2026-08-28** — see the attestation
+below. The cinema entrance was the oracle, never a target; reproduce with:
+
+```sh
+scons config=dev extension
+/Applications/Godot.app/Contents/MacOS/Godot --path godot \
+  res://scenes/structural_view_human.tscn -- \
+  --grp "$PWD/local_reference/duke/DUKE3D.GRP" --map E1L1.MAP --textured
+```
+
+Success criteria as written at the checkpoint: the bad rectangle moves
+toward the original bounded cinema marquee/sign; no map/tile/wall exception;
+surrounding B1 alignment unchanged; global UV/panning constants byte-for-byte
+untouched (pinned). **All met.** The branch anticipating opaque masked texels
+was taken and closed within the slice: transparent discard was named next,
+measured black-box, and landed as C1b (D0021). The remaining residual is
+excessive REPETITION of an otherwise correct marquee — a repeat-scale
+question, recorded below and assigned to 2C1c.
+
+**Checkpoint reached** (figures as at the C1 checkpoint; slice 2C1b below
+carried them to 197 cases). Gates: 190 core cases green on dev/asan/release;
+fuzz clean; layering (with the new masked/selection/view pins), corpus,
+fbtool, format and both scene gates green. M6 remains IN_PROGRESS.
+
+**Pre-HUMAN-gate correction (accepted Claude finding, 2026-08-28):
+presentation culling for paired masked layers.** The structural model was
+confirmed correct and is untouched: a masked portal remains TWO
+StructuralSurface/PreparedSurface instances (one per wall record),
+geometrically coincident BY DESIGN with OPPOSITE winding, each side free to
+carry distinct authored panning/repeat/placement — no deduplication,
+merging, averaging, canonicalization or side-choosing anywhere. The defect
+was presentation: the single indexed shader's global
+`render_mode unshaded, cull_disabled` (right for the M5 diagnostic shell)
+lets both coincident sides draw at identical depth and z-fight, visibly when
+their placement differs. Fix, presentation only: a SECOND shared shader
+variant — `kMaskedIndexedShader`, identical indexed path with
+`render_mode unshaded, cull_back` — selected per group for PortalMasked
+presentation only. Ordinary textured groups and the entire untextured
+diagnostic viewer keep the accepted cull_disabled behaviour. Vertices,
+indices, winding, UVs, picnum/overpicnum selection, B1 placement and the
+global UV constants are untouched (regression pins green). Resource sharing
+stays bounded: ONE shared ordinary Shader + ONE shared masked Shader for a
+whole presentation, never one per group — the M6.2A sharing gate now
+asserts exactly two distinct shaders for masked-bearing content. Paired
+gates added: core structural (two surfaces, opposite first-triangle
+normals, coincident extents — never merged), core prepared (each side's
+UVs equal the SAME side's UVs in a world where only that side is masked;
+distinct placement survives), and the consumer boundary (two PortalMasked
+groups with distinct UV arrays, opposite winding from the actual
+ArrayMesh triangles, masked groups' actual Shader code cull_back and not
+cull_disabled, ordinary groups cull_disabled and not cull_back, one shared
+masked shader + one shared ordinary shader, no aliasing). Negative tests
+observed red: masked shader reverted to cull_disabled; PortalMasked aliased
+to the ordinary shader; paired surfaces deduplicated (core counts AND the
+boundary's "expected exactly 2 PortalMasked groups"); both sides forced
+onto one side's UVs ("the ArrayMesh UVs are not the prepared UVs
+verbatim"). 192 cases green on dev/asan/release after the correction.
+
+**HUMAN gate (updated focus).** Same E1L1 command; inspect the cinema
+marquee, several other masked openings if visible, and a masked opening
+from BOTH sides where practical. Expected: no shimmer/z-fighting from the
+coincident paired layers; the appropriate authored side appears from each
+side; the cinema rectangle is judged as an overpicnum/masked-selection
+result rather than through double-draw noise; B1 surrounding alignment
+unchanged. If the cinema shows the correct image with opaque background
+pixels remaining, that is the already-deferred masked transparency
+question — do NOT hold geometry/layer selection responsible.
+
+Still deferred: one-way, cstat translucency, sprites, non-zero pal and
+shade, smoosh, visibility — M6.2C2 and later own those. (Transparent-texel
+discard is no longer deferred: slice 2C1b implements it under D0021.)
+Nothing here branches on a map, a wall, or a tile.
 
 ### [SUPERSEDED — the Mapster UV programme was abandoned 2026-08-26] M6.2A black-box boards — generated 2026-08-26, awaiting HUMAN attestation
 

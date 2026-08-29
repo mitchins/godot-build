@@ -396,10 +396,16 @@ mapv7::MapData ramp_stale_heinum_world() {
 }
 
 mapv7::MapData masked_wall_world() {
-    mapv7::MapData map = two_sector_portal_world();
-    // Masking flag on both sides of the shared edge. 0x0002 was used here
-    // previously; it is not the masking bit, and real masked walls are
-    // identified by 0x0010 travelling with a nonzero overpicnum.
+    // M6.2C1 masked-layer oracle: the portal_heights geometry (A spans Build Z
+    // [0,16384]; B's window [4096,8192] sits strictly inside) with the masking
+    // bit on BOTH sides of the shared edge. overpicnum (210) differs from
+    // picnum (0) so effective-tile selection is observable. From A's side the
+    // shared wall emits portal_upper, portal_lower AND portal_masked; from
+    // B's side only portal_masked (both of B's spans lie inside the opening).
+    // 0x0002 was used here previously; it is not the masking bit, and real
+    // masked walls are identified by 0x0010 travelling with a nonzero
+    // overpicnum (142/142 across the six owned maps).
+    mapv7::MapData map = two_room_shell(8192, 4096);
     map.walls[1].cstat = mapv7::kWallCstatMasked;
     map.walls[1].overpicnum = 210;
     map.walls[7].cstat = mapv7::kWallCstatMasked;

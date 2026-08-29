@@ -57,6 +57,7 @@ class FauxStructuralFixture : public godot::RefCounted {
     // The textured boundary gate loads these bytes so verbatim UV passthrough
     // is proven for placement-carrying UVs, not only default-flag ones.
     godot::String write_placement_map(const godot::String& directory);
+    godot::String write_masked_map(const godot::String& directory);
 
     // Build a synthetic GRP archive in `directory` from committed fixtures,
     // using the approved M4 canonical builder (fauxbuild::synth::build_grp).

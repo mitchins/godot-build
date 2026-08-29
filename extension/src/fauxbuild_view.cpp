@@ -30,7 +30,7 @@ namespace fauxbuild_godot {
 
 namespace {
 
-constexpr std::size_t kKindCount = 5;
+constexpr std::size_t kKindCount = 6;
 
 std::size_t kind_index(fauxbuild::SurfaceKind kind) {
     switch (kind) {
@@ -44,6 +44,8 @@ std::size_t kind_index(fauxbuild::SurfaceKind kind) {
         return 3;
     case fauxbuild::SurfaceKind::PortalLower:
         return 4;
+    case fauxbuild::SurfaceKind::PortalMasked:
+        return 5;
     }
     return 0; // unreachable; all enum values handled above
 }
@@ -54,12 +56,17 @@ struct GroupSpec {
     godot::Color color; // diagnostic only; not a compatibility contract
 };
 
+// M6.2C1: the sixth diagnostic group. Historical M5 content produced five;
+// a world WITH masked surfaces now presents six, and a world without them
+// still presents five (empty kinds have no node). The change is documented,
+// not hidden by folding PortalMasked into another kind's group.
 const GroupSpec kGroups[kKindCount] = {
     {fauxbuild::SurfaceKind::Floor, "Floors", godot::Color(0.29f, 0.65f, 0.35f)},
     {fauxbuild::SurfaceKind::Ceiling, "Ceilings", godot::Color(0.35f, 0.50f, 0.80f)},
     {fauxbuild::SurfaceKind::SolidWall, "SolidWalls", godot::Color(0.75f, 0.75f, 0.75f)},
     {fauxbuild::SurfaceKind::PortalUpper, "PortalUpper", godot::Color(0.92f, 0.62f, 0.18f)},
     {fauxbuild::SurfaceKind::PortalLower, "PortalLower", godot::Color(0.82f, 0.30f, 0.24f)},
+    {fauxbuild::SurfaceKind::PortalMasked, "PortalMasked", godot::Color(0.64f, 0.48f, 0.78f)},
 };
 
 // Godot's mesh index arrays are int32; nothing here may narrow silently.
@@ -234,6 +241,54 @@ void fragment() {
 }
 )";
 
+// The MASKED variant. TWO differences from the ordinary shader, both
+// presentation:
+//
+//  1. cull_back (M6.2C1 pre-gate correction). A masked portal carries TWO
+//     authored layers by design (one wall record per side), geometrically
+//     coincident with OPPOSITE winding and possibly distinct placement
+//     fields. Under cull_disabled both sides draw at identical depth and
+//     z-fight; with cull_back each side's winding (which faces its owning
+//     sector, exactly as the structural derivation produced it) presents that
+//     side to its own half-space.
+//
+//  2. binary indexed cutout (M6.2C1b). Texels whose PALETTE INDEX equals the
+//     prepared world's transparent_index are discarded outright. This is a
+//     cutout, not translucency: there is no alpha and no blending.
+//
+// The discard decision is made on the authoritative R8 INDEX, BEFORE the
+// palette lookup, and never on the sampled RGB -- two palette entries carry
+// the sentinel's exact colour, so an RGB test would wrongly discard the
+// other one. `int(round(raw * 255.0))` recovers the exact integer for every
+// R8 value (each is exactly k/255), so no neighbouring index can be pulled
+// across the comparison by floating point; filter_nearest keeps the sampled
+// value an authored texel rather than a blend of two.
+//
+// There is deliberately no third "masked opaque" variant: a masked tile with
+// no sentinel texels renders fully opaque through this same shader, because
+// the discard simply never fires. Nothing about vertices, indices, winding,
+// UVs or tile selection differs between the variants.
+constexpr const char* kMaskedIndexedShader = R"(shader_type spatial;
+render_mode unshaded, cull_back;
+
+uniform sampler2D atlas_page : filter_nearest, repeat_disable;
+uniform sampler2D palette_lut : source_color, filter_nearest, repeat_disable;
+uniform vec4 tile_rect = vec4(0.0, 0.0, 1.0, 1.0);
+uniform int transparent_index = 255;
+
+void fragment() {
+    vec2 local = fract(UV);
+    vec2 page_uv = tile_rect.xy + local * tile_rect.zw;
+    float raw = texture(atlas_page, page_uv).r;
+    int index = int(round(raw * 255.0));
+    if (index == transparent_index) {
+        discard;
+    }
+    vec3 rgb = texture(palette_lut, vec2(raw * (255.0 / 256.0) + (0.5 / 256.0), 0.5)).rgb;
+    ALBEDO = rgb;
+}
+)";
+
 godot::Ref<godot::ImageTexture> make_palette_texture(const std::vector<std::uint8_t>& rgb) {
     godot::PackedByteArray bytes;
     bytes.resize(256 * 3);
@@ -296,6 +351,11 @@ bool FauxBuildView::present_prepared_world(const fauxbuild::PreparedWorld& prepa
         std::int32_t page = 0;
         godot::Vector4 rect;
         const char* kind = "";
+        // Presentation selection only (which of the two shared shader
+        // variants this group uses): never a texture/UV/geometry decision.
+        // Taken from the PREPARED cutout fact. The view never rediscovers
+        // the authored wall-layer semantics that produced it.
+        bool cutout = false;
         godot::PackedVector3Array vertices;
         godot::PackedVector2Array uvs;
         godot::PackedInt32Array indices;
@@ -312,6 +372,7 @@ bool FauxBuildView::present_prepared_world(const fauxbuild::PreparedWorld& prepa
         g.page = surface.page;
         g.rect = godot::Vector4(surface.rect_x, surface.rect_y, surface.rect_w, surface.rect_h);
         g.kind = kGroups[kind_index(surface.kind)].name;
+        g.cutout = surface.cutout_enabled;
         groups.push_back(std::move(g));
         return groups.back();
     };
@@ -347,6 +408,7 @@ bool FauxBuildView::present_prepared_world(const fauxbuild::PreparedWorld& prepa
             // Verbatim: the prepared UV is uploaded unchanged.
             g.uvs.push_back(godot::Vector2(surface.uvs[i].u, surface.uvs[i].v));
         }
+
         for (const std::uint32_t index : surface.indices) {
             g.indices.push_back(static_cast<std::int32_t>(base + static_cast<std::int64_t>(index)));
         }
@@ -356,8 +418,12 @@ bool FauxBuildView::present_prepared_world(const fauxbuild::PreparedWorld& prepa
 
     // One texture per PAGE, not per group: E1L1 is 173 groups over 3 pages,
     // and uploading a full page per group would be 173 copies of the same
-    // megabytes. Likewise one Shader, shared -- only tile_rect differs per
-    // group, and that is a material parameter.
+    // megabytes. Likewise ONE shared Shader per variant -- ordinary and
+    // masked, never one per group -- only tile_rect differs per group, and
+    // that is a material parameter. The masked variant exists so coincident
+    // paired masked layers back-face cull instead of z-fighting (see
+    // kMaskedIndexedShader); sharing both variants keeps the M6.2A resource
+    // gate intact (bounded at two shaders, not 2 + one per masked group).
     std::vector<godot::Ref<godot::ImageTexture>> pages;
     pages.reserve(static_cast<std::size_t>(prepared.page_count));
     for (std::int32_t page = 0; page < prepared.page_count; ++page) {
@@ -367,6 +433,9 @@ bool FauxBuildView::present_prepared_world(const fauxbuild::PreparedWorld& prepa
     godot::Ref<godot::Shader> shader;
     shader.instantiate();
     shader->set_code(kIndexedShader);
+    godot::Ref<godot::Shader> masked_shader;
+    masked_shader.instantiate();
+    masked_shader->set_code(kMaskedIndexedShader);
 
     discard_presentation();
     int ordinal = 0;
@@ -385,10 +454,16 @@ bool FauxBuildView::present_prepared_world(const fauxbuild::PreparedWorld& prepa
 
         godot::Ref<godot::ShaderMaterial> material;
         material.instantiate();
-        material->set_shader(shader);
+        material->set_shader(g.cutout ? masked_shader : shader);
         material->set_shader_parameter("atlas_page", pages[static_cast<std::size_t>(g.page)]);
         material->set_shader_parameter("palette_lut", palette);
         material->set_shader_parameter("tile_rect", g.rect);
+        if (g.cutout) {
+            // The sentinel comes from the prepared world, never a literal
+            // here: the view holds no palette convention of its own.
+            material->set_shader_parameter("transparent_index",
+                                           static_cast<std::int32_t>(prepared.transparent_index));
+        }
 
         auto* instance = memnew(godot::MeshInstance3D);
         instance->set_name(godot::String(g.kind) + "_" + godot::itos(g.picnum) + "_" +

@@ -32,21 +32,23 @@ extends Node3D
 # asserts a colour. Ceilings start hidden so the shell can be inspected
 # like an open model; C restores them.
 
-const GROUPS := ["Floors", "Ceilings", "SolidWalls", "PortalUpper", "PortalLower"]
-const KINDS := [0, 1, 2, 3, 4]
+const GROUPS := ["Floors", "Ceilings", "SolidWalls", "PortalUpper", "PortalLower", "PortalMasked"]
+const KINDS := [0, 1, 2, 3, 4, 5]
 const SPEED := 10.0
 const FAST_MULT := 4.0
 const LOOK_SENSITIVITY := 0.0022
 
 # Readability palette (presentation only, non-contractual). Neutral greys
 # for structure, restrained warm tones for the portal bands so openings
-# read at a glance without competing with the architecture.
+# read at a glance without competing with the architecture. PortalMasked
+# (M6.2C1) is a muted violet: it overlaps the opening, not the solid bands.
 const PALETTE := {
 	"Floors": Color(0.62, 0.62, 0.63),
 	"Ceilings": Color(0.30, 0.30, 0.32),
 	"SolidWalls": Color(0.88, 0.87, 0.85),
 	"PortalUpper": Color(0.80, 0.58, 0.24),
 	"PortalLower": Color(0.66, 0.31, 0.24),
+	"PortalMasked": Color(0.64, 0.48, 0.78),
 }
 const BACKGROUND := Color(0.07, 0.07, 0.08)
 const HIDDEN_BY_DEFAULT := ["Ceilings"]
@@ -56,6 +58,7 @@ const TOGGLE_KEYS := {
 	KEY_3: "SolidWalls",
 	KEY_4: "PortalUpper",
 	KEY_5: "PortalLower",
+	KEY_6: "PortalMasked",
 }
 const USAGE := "usage: [--fixture NAME] | [--grp PATH | --dir PATH] --map VFS_NAME [--textured]"
 
@@ -161,8 +164,8 @@ func _ready() -> void:
 		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 	print("structural-view: WASD move, Q/E down/up, Shift fast, mouse look, "
 		+ "Escape releases the mouse, click recaptures")
-	print("structural-view: C toggles ceilings (hidden at start); 1-5 toggle "
-		+ "floors/ceilings/solid walls/portal upper/portal lower")
+	print("structural-view: C toggles ceilings (hidden at start); 1-6 toggle "
+		+ "floors/ceilings/solid walls/portal upper/portal lower/portal masked")
 	print("structural-view: O = architectural overview, P = authored start position "
 		+ "(exact, unsnapped)")
 

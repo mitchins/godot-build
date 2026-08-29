@@ -26,7 +26,7 @@ extends Node
 # route does not — so this test cannot silently stop consuming the
 # mounted file bytes.
 
-const GROUPS := ["Floors", "Ceilings", "SolidWalls", "PortalUpper", "PortalLower"]
+const GROUPS := ["Floors", "Ceilings", "SolidWalls", "PortalUpper", "PortalLower", "PortalMasked"]
 const KINDS := [0, 1, 2, 3, 4]
 
 # Sector/wall counts from the committed core fixture specs (map_synth).

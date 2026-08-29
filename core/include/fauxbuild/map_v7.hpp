@@ -32,9 +32,20 @@ inline constexpr std::int16_t kNoIndex = -1;
 //                        (n=5355), as a two-bit enum with one reserved value
 //
 // M3 stores these raw and reports them; nothing interprets them for behaviour
-// (slope evaluation is M6, masked rendering M5+).
+// (slope evaluation is M6, masked rendering M6.2C).
 inline constexpr std::int16_t kStatSloped = 0x0002;
 inline constexpr std::int16_t kWallCstatMasked = 0x0010;
+// M6.2C1 DEFERRED, inventory-only: the same published description (row 9,
+// re-verified 2026-08-28) names cstat bit 5 (0x0020) "1-way wall", and names
+// overpicnum "for masked/one-way walls" — but NOTHING in approved provenance
+// establishes a positive rendering rule for one-way (which side presents, how
+// it differs from masked). Knowing the bit's name is not semantics. This
+// constant exists so the deferral is greppable and the owned-map inventory
+// can count it; NO code may branch on it. Usage: 28 portal + 8 solid walls
+// across the six owned maps (E1L1: 8 portal, 0 solid), never combined with
+// the masked bit. One-way presentation stays deferred with an explicit
+// ledger entry in docs/MILESTONES.md.
+inline constexpr std::int16_t kWallCstatOneWay = 0x0020;
 inline constexpr std::int16_t kSpriteCstatAlignMask = 0x0030;
 inline constexpr std::int16_t kSpriteAlignFace = 0x0000;
 inline constexpr std::int16_t kSpriteAlignWall = 0x0010;

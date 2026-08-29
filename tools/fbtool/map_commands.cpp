@@ -334,7 +334,7 @@ int inspect_structural(int argc, char** argv) {
         return 1;
     }
 
-    std::size_t counts[5] = {0, 0, 0, 0, 0};
+    std::size_t counts[6] = {0, 0, 0, 0, 0, 0};
     std::size_t triangles = 0;
     for (const auto& surface : world.value().surfaces) {
         counts[static_cast<std::size_t>(surface.kind)]++;
@@ -354,6 +354,7 @@ int inspect_structural(int argc, char** argv) {
     std::printf("solid wall spans: %zu\n", counts[2]);
     std::printf("portal upper spans: %zu\n", counts[3]);
     std::printf("portal lower spans: %zu\n", counts[4]);
+    std::printf("portal masked spans: %zu\n", counts[5]);
     std::printf("\n");
     std::printf("notes: %zu\n", world.value().notes.size());
     std::printf("diagnostics: %zu\n", world.value().diagnostics.size());
