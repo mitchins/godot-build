@@ -241,6 +241,11 @@ func _test_masked_selection(map_name: String) -> void:
 	check(ordinary_shader_ids.size() == 1,
 		"all ordinary groups must share ONE ordinary shader variant, got %d"
 			% ordinary_shader_ids.size())
+	# The counts above already recorded the failure; indexing an empty set
+	# would abort the whole gate with an invalid-key script error instead of
+	# reporting it, so guard before reading keys()[0].
+	if masked_shader_ids.size() != 1 or ordinary_shader_ids.size() != 1:
+		return
 	check(masked_shader_ids.keys()[0] != ordinary_shader_ids.keys()[0],
 		"masked and ordinary groups must not alias to one shader variant")
 

@@ -1280,10 +1280,9 @@ TEST_CASE("cutout: the sentinel is one centralized world-level fact") {
     const PreparedWorld p = prepare(cutout_world(), atlas);
     CHECK(p.transparent_index == fauxbuild::kMaskedCutoutIndex);
     CHECK(p.transparent_index == 255);
-    // Ratified as an INDEX semantic, not a colour: 245 shares the sentinel's
-    // exact RGB and must NOT be transparent. If a future change made the
-    // decision colour-based, these two would become indistinguishable — so
-    // pin that they really do collide in RGB, which is why the index rules.
+    // D0021 is an INDEX semantic. The 245/255 RGB collision belongs to the
+    // human/black-box evidence recorded in the decision ledger; this synthetic
+    // test pins only the centralized sentinel and complete palette payload.
     REQUIRE(p.palette_rgb.size() == fauxbuild::kPaletteBytes);
 }
 
